@@ -1,6 +1,3 @@
-Ты прав, извини. Вот **ПОЛНЫЙ README.md** без обрывов, целиком:
-
-```markdown
 <div align="center">
 
 # ⚖️ JUSTICE BOT
