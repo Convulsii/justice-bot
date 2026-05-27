@@ -3421,7 +3421,18 @@ async def on_member_join(member):
         embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
         await ch.send(embed=embed)
 
-
+@bot.command()
+async def check_indexes(ctx):
+    data = await get_user(ctx.author.id, ctx.guild.id)
+    
+    # Выводим все индексы
+    result = "**Индексы в твоей БД:**\n"
+    for i, value in enumerate(data):
+        result += f"`[{i}]` = {value}\n"
+    
+    # Отправляем в личку, чтобы не засорять чат
+    await ctx.author.send(result[:1900])
+    await ctx.send("✅ Проверь личные сообщения!")
 if __name__ == "__main__":
     print("🚀 Запуск бота Justice...")
     bot.run(TOKEN)
