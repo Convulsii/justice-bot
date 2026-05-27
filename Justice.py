@@ -188,7 +188,7 @@ color_message_id = None
 vc_sessions = {}
 user_message_timestamps = defaultdict(list)
 user_warnings = defaultdict(list)
-spam_messages_to_delete = defaultdict(list)  # Для удаления всех сообщений спамера
+spam_messages_to_delete = defaultdict(list)
 
 # Ролевые GIF
 REACTION_GIFS = {
@@ -243,7 +243,7 @@ async def init_db():
             last_message_time TEXT,
             steam_id TEXT DEFAULT '',
             voice_streak INTEGER DEFAULT 0,
-            last_voice_join DATE,
+            last_voice_join TEXT,
             pots INTEGER DEFAULT 0,
             crops TEXT DEFAULT '[]',
             PRIMARY KEY (user_id, guild_id)
@@ -551,6 +551,41 @@ async def ai(ctx, *, question: str):
 
 
 # ========== АВТОМОДЕРАЦИЯ ==========
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def reset_db(ctx, confirm: str = None):
+    """🗑️ ПОЛНАЯ ОЧИСТКА БАЗЫ ДАННЫХ (все данные будут удалены!)
+    Использование: j.reset_db confirm"""
+    
+    if confirm != "confirm":
+        await ctx.send("⚠️ **ВНИМАНИЕ!** Эта команда УДАЛИТ ВСЕ ДАННЫЕ:\n"
+                       "• Всех пользователей\n"
+                       "• Балансы, уровни, опыт\n"
+                       "• Инвентари, фермы\n"
+                       "• Предупреждения, идеи, розыгрыши\n\n"
+                       "🔒 Чтобы подтвердить, введите: `j.reset_db confirm`")
+        return
+    
+    await ctx.send("⏳ Удаление базы данных...")
+    
+    try:
+        # Закрываем все соединения с БД
+        async with aiosqlite.connect("justice.db") as db:
+            await db.close()
+        
+        # Удаляем файл
+        if os.path.exists("justice.db"):
+            os.remove("justice.db")
+            await ctx.send("✅ База данных `justice.db` успешно удалена!\n🔄 Бот перезапускается...")
+            
+            # Перезапускаем бота
+            await bot.close()
+            # Бот автоматически перезапустится на Railway
+        else:
+            await ctx.send("❌ Файл базы данных не найден!")
+            
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка при удалении БД: {str(e)[:100]}")
 async def check_spam(message):
     user_id = message.author.id
     content = message.content.strip().lower()
@@ -560,7 +595,6 @@ async def check_spam(message):
     bad_words = settings.get("automod_bad_words", [])
     for word in bad_words:
         if word in content:
-            # Сохраняем ID сообщения для удаления
             spam_messages_to_delete[user_id].append(message.id)
             return True, f"использование запрещённого слова: {word}"
     
@@ -585,7 +619,6 @@ async def check_spam(message):
     user_message_timestamps[user_id].append(now)
     user_message_timestamps[user_id] = [t for t in user_message_timestamps[user_id] if now - t < ANTISPAM_WINDOW_SECONDS]
     
-    # Сохраняем ID сообщения для удаления
     spam_messages_to_delete[user_id].append(message.id)
     
     if len(user_message_timestamps[user_id]) > ANTISPAM_MAX_MESSAGES:
@@ -1122,19 +1155,15 @@ async def sell_all_crops(ctx):
     await ctx.send(f"💰 Вы продали весь урожай за **{total_price}** 💎!")
 
 
-# ========== ПРОФИЛЬ ==========
+# ========== ПРОФИЛЬ (ИСПРАВЛЕННЫЙ) ==========
 @bot.command()
 async def profile(ctx, member: discord.Member = None):
     target = member or ctx.author
     data = await get_user(target.id, ctx.guild.id)
     
+    # ПРАВИЛЬНЫЕ ИНДЕКСЫ
     level = data[3]
     xp = data[2]
-    xp_for_next = 200 * ((level + 1) ** 2)
-    xp_for_current = 200 * (level ** 2)
-    percent = min(100, int((xp - xp_for_current) / (xp_for_next - xp_for_current) * 100)) if xp_for_next > xp_for_current else 0
-    bar = "█" * (percent // 5) + "░" * (20 - (percent // 5))
-    
     balance = data[4]
     bank = data[5] if len(data) > 5 else 0
     reputation = data[6] if len(data) > 6 else 0
@@ -1144,8 +1173,15 @@ async def profile(ctx, member: discord.Member = None):
     month_msgs = data[22] if len(data) > 22 else 0
     voice_streak = data[26] if len(data) > 26 else 0
     bio = data[17] if len(data) > 17 and data[17] else "Нет биографии"
-    
     gender = data[19] if len(data) > 19 else ""
+    
+    # Расчёт XP
+    xp_for_next = 200 * ((level + 1) ** 2)
+    xp_for_current = 200 * (level ** 2)
+    percent = min(100, int((xp - xp_for_current) / (xp_for_next - xp_for_current) * 100)) if xp_for_next > xp_for_current else 0
+    bar = "█" * (percent // 5) + "░" * (20 - (percent // 5))
+    
+    # Пол
     if gender == "male":
         gender_text = "Мужчина"
         gender_emoji = "👨"
@@ -2629,6 +2665,22 @@ async def on_raw_reaction_add(payload):
     await member.add_roles(role)
 
 
+@bot.event
+async def on_raw_reaction_remove(payload):
+    if payload.channel_id != COLOR_ROLE_CHANNEL_ID:
+        return
+    guild = bot.get_guild(payload.guild_id)
+    if not guild: return
+    member = guild.get_member(payload.user_id)
+    if not member: return
+    emoji = str(payload.emoji.name) if hasattr(payload.emoji, 'name') else None
+    if emoji not in COLOR_ROLES: return
+    role_id = COLOR_ROLES[emoji]["id"]
+    role = guild.get_role(role_id)
+    if role and role in member.roles:
+        await member.remove_roles(role)
+
+
 # ========== ТИКЕТЫ ==========
 async def setup_ticket_system():
     channel = bot.get_channel(TICKET_CREATE_CHANNEL_ID)
@@ -3101,12 +3153,10 @@ async def start_quiz():
         quiz_answered_users = set()
         
         try:
-            # Запасной вопрос если ИИ не работает
             quiz_question = "Сколько будет 2 + 2?"
             quiz_answer = "B"
             quiz_options = {"A": "3", "B": "4", "C": "5", "D": "6"}
             
-            # Пытаемся получить вопрос от ИИ
             try:
                 resp = ai_client.chat.completions.create(
                     model=AI_MODEL,
@@ -3193,7 +3243,7 @@ async def run_stoloto():
     )
     await channel.send(embed=embed)
     
-    await asyncio.sleep(86400)  # Ждём сутки
+    await asyncio.sleep(86400)
     
     if not stoloto_tickets:
         embed = discord.Embed(title="🎰 СТО ЛОТО", description="😔 **Никто не купил билеты сегодня!**", color=discord.Color.red())
@@ -3335,13 +3385,9 @@ async def on_ready():
     await create_color_message()
     await setup_ticket_system()
     
-    # Запускаем викторину
     asyncio.create_task(start_quiz())
-    
-    # Запускаем СТО ЛОТО
     asyncio.create_task(stoloto_scheduler())
     
-    # Запуск сброса счетчиков
     async def reset_loop():
         while True:
             await asyncio.sleep(60)
