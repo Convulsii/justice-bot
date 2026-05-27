@@ -2,3 +2,6 @@ discord.py
 aiosqlite
 openai
 aiohttp
+requests
+beautifulsoup4
+yt-dlp
