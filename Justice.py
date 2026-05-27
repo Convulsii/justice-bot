@@ -1168,12 +1168,12 @@ async def profile(ctx, member: discord.Member = None):
     bank = data[5] if len(data) > 5 else 0
     reputation = data[6] if len(data) > 6 else 0
     total_msgs = data[9] if len(data) > 9 else 0
-    today_msgs = data[20] if len(data) > 20 else 0
-    week_msgs = data[21] if len(data) > 21 else 0
-    month_msgs = data[22] if len(data) > 22 else 0
+    today_msgs = data[21] if len(data) > 20 else 0
+    week_msgs = data[22] if len(data) > 21 else 0
+    month_msgs = data[23] if len(data) > 22 else 0
     voice_streak = data[26] if len(data) > 26 else 0
     bio = data[17] if len(data) > 17 and data[17] else "Нет биографии"
-    gender = data[19] if len(data) > 19 else ""
+    gender = data[20] if len(data) > 19 else ""
     
     # Расчёт XP
     xp_for_next = 200 * ((level + 1) ** 2)
