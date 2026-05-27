@@ -1,8 +1,3 @@
-if os.getenv('RESET_DB') == 'true':
-    import os
-    if os.path.exists("justice.db"):
-        os.remove("justice.db")
-        print("🗑️ БАЗА ДАННЫХ УДАЛЕНА!")
 import discord
 from discord.ext import commands, tasks
 from discord.ui import Button, View, Modal, TextInput
@@ -18,7 +13,11 @@ from openai import OpenAI
 from collections import defaultdict
 import re
 import math
-
+if os.getenv('RESET_DB') == 'true':
+    import os
+    if os.path.exists("justice.db"):
+        os.remove("justice.db")
+        print("🗑️ БАЗА ДАННЫХ УДАЛЕНА!")
 # ========== КОНФИГУРАЦИЯ ==========
 TOKEN = os.getenv('DISCORD_TOKEN')
 if not TOKEN:
