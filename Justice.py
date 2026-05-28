@@ -506,42 +506,54 @@ async def weather(ctx, *, city: str = None):
 
 # ========== ИИ С ВЕБ-ПОИСКОМ ==========
 async def get_ai_response(user_id, user_message, with_web=True):
-    """Получение ответа от ИИ с сохранением контекста диалога для каждого пользователя"""
+    """Получение ответа от ИИ с таймаутом и повторами"""
     global user_conversations
     
-    # Получаем историю диалога пользователя
     conversation = user_conversations.get(user_id, [])
     
-    # Формируем сообщения для ИИ
     messages = [
-        {"role": "system", "content": AI_SYSTEM_PROMPT + "\n\nТы ведёшь диалог с пользователем. Учитывай предыдущие сообщения в этом диалоге, когда отвечаешь. Отвечай на том же языке, что и пользователь."}
+        {"role": "system", "content": AI_SYSTEM_PROMPT + "\n\nТы ведёшь диалог с пользователем. Учитывай предыдущие сообщения в этом диалоге, когда отвечаешь. Отвечай на том же языке, что и пользователь. Отвечай кратко, максимум 2-3 предложения."}
     ]
     
-    # Добавляем историю диалога (последние MAX_CONTEXT_MESSAGES сообщений)
     for msg in conversation[-MAX_CONTEXT_MESSAGES:]:
         messages.append(msg)
     
-    # Добавляем текущее сообщение пользователя
     messages.append({"role": "user", "content": user_message})
     
-    try:
-        resp = ai_client.chat.completions.create(
-            model=AI_MODEL,
-            messages=messages
-        )
-        answer = resp.choices[0].message.content
-        
-        # Сохраняем диалог в историю
-        user_conversations[user_id].append({"role": "user", "content": user_message})
-        user_conversations[user_id].append({"role": "assistant", "content": answer})
-        
-        # Ограничиваем размер истории
-        if len(user_conversations[user_id]) > MAX_CONTEXT_MESSAGES * 2:
-            user_conversations[user_id] = user_conversations[user_id][-MAX_CONTEXT_MESSAGES * 2:]
-        
-        return answer
-    except Exception as e:
-        return f"❌ Ошибка ИИ: {str(e)[:150]}"
+    # Пробуем отправить запрос с таймаутом
+    for attempt in range(3):  # 3 попытки
+        try:
+            resp = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None, 
+                    lambda: ai_client.chat.completions.create(
+                        model=AI_MODEL,
+                        messages=messages
+                    )
+                ),
+                timeout=15.0  # 15 секунд таймаут
+            )
+            answer = resp.choices[0].message.content
+            
+            # Сохраняем диалог
+            user_conversations[user_id].append({"role": "user", "content": user_message})
+            user_conversations[user_id].append({"role": "assistant", "content": answer})
+            
+            if len(user_conversations[user_id]) > MAX_CONTEXT_MESSAGES * 2:
+                user_conversations[user_id] = user_conversations[user_id][-MAX_CONTEXT_MESSAGES * 2:]
+            
+            return answer
+            
+        except asyncio.TimeoutError:
+            if attempt == 2:  # Последняя попытка
+                return "❌ Сервер ИИ не отвечает. Попробуйте позже."
+            continue
+        except Exception as e:
+            if attempt == 2:
+                return f"❌ Ошибка ИИ: {str(e)[:100]}"
+            continue
+    
+    return "❌ Не удалось получить ответ от ИИ."
 
 
 @bot.command()
