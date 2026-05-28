@@ -2745,11 +2745,11 @@ async def on_voice_state_update(m, b, a):
 
 @bot.event
 async def on_message(msg):
-    if bot.user in msg.mentions:
-    clean_text = msg.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+if bot.user in msg.mentions:
+    clean_text = msg.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()  # ← 4 пробела
     if clean_text:
         async with msg.channel.typing():
-            response = await get_ai_response(msg.author.id, clean_text, with_web=True)  # ← добавил msg.author.id
+            response = await get_ai_response(msg.author.id, clean_text, with_web=True)
         await msg.reply(response, mention_author=False)
         return
     
