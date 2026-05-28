@@ -1053,19 +1053,23 @@ async def bio(ctx, *, text: str = None):
 
 # ========== STEAM СТАТИСТИКА ==========
 class SteamProfileView(discord.ui.View):
-    """Класс для интерактивной панели управления Steam профилем."""
     def __init__(self, target_user: discord.User, steam_id: str):
-        super().__init__(timeout=120)  # Время жизни кнопок 2 минуты
+        super().__init__(timeout=120)
         self.target_user = target_user
         self.steam_id = steam_id
-        self.current_action = "profile"  # Текущий отображаемый раздел
+        self.current_action = "profile"
+        
+        # Добавляем кнопку-ссылку вручную (URL)
+        self.add_item(discord.ui.Button(
+            label="Открыть в Steam",
+            style=discord.ButtonStyle.link,
+            url=f"https://steamcommunity.com/profiles/{steam_id}"
+        ))
 
     async def fetch_steam_data(self, action: str, page: int = 0):
-        """
-        Асинхронно получает данные из Steam API для выбранного раздела.
-        """
+        """Получает данные из Steam API для выбранного раздела."""
         if not STEAM_API_KEY:
-            return None, "❌ Steam API не настроен! Добавьте `STEAM_API_KEY` в переменные окружения."
+            return None, "❌ Steam API не настроен!"
 
         async with aiohttp.ClientSession() as session:
             if action == "profile":
@@ -1074,8 +1078,7 @@ class SteamProfileView(discord.ui.View):
                     data = await resp.json()
                     players = data.get('response', {}).get('players', [])
                     if not players:
-                        return None, "❌ Steam профиль не найден или скрыт в настройках приватности."
-
+                        return None, "❌ Steam профиль не найден или скрыт."
                     p = players[0]
                     status_map = {0: "Офлайн", 1: "В сети", 2: "Занят", 3: "Нет на месте", 4: "Спит", 5: "Ищет игру", 6: "Играет"}
                     embed = discord.Embed(title=f"🎮 Steam Профиль: {self.target_user.display_name}",
@@ -1085,8 +1088,7 @@ class SteamProfileView(discord.ui.View):
                         embed.set_thumbnail(url=p['avatarfull'])
                     embed.add_field(name="🆔 Steam ID", value=self.steam_id, inline=True)
                     embed.add_field(name="🎮 Статус", value=status_map.get(p.get('personastate', 0), "Неизвестно"), inline=True)
-
-                    # Получение дополнительной информации (игры, часы)
+                    # Доп. информация об играх
                     games_url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={STEAM_API_KEY}&steamid={self.steam_id}&include_appinfo=true"
                     async with session.get(games_url) as gr:
                         games_data = await gr.json()
@@ -1102,8 +1104,7 @@ class SteamProfileView(discord.ui.View):
                 async with session.get(url) as resp:
                     games_data = await resp.json()
                     if not games_data.get('response', {}).get('games'):
-                        return None, "❌ Не удалось получить список игр для этого пользователя."
-
+                        return None, "❌ Список игр не найден или скрыт."
                     games = sorted(games_data['response']['games'], key=lambda x: x.get('playtime_forever', 0), reverse=True)
                     games_per_page = 10
                     total_pages = (len(games) + games_per_page - 1) // games_per_page
@@ -1111,15 +1112,10 @@ class SteamProfileView(discord.ui.View):
                     start = page * games_per_page
                     end = start + games_per_page
                     current_games = games[start:end]
-
-                    text = "\n".join([f"{i+1+start}. **{g.get('name', 'Неизвестно')}** - {g.get('playtime_forever', 0) / 60:.1f} ч" for i, g in enumerate(current_games)])
-                    embed = discord.Embed(title=f"🎮 Топ игр: {self.target_user.display_name}", description=text, color=discord.Color.blue())
-                    embed.set_footer(text=f"Страница {page + 1} из {total_pages}")
+                    text = "\n".join([f"{i+1+start}. **{g.get('name', 'Неизвестно')}** - {g.get('playtime_forever',0)/60:.1f} ч" for i, g in enumerate(current_games)])
+                    embed = discord.Embed(title=f"🎮 Игры: {self.target_user.display_name}", description=text, color=discord.Color.blue())
+                    embed.set_footer(text=f"Страница {page+1} из {total_pages}")
                     return embed, total_pages
-
-            elif action == "achievements":
-                # Для демонстрации, но требует реального appid
-                return None, "❌ Достижения: Эта функция требует указать ID игры (например, `j.steam achievements <appid> @user`)"
 
             elif action == "friends":
                 url = f"https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key={STEAM_API_KEY}&steamid={self.steam_id}&relationship=friend"
@@ -1127,42 +1123,30 @@ class SteamProfileView(discord.ui.View):
                     data = await resp.json()
                     friends = data.get('friendslist', {}).get('friends', [])
                     if not friends:
-                        return None, "❌ Список друзей не найден или скрыт в настройках приватности."
-
-                    text = "\n".join([f"**{friend.get('steamid', 'Неизвестно')}**" for friend in friends[:10]]) # Показываем ID, т.к. имена требуют доп. запросов
-                    embed = discord.Embed(title=f"👥 Друзья: {self.target_user.display_name}", description=text if text else "Список друзей пуст.", color=discord.Color.blue())
+                        return None, "❌ Список друзей не найден или скрыт."
+                    # Для отображения имён нужен дополнительный запрос, пока только ID
+                    text = "\n".join([f"**{f.get('steamid', 'Неизвестно')}**" for f in friends[:10]])
+                    embed = discord.Embed(title=f"👥 Друзья: {self.target_user.display_name}", description=text or "Список друзей пуст.", color=discord.Color.blue())
                     return embed, None
 
-        return None, "❌ Неизвестная ошибка при обращении к Steam API."
+            else:
+                return None, "❌ Неизвестный раздел."
 
     async def update_message(self, interaction: discord.Interaction, action: str, page: int = 0):
-        """
-        Обновляет embed в соответствии с выбранным действием и пагинацией.
-        """
+        """Обновляет embed в соответствии с выбранным действием."""
         embed, total_pages = await self.fetch_steam_data(action, page)
         if embed is None:
-            await interaction.response.edit_message(content=total_pages or "❌ Произошла ошибка.", view=self)
+            await interaction.response.edit_message(content=total_pages or "❌ Ошибка загрузки.", view=self)
             return
 
-        # Обновляем кнопки пагинации для списков
+        # Управление кнопками пагинации
+        for item in self.children[:]:
+            if isinstance(item, (PrevPageButton, NextPageButton)):
+                self.remove_item(item)
+
         if action == "games" and total_pages and total_pages > 1:
-            # Добавляем кнопки пагинации, если их еще нет
-            if not hasattr(self, 'pagination_buttons'):
-                self.pagination_buttons = True
-                self.add_item(PrevPageButton(action, page))
-                self.add_item(NextPageButton(action, page, total_pages))
-            else:
-                # Обновляем состояние существующих кнопок (можно найти и обновить, но проще пересоздать)
-                for item in self.children[:]:
-                    if isinstance(item, (PrevPageButton, NextPageButton)):
-                        self.remove_item(item)
-                self.add_item(PrevPageButton(action, page))
-                self.add_item(NextPageButton(action, page, total_pages))
-        else:
-            # Убираем кнопки пагинации, если они были
-            for item in self.children[:]:
-                if isinstance(item, (PrevPageButton, NextPageButton)):
-                    self.remove_item(item)
+            self.add_item(PrevPageButton(action, page))
+            self.add_item(NextPageButton(action, page, total_pages))
 
         self.current_action = action
         await interaction.response.edit_message(embed=embed, view=self)
@@ -1175,22 +1159,12 @@ class SteamProfileView(discord.ui.View):
     async def games_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.update_message(interaction, "games", 0)
 
-    @discord.ui.button(label="Достижения", style=discord.ButtonStyle.primary, row=0)
-    async def achievements_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.update_message(interaction, "achievements")
-
     @discord.ui.button(label="Друзья", style=discord.ButtonStyle.primary, row=0)
     async def friends_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.update_message(interaction, "friends")
 
-    @discord.ui.button(label="Открыть в Steam", style=discord.ButtonStyle.url, url="https://steamcommunity.com/profiles/", row=1)
-    async def steam_url_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Кнопка-ссылка не требует callback, URL задается в параметрах
-        pass
-
 
 class PrevPageButton(discord.ui.Button):
-    """Кнопка для перехода на предыдущую страницу."""
     def __init__(self, action: str, current_page: int):
         super().__init__(label="◀", style=discord.ButtonStyle.secondary, row=1)
         self.action = action
@@ -1202,7 +1176,6 @@ class PrevPageButton(discord.ui.Button):
 
 
 class NextPageButton(discord.ui.Button):
-    """Кнопка для перехода на следующую страницу."""
     def __init__(self, action: str, current_page: int, total_pages: int):
         super().__init__(label="▶", style=discord.ButtonStyle.secondary, row=1)
         self.action = action
