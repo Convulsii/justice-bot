@@ -3876,6 +3876,313 @@ async def owner_stats(ctx):
     
     await ctx.send(embed=embed)
 
+# ========== БЭКАПЫ ЧЕРЕЗ DISCORD (РАБОТАЕТ НА RAILWAY) ==========
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def backup_db(ctx):
+    """💾 Создать резервную копию базы данных (только для админов)"""
+    await ctx.send("⏳ Создание резервной копии...")
+    
+    try:
+        if os.path.exists("justice.db"):
+            # Создаём имя бэкапа с текущей датой
+            now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            backup_name = f"justice_db_backup_{now}.db"
+            
+            # Копируем файл
+            shutil.copy2("justice.db", backup_name)
+            
+            # Получаем размер файла
+            size = os.path.getsize(backup_name)
+            size_mb = size / (1024 * 1024)
+            
+            embed = discord.Embed(
+                title="💾 Резервная копия создана!",
+                description=f"**Имя файла:** `{backup_name}`\n**Размер:** {size_mb:.2f} MB\n**Дата:** {now}\n\n📥 Используйте `j.download_backup` чтобы скачать",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+            
+            # Удаляем временный файл (он всё равно не сохранится на Railway)
+            os.remove(backup_name)
+        else:
+            await ctx.send("❌ База данных не найдена!")
+            
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка при создании бэкапа: {str(e)[:100]}")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def download_backup(ctx):
+    """📥 Скачать резервную копию базы данных на компьютер"""
+    
+    if not os.path.exists("justice.db"):
+        await ctx.send("❌ База данных не найдена!")
+        return
+    
+    await ctx.send("⏳ Подготовка файла к скачиванию...")
+    
+    try:
+        # Создаём копию с понятным именем
+        now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        temp_backup = f"justice_db_{now}.db"
+        shutil.copy2("justice.db", temp_backup)
+        
+        # Отправляем файл
+        await ctx.send(file=discord.File(temp_backup))
+        
+        # Удаляем временный файл
+        os.remove(temp_backup)
+        
+        embed = discord.Embed(
+            title="✅ Резервная копия отправлена!",
+            description="Файл сохранён. Храните его в надёжном месте.\n\nДля восстановления используйте `j.upload_backup`",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка при скачивании: {str(e)[:100]}")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def upload_backup(ctx):
+    """📤 Восстановить базу данных из резервной копии
+    Использование: прикрепите файл .db к сообщению с командой"""
+    
+    if not ctx.message.attachments:
+        await ctx.send("❌ Прикрепите файл с резервной копией (.db) к сообщению!\n\nПример: напишите `j.upload_backup` и прикрепите файл")
+        return
+    
+    attachment = ctx.message.attachments[0]
+    
+    if not attachment.filename.endswith('.db'):
+        await ctx.send("❌ Это не файл базы данных! Нужен файл с расширением `.db`")
+        return
+    
+    # Запрашиваем подтверждение
+    embed = discord.Embed(
+        title="⚠️ ПОДТВЕРЖДЕНИЕ ВОССТАНОВЛЕНИЯ",
+        description=f"Вы уверены, что хотите восстановить базу данных из файла **{attachment.filename}**?\n\n"
+                    f"⚠️ **ВНИМАНИЕ!** Текущая база данных будет **ПОЛНОСТЬЮ ЗАМЕНЕНА**!\n\n"
+                    f"✅ Нажмите для подтверждения\n"
+                    f"❌ Нажмите для отмены",
+        color=discord.Color.orange()
+    )
+    
+    msg = await ctx.send(embed=embed)
+    await msg.add_reaction("✅")
+    await msg.add_reaction("❌")
+    
+    def check(reaction, user):
+        return user.id == ctx.author.id and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+    
+    try:
+        reaction, user = await bot.wait_for('reaction_add', timeout=30, check=check)
+        
+        if str(reaction.emoji) == "✅":
+            await ctx.send("⏳ Восстановление базы данных...")
+            
+            # Сохраняем текущую БД как бэкап на всякий случай
+            if os.path.exists("justice.db"):
+                now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                auto_backup = f"justice_db_before_restore_{now}.db"
+                shutil.copy2("justice.db", auto_backup)
+                await ctx.send(f"📁 Создан бэкап текущей БД: `{auto_backup}` (скачайте его через `j.download_backup`)")
+            
+            # Скачиваем и сохраняем новый файл
+            await attachment.save("justice.db")
+            
+            embed = discord.Embed(
+                title="✅ База данных восстановлена!",
+                description="Для применения изменений перезапустите бота.\n\nНа Railway: **Deployments → Redeploy**",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+            
+        else:
+            await ctx.send("❌ Восстановление отменено.")
+            
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Время вышло. Восстановление отменено.")
+    
+    await msg.delete()
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def backup_info(ctx):
+    """ℹ️ Информация о текущей базе данных"""
+    
+    if not os.path.exists("justice.db"):
+        await ctx.send("❌ База данных не найдена!")
+        return
+    
+    size = os.path.getsize("justice.db")
+    size_mb = size / (1024 * 1024)
+    modified = datetime.fromtimestamp(os.path.getmtime("justice.db"))
+    
+    # Подсчитываем количество пользователей в БД
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT COUNT(DISTINCT user_id) FROM users')
+        user_count = (await cur.fetchone())[0]
+        
+        cur = await db.execute('SELECT COUNT(*) FROM warnings')
+        warning_count = (await cur.fetchone())[0]
+        
+        cur = await db.execute('SELECT COUNT(*) FROM suggestions')
+        suggestion_count = (await cur.fetchone())[0]
+    
+    embed = discord.Embed(
+        title="📊 ИНФОРМАЦИЯ О БАЗЕ ДАННЫХ",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="📁 Файл", value="`justice.db`", inline=True)
+    embed.add_field(name="📦 Размер", value=f"{size_mb:.2f} MB", inline=True)
+    embed.add_field(name="🕐 Изменён", value=modified.strftime("%d.%m.%Y %H:%M:%S"), inline=True)
+    embed.add_field(name="👥 Пользователей", value=user_count, inline=True)
+    embed.add_field(name="⚠️ Предупреждений", value=warning_count, inline=True)
+    embed.add_field(name="💡 Идей", value=suggestion_count, inline=True)
+    
+    embed.set_footer(text="j.download_backup - скачать | j.upload_backup - восстановить")
+    
+    await ctx.send(embed=embed)
+
+# ========== ПОМОЩЬ ДЛЯ ВЛАДЕЛЬЦА ==========
+
+def is_owner(ctx):
+    """Проверка, является ли пользователь владельцем сервера"""
+    return ctx.author.id == ctx.guild.owner_id
+
+
+@bot.command()
+@commands.check(is_owner)
+async def admin_help(ctx):
+    """👑 Показать все команды для владельца сервера"""
+    
+    embed = discord.Embed(
+        title="👑 КОМАНДЫ ВЛАДЕЛЬЦА СЕРВЕРА",
+        description="Только создатель сервера может использовать эти команды",
+        color=discord.Color.gold()
+    )
+    
+    # Экономика и модерация
+    embed.add_field(
+        name="💰 УПРАВЛЕНИЕ ЭКОНОМИКОЙ",
+        value=(
+            "`j.owner_give @user <сумма>` - выдать деньги\n"
+            "`j.owner_take @user <сумма>` - забрать деньги\n"
+            "`j.owner_set_balance @user <сумма>` - установить баланс\n"
+            "`j.owner_reset_user @user` - полный сброс пользователя"
+        ),
+        inline=False
+    )
+    
+    # Бэкапы
+    embed.add_field(
+        name="💾 УПРАВЛЕНИЕ БЭКАПАМИ",
+        value=(
+            "`j.backup_db` - создать резервную копию\n"
+            "`j.download_backup` - скачать БД на компьютер\n"
+            "`j.upload_backup` - восстановить БД из файла\n"
+            "`j.backup_info` - информация о БД"
+        ),
+        inline=False
+    )
+    
+    # Автомодерация
+    embed.add_field(
+        name="🤖 НАСТРОЙКА АВТОМОДЕРАЦИИ",
+        value=(
+            "`j.automod status` - текущие настройки\n"
+            "`j.automod enable/disable` - вкл/выкл автомод\n"
+            "`j.automod words add/remove/list` - запрещённые слова\n"
+            "`j.automod invites on/off` - реклама серверов\n"
+            "`j.automod phishing on/off` - фишинг\n"
+            "`j.automod exempt add/remove/list` - исключённые роли"
+        ),
+        inline=False
+    )
+    
+    # Настройки сервера
+    embed.add_field(
+        name="⚙️ НАСТРОЙКИ СЕРВЕРА",
+        value=(
+            "`j.settings` - показать настройки\n"
+            "`j.settings welcome #канал` - канал приветствий\n"
+            "`j.settings logs #канал` - канал логов\n"
+            "`j.settings levels #канал` - канал уровней"
+        ),
+        inline=False
+    )
+    
+    # Магазин
+    embed.add_field(
+        name="🛍️ УПРАВЛЕНИЕ МАГАЗИНОМ",
+        value=(
+            "`j.add_shop_item <название> <цена> <роль_id> [описание]` - добавить товар\n"
+            "`j.remove_shop_item <название>` - удалить товар"
+        ),
+        inline=False
+    )
+    
+    # Тикеты
+    embed.add_field(
+        name="🎟️ НАСТРОЙКА ТИКЕТОВ",
+        value=(
+            "`j.ticket_setup <категория> <роль1> [роль2...]` - настроить тикеты\n"
+            "`j.ticket_remove_setup` - удалить кнопку тикетов\n"
+            "`j.tickets_list` - список активных тикетов"
+        ),
+        inline=False
+    )
+    
+    # Розыгрыши и идеи
+    embed.add_field(
+        name="🎁 РОЗЫГРЫШИ И ИДЕИ",
+        value=(
+            "`j.giveaway create #канал <приз> <кол-во> <1д/1ч/10м>` - создать розыгрыш\n"
+            "`j.accept <id> [вердикт]` - принять идею\n"
+            "`j.deny <id> [вердикт]` - отклонить идею"
+        ),
+        inline=False
+    )
+    
+    # Статистика
+    embed.add_field(
+        name="📊 СТАТИСТИКА",
+        value=(
+            "`j.owner_stats` - статистика сервера\n"
+            "`j.reset_user [@user]` - сброс пользователя (админ)"
+        ),
+        inline=False
+    )
+    
+    # Команды модерации
+    embed.add_field(
+        name="🛠️ КОМАНДЫ МОДЕРАЦИИ",
+        value=(
+            "`j.warn @user [дни] [причина]` - предупреждение\n"
+            "`j.warns [@user]` - список варнов\n"
+            "`j.unwarn @user <номер>` - снять варн\n"
+            "`j.awarn @user <причина>` - ручной варн\n"
+            "`j.mywarns` - свои варны\n"
+            "`j.mute @user <10м/1ч/1д> [причина]` - мут\n"
+            "`j.unmute @user [причина]` - снять мут\n"
+            "`j.timeout @user <минуты> [причина]` - таймаут\n"
+            "`j.ban @user [время] [причина]` - бан\n"
+            "`j.kick @user [причина]` - кик\n"
+            "`j.clear <количество>` - очистка чата"
+        ),
+        inline=False
+    )
+    
+    embed.set_footer(text="👑 Эти команды доступны только владельцу сервера")
+    await ctx.send(embed=embed)
+
 if __name__ == "__main__":
     print("🚀 Запуск бота Justice...")
     bot.run(TOKEN)
