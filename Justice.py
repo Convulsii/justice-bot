@@ -223,7 +223,9 @@ REACTION_GIFS = {
 # ИИ клиент
 ai_client = OpenAI(api_key=AI_API_KEY, base_url=AI_BASE_URL)
 
-
+# Отладка ИИ
+print(f"🤖 AI_MODEL: {AI_MODEL}")
+print(f"🤖 AI_BASE_URL: {AI_BASE_URL}")
 # ========== БАЗА ДАННЫХ ==========
 async def init_db():
     async with aiosqlite.connect("justice.db") as db:
