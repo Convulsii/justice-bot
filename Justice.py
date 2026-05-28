@@ -15,7 +15,7 @@ import re
 import math
 import shutil
 import glob
-
+import datetime import datetime
 # ========== КОНФИГУРАЦИЯ ==========
 TOKEN = os.getenv('DISCORD_TOKEN')
 if not TOKEN:
@@ -1053,78 +1053,223 @@ async def bio(ctx, *, text: str = None):
 
 
 # ========== STEAM СТАТИСТИКА ==========
+class SteamProfileView(discord.ui.View):
+    """Класс для интерактивной панели управления Steam профилем."""
+    def __init__(self, target_user: discord.User, steam_id: str):
+        super().__init__(timeout=120)  # Время жизни кнопок 2 минуты
+        self.target_user = target_user
+        self.steam_id = steam_id
+        self.current_action = "profile"  # Текущий отображаемый раздел
+
+    async def fetch_steam_data(self, action: str, page: int = 0):
+        """
+        Асинхронно получает данные из Steam API для выбранного раздела.
+        """
+        if not STEAM_API_KEY:
+            return None, "❌ Steam API не настроен! Добавьте `STEAM_API_KEY` в переменные окружения."
+
+        async with aiohttp.ClientSession() as session:
+            if action == "profile":
+                url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={STEAM_API_KEY}&steamids={self.steam_id}"
+                async with session.get(url) as resp:
+                    data = await resp.json()
+                    players = data.get('response', {}).get('players', [])
+                    if not players:
+                        return None, "❌ Steam профиль не найден или скрыт в настройках приватности."
+
+                    p = players[0]
+                    status_map = {0: "Офлайн", 1: "В сети", 2: "Занят", 3: "Нет на месте", 4: "Спит", 5: "Ищет игру", 6: "Играет"}
+                    embed = discord.Embed(title=f"🎮 Steam Профиль: {self.target_user.display_name}",
+                                          description=f"**{p.get('personaname', 'Неизвестно')}**",
+                                          color=discord.Color.blue())
+                    if p.get('avatarfull'):
+                        embed.set_thumbnail(url=p['avatarfull'])
+                    embed.add_field(name="🆔 Steam ID", value=self.steam_id, inline=True)
+                    embed.add_field(name="🎮 Статус", value=status_map.get(p.get('personastate', 0), "Неизвестно"), inline=True)
+
+                    # Получение дополнительной информации (игры, часы)
+                    games_url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={STEAM_API_KEY}&steamid={self.steam_id}&include_appinfo=true"
+                    async with session.get(games_url) as gr:
+                        games_data = await gr.json()
+                        if games_data.get('response', {}).get('games'):
+                            games_list = games_data['response']['games']
+                            embed.add_field(name="📚 Игр в библиотеке", value=len(games_list), inline=True)
+                            total_hours = sum(g.get('playtime_forever', 0) for g in games_list) / 60
+                            embed.add_field(name="⏱️ Часов в играх", value=f"{total_hours:.0f}ч", inline=True)
+                    return embed, None
+
+            elif action == "games":
+                url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={STEAM_API_KEY}&steamid={self.steam_id}&include_appinfo=true"
+                async with session.get(url) as resp:
+                    games_data = await resp.json()
+                    if not games_data.get('response', {}).get('games'):
+                        return None, "❌ Не удалось получить список игр для этого пользователя."
+
+                    games = sorted(games_data['response']['games'], key=lambda x: x.get('playtime_forever', 0), reverse=True)
+                    games_per_page = 10
+                    total_pages = (len(games) + games_per_page - 1) // games_per_page
+                    page = max(0, min(page, total_pages - 1))
+                    start = page * games_per_page
+                    end = start + games_per_page
+                    current_games = games[start:end]
+
+                    text = "\n".join([f"{i+1+start}. **{g.get('name', 'Неизвестно')}** - {g.get('playtime_forever', 0) / 60:.1f} ч" for i, g in enumerate(current_games)])
+                    embed = discord.Embed(title=f"🎮 Топ игр: {self.target_user.display_name}", description=text, color=discord.Color.blue())
+                    embed.set_footer(text=f"Страница {page + 1} из {total_pages}")
+                    return embed, total_pages
+
+            elif action == "achievements":
+                # Для демонстрации, но требует реального appid
+                return None, "❌ Достижения: Эта функция требует указать ID игры (например, `j.steam achievements <appid> @user`)"
+
+            elif action == "friends":
+                url = f"https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key={STEAM_API_KEY}&steamid={self.steam_id}&relationship=friend"
+                async with session.get(url) as resp:
+                    data = await resp.json()
+                    friends = data.get('friendslist', {}).get('friends', [])
+                    if not friends:
+                        return None, "❌ Список друзей не найден или скрыт в настройках приватности."
+
+                    text = "\n".join([f"**{friend.get('steamid', 'Неизвестно')}**" for friend in friends[:10]]) # Показываем ID, т.к. имена требуют доп. запросов
+                    embed = discord.Embed(title=f"👥 Друзья: {self.target_user.display_name}", description=text if text else "Список друзей пуст.", color=discord.Color.blue())
+                    return embed, None
+
+        return None, "❌ Неизвестная ошибка при обращении к Steam API."
+
+    async def update_message(self, interaction: discord.Interaction, action: str, page: int = 0):
+        """
+        Обновляет embed в соответствии с выбранным действием и пагинацией.
+        """
+        embed, total_pages = await self.fetch_steam_data(action, page)
+        if embed is None:
+            await interaction.response.edit_message(content=total_pages or "❌ Произошла ошибка.", view=self)
+            return
+
+        # Обновляем кнопки пагинации для списков
+        if action == "games" and total_pages and total_pages > 1:
+            # Добавляем кнопки пагинации, если их еще нет
+            if not hasattr(self, 'pagination_buttons'):
+                self.pagination_buttons = True
+                self.add_item(PrevPageButton(action, page))
+                self.add_item(NextPageButton(action, page, total_pages))
+            else:
+                # Обновляем состояние существующих кнопок (можно найти и обновить, но проще пересоздать)
+                for item in self.children[:]:
+                    if isinstance(item, (PrevPageButton, NextPageButton)):
+                        self.remove_item(item)
+                self.add_item(PrevPageButton(action, page))
+                self.add_item(NextPageButton(action, page, total_pages))
+        else:
+            # Убираем кнопки пагинации, если они были
+            for item in self.children[:]:
+                if isinstance(item, (PrevPageButton, NextPageButton)):
+                    self.remove_item(item)
+
+        self.current_action = action
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Профиль", style=discord.ButtonStyle.primary, row=0)
+    async def profile_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.update_message(interaction, "profile")
+
+    @discord.ui.button(label="Игры", style=discord.ButtonStyle.primary, row=0)
+    async def games_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.update_message(interaction, "games", 0)
+
+    @discord.ui.button(label="Достижения", style=discord.ButtonStyle.primary, row=0)
+    async def achievements_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.update_message(interaction, "achievements")
+
+    @discord.ui.button(label="Друзья", style=discord.ButtonStyle.primary, row=0)
+    async def friends_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.update_message(interaction, "friends")
+
+    @discord.ui.button(label="Открыть в Steam", style=discord.ButtonStyle.url, url="https://steamcommunity.com/profiles/", row=1)
+    async def steam_url_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Кнопка-ссылка не требует callback, URL задается в параметрах
+        pass
+
+
+class PrevPageButton(discord.ui.Button):
+    """Кнопка для перехода на предыдущую страницу."""
+    def __init__(self, action: str, current_page: int):
+        super().__init__(label="◀", style=discord.ButtonStyle.secondary, row=1)
+        self.action = action
+        self.current_page = current_page
+
+    async def callback(self, interaction: discord.Interaction):
+        view: SteamProfileView = self.view
+        await view.update_message(interaction, self.action, self.current_page - 1)
+
+
+class NextPageButton(discord.ui.Button):
+    """Кнопка для перехода на следующую страницу."""
+    def __init__(self, action: str, current_page: int, total_pages: int):
+        super().__init__(label="▶", style=discord.ButtonStyle.secondary, row=1)
+        self.action = action
+        self.current_page = current_page
+        self.total_pages = total_pages
+
+    async def callback(self, interaction: discord.Interaction):
+        view: SteamProfileView = self.view
+        await view.update_message(interaction, self.action, self.current_page + 1)
+
+
 @bot.command()
-async def steam(ctx, action: str = None, *, user_input: str = None):
+async def steam(ctx, action: str = None, *, arg: str = None):
+    """🎮 Steam команды с интерактивными кнопками.
+
+    Примеры:
+    j.steam profile [@user] - показать профиль (по умолчанию свой)
+    j.steam set <steam_id> - привязать Steam ID к себе
+    """
     if not action:
-        await ctx.send("🎮 **Steam команды:**\n`j.steam set <steam_id>` - привязать Steam ID\n`j.steam profile` - показать профиль\n`j.steam games` - список игр (топ 10)\n`j.steam recent` - недавние игры")
+        await ctx.send("🎮 **Steam команды:**\n"
+                       "`j.steam set <steam_id>` - привязать Steam ID\n"
+                       "`j.steam profile [@user]` - показать профиль")
         return
-    
-    data = await get_user(ctx.author.id, ctx.guild.id)
-    steam_id = data[25] if len(data) > 25 else None
-    
+
+    # Привязка Steam ID
     if action == "set":
-        if not user_input:
+        if not arg:
             await ctx.send("❌ Использование: `j.steam set <steam_id>`")
             return
         async with aiosqlite.connect("justice.db") as db:
-            await db.execute('UPDATE users SET steam_id=? WHERE user_id=? AND guild_id=?', (user_input, ctx.author.id, ctx.guild.id))
+            await db.execute('UPDATE users SET steam_id=? WHERE user_id=? AND guild_id=?', (arg, ctx.author.id, ctx.guild.id))
             await db.commit()
-        await ctx.send(f"✅ Steam ID привязан: `{user_input}`")
+        await ctx.send(f"✅ Steam ID привязан: `{arg}`")
         return
-    
-    if not steam_id:
-        await ctx.send("❌ Вы не привязали Steam ID! Используйте `j.steam set <id>`")
-        return
-    if not STEAM_API_KEY:
-        await ctx.send("❌ Steam API не настроен!")
-        return
-    
-    async with aiohttp.ClientSession() as session:
-        if action == "profile":
-            url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={STEAM_API_KEY}&steamids={steam_id}"
-            async with session.get(url) as resp:
-                pl = (await resp.json()).get('response', {}).get('players', [])
-                if pl:
-                    p = pl[0]
-                    status_map = {0: "Офлайн", 1: "В сети", 2: "Занят", 3: "Нет на месте", 4: "Спит", 5: "Ищет игру", 6: "Играет"}
-                    embed = discord.Embed(title=f"🎮 Steam Профиль", description=f"**{p.get('personaname', 'Неизвестно')}**", color=discord.Color.blue())
-                    if p.get('avatarfull'): embed.set_thumbnail(url=p['avatarfull'])
-                    embed.add_field(name="🆔 Steam ID", value=steam_id, inline=True)
-                    embed.add_field(name="🎮 Статус", value=status_map.get(p.get('personastate', 0), "Неизвестно"), inline=True)
-                    
-                    gurl = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={STEAM_API_KEY}&steamid={steam_id}&include_appinfo=true"
-                    async with session.get(gurl) as gr:
-                        gd = await gr.json()
-                        if gd.get('response', {}).get('games'):
-                            gl = gd['response']['games']
-                            embed.add_field(name="📚 Игр в библиотеке", value=len(gl), inline=True)
-                            embed.add_field(name="⏱️ Часов в играх", value=f"{sum(g.get('playtime_forever',0) for g in gl)/60:.0f}ч", inline=True)
-                    await ctx.send(embed=embed)
-                else:
-                    await ctx.send(f"❌ Steam профиль с ID `{steam_id}` не найден!")
-        
-        elif action == "games":
-            url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={STEAM_API_KEY}&steamid={steam_id}&include_appinfo=true"
-            async with session.get(url) as resp:
-                gd = await resp.json()
-                if gd.get('response', {}).get('games'):
-                    games = sorted(gd['response']['games'], key=lambda x: x.get('playtime_forever', 0), reverse=True)[:10]
-                    text = "\n".join([f"{i+1}. {g.get('name', 'Неизвестно')} - {g.get('playtime_forever',0)/60:.1f}ч" for i,g in enumerate(games)])
-                    await ctx.send(embed=discord.Embed(title="🎮 Ваши игры (топ 10)", description=text, color=discord.Color.blue()))
-                else:
-                    await ctx.send("❌ Не удалось получить список игр.")
-        
-        elif action == "recent":
-            url = f"https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/?key={STEAM_API_KEY}&steamid={steam_id}&count=5"
-            async with session.get(url) as resp:
-                rd = await resp.json()
-                if rd.get('response', {}).get('games'):
-                    text = "\n".join([f"🎮 {g.get('name', 'Неизвестно')} - {g.get('playtime_2weeks',0)/60:.1f}ч за 2 недели" for g in rd['response']['games']])
-                    await ctx.send(embed=discord.Embed(title="🎮 Недавно сыгранные игры", description=text, color=discord.Color.blue()))
-                else:
-                    await ctx.send("❌ Нет данных за последние 2 недели.")
+
+    # Просмотр профиля
+    if action == "profile":
+        # Определяем целевого пользователя
+        target_user = ctx.author
+        if arg:
+            match = re.match(r'<@!?(\d+)>', arg)
+            if match:
+                user_id = int(match.group(1))
+                target_user = ctx.guild.get_member(user_id) or await bot.fetch_user(user_id)
+            else:
+                await ctx.send("❌ Укажите пользователя через @, например `j.steam profile @user`")
+                return
+
+        # Получаем Steam ID из БД
+        user_data = await get_user(target_user.id, ctx.guild.id)
+        steam_id = user_data[25] if len(user_data) > 25 else None
+        if not steam_id:
+            await ctx.send(f"❌ У пользователя {target_user.mention} не привязан Steam ID!")
+            return
+
+        # Отправляем интерактивное меню
+        view = SteamProfileView(target_user, steam_id)
+        embed, _ = await view.fetch_steam_data("profile")
+        if embed:
+            await ctx.send(embed=embed, view=view)
         else:
-            await ctx.send("❌ Неизвестная команда.")
+            await ctx.send("❌ Не удалось загрузить профиль.")
+        return
+
+    await ctx.send("❌ Неизвестная команда. Используйте `j.steam set <id>` или `j.steam profile [@user]`.")
 
 
 # ========== МАГАЗИН И ИНВЕНТАРЬ ==========
