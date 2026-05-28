@@ -75,7 +75,7 @@ LEVEL_ROLES = {
 # ИИ настройки
 AI_API_KEY = "rk_live_G15mOokgVTN8hKFBvWVda38wZGOiXkVs"
 AI_BASE_URL = "https://api.ranvik.ru/v1"
-AI_MODEL = "gemini-2.0-flash"
+AI_MODEL = "gpt-5-nano"
 
 AI_SYSTEM_PROMPT = """Ты дружелюбный помощник в Discord сервере.
 
@@ -192,7 +192,7 @@ user_warnings = defaultdict(list)
 spam_messages_to_delete = defaultdict(list)
 # Хранилище контекстов диалогов для каждого пользователя
 user_conversations = defaultdict(list)  # {user_id: [{"role": "user", "content": ...}, {"role": "assistant", "content": ...}]}
-MAX_CONTEXT_MESSAGES = 10  # Храним последние 10 сообщений из диалога
+MAX_CONTEXT_MESSAGES = 3  # Храним последние 10 сообщений из диалога
 # Ролевые GIF
 REACTION_GIFS = {
     "hug": "https://media.tenor.com/SYsRdiK-T7gAAAAM/hug-anime.gif",
@@ -556,7 +556,7 @@ async def get_ai_response(user_id, user_message, with_web=True):
     
     # Собираем контекст (только последние 5 сообщений для скорости)
     context_messages = []
-    for msg in conversation[-10:]:  # Последние 10 сообщений
+    for msg in conversation[-3:]:  # Последние 10 сообщений
         context_messages.append(msg)
     
     # Пробуем ответить с веб-поиском
@@ -571,11 +571,11 @@ async def get_ai_response(user_id, user_message, with_web=True):
                             model=AI_MODEL,
                             input=user_message,
                             tools=[{"type": "web_search"}],
-                            max_completion_tokens=500,  # Короткие ответы
+                            max_completion_tokens=1500,  # Короткие ответы
                             temperature=0.5  # Меньше фантазий
                         )
                     ),
-                    timeout=8.0  # Таймаут 8 секунд
+                    timeout=15.0  # Таймаут 8 секунд
                 )
                 answer = resp.output_text
             else:
@@ -593,7 +593,7 @@ async def get_ai_response(user_id, user_message, with_web=True):
                         lambda: ai_client.chat.completions.create(
                             model=AI_MODEL,
                             messages=messages,
-                            max_tokens=500,
+                            max_tokens=1500,
                             temperature=0.7
                         )
                     ),
