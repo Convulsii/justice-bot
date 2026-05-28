@@ -503,16 +503,14 @@ async def weather(ctx, *, city: str = None):
 
 # ========== ИИ С ВЕБ-ПОИСКОМ ==========
 async def get_ai_response(user_message, with_web=True):
-    """Получение ответа от ИИ с веб-поиском (если поддерживается)"""
+    """Получение ответа от ИИ"""
     try:
         if with_web:
             try:
                 resp = ai_client.responses.create(
                     model=AI_MODEL,
                     input=user_message,
-                    tools=[{"type": "web_search"}],
-                    temperature=0.7,
-                    max_completion_tokens=2000
+                    tools=[{"type": "web_search"}]
                 )
                 return resp.output_text
             except Exception as e:
@@ -522,9 +520,7 @@ async def get_ai_response(user_message, with_web=True):
                     messages=[
                         {"role": "system", "content": AI_SYSTEM_PROMPT},
                         {"role": "user", "content": user_message}
-                    ],
-                    temperature=0.7,
-                    max_completion_tokens=2000
+                    ]
                 )
                 return resp.choices[0].message.content
         else:
@@ -533,9 +529,7 @@ async def get_ai_response(user_message, with_web=True):
                 messages=[
                     {"role": "system", "content": AI_SYSTEM_PROMPT},
                     {"role": "user", "content": user_message}
-                ],
-                temperature=0.7,
-                max_completion_tokens=2000
+                ]
             )
             return resp.choices[0].message.content
     except Exception as e:
