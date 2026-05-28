@@ -73,7 +73,7 @@ LEVEL_ROLES = {
 }
 
 # ИИ настройки
-AI_API_KEY = "rk_live_DgKgNB91yCbY4cVfh5cjs5vz9S2sBA8E"
+AI_API_KEY = "rk_live_G15mOokgVTN8hKFBvWVda38wZGOiXkVs"
 AI_BASE_URL = "https://api.ranvik.ru/v1"
 AI_MODEL = "gpt-5-nano"
 
@@ -3546,9 +3546,6 @@ async def on_ready():
     await create_color_message()
     await setup_ticket_system()
     
-    asyncio.create_task(start_quiz())
-    asyncio.create_task(stoloto_scheduler())
-    
     async def reset_loop():
         while True:
             await asyncio.sleep(60)
@@ -4242,6 +4239,39 @@ async def test_quiz(ctx):
         quiz_answered_users = set()
         
         await ctx.send("✅ Тестовая викторина завершена. Основная викторина продолжит работу в обычном режиме.")
+
+# ========== ЗАПУСК ФОНОВЫХ ЗАДАЧ ==========
+async def start_background_tasks():
+    await bot.wait_until_ready()
+    asyncio.create_task(start_quiz())
+    asyncio.create_task(stoloto_scheduler())
+
+# Запускаем фоновые задачи после готовности бота
+@bot.event
+async def on_ready():
+    await init_db()
+    await create_color_message()
+    await setup_ticket_system()
+    
+    async def reset_loop():
+        while True:
+            await asyncio.sleep(60)
+            await reset_activity_counters()
+    
+    bot.loop.create_task(reset_loop())
+    
+    # Запускаем фоновые задачи
+    bot.loop.create_task(start_quiz())
+    bot.loop.create_task(stoloto_scheduler())
+    
+    print(f'✅ Бот {bot.user} запущен!')
+    print(f'📊 На серверах: {len(bot.guilds)}')
+    print(f'💡 Префикс команд: j.')
+    print(f'🎨 Цветные роли отправлены')
+    print(f'🎫 Тикеты настроены')
+    print(f'🧠 Викторина запущена (каждые 2 часа)')
+    print(f'🎰 СТО ЛОТО запущено (ежедневно в 14:00)')
+    print('=' * 50)
 
 if __name__ == "__main__":
     print("🚀 Запуск бота Justice...")
