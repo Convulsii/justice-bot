@@ -875,6 +875,7 @@ async def awarn(ctx, member: discord.Member, *, reason: str = "Не указан
 
 # ========== ОГОНЁК ==========
 async def update_voice_streak(member):
+    """Обновление огонька при заходе в голосовой канал"""
     today = datetime.now().date()
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT voice_streak, last_voice_join FROM users WHERE user_id=? AND guild_id=?', 
@@ -886,14 +887,15 @@ async def update_voice_streak(member):
         else:
             current_streak = row[0] or 0
             last_join = row[1]
+            
             if last_join:
                 last_date = datetime.fromisoformat(last_join).date() if isinstance(last_join, str) else last_join
                 if last_date == today:
-                    return current_streak
+                    return current_streak  # Уже сегодня заходил
                 elif last_date == today - timedelta(days=1):
-                    streak = current_streak + 1
+                    streak = current_streak + 1  # Продолжение серии
                 else:
-                    streak = 1
+                    streak = 1  # Серия СБРАСЫВАЕТСЯ (пропущен день)
             else:
                 streak = 1
         
@@ -901,6 +903,7 @@ async def update_voice_streak(member):
                         (streak, datetime.now().isoformat(), member.id, member.guild.id))
         await db.commit()
         
+        # Бонус за огонёк (каждый день серии даёт бонус)
         bonus = streak * 5
         await add_balance(member.id, member.guild.id, bonus)
         return streak
