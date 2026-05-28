@@ -15,7 +15,6 @@ import re
 import math
 import shutil
 import glob
-import datetime
 # ========== КОНФИГУРАЦИЯ ==========
 TOKEN = os.getenv('DISCORD_TOKEN')
 if not TOKEN:
