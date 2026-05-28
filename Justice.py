@@ -73,7 +73,7 @@ LEVEL_ROLES = {
 }
 
 # ИИ настройки
-AI_API_KEY = "rk_live_bUzCCLXEQ06SYKU1SEKY5GOvRSdtXOmA"
+AI_API_KEY = "rk_live_DgKgNB91yCbY4cVfh5cjs5vz9S2sBA8E"
 AI_BASE_URL = "https://api.ranvik.ru/v1"
 AI_MODEL = "gpt-5-nano"
 
