@@ -505,14 +505,60 @@ async def weather(ctx, *, city: str = None):
 
 
 # ========== ИИ С ВЕБ-ПОИСКОМ ==========
-async def get_ai_response(user_id, user_message, with_web=True):
-    """Получение ответа от ИИ с таймаутом и повторами"""
+async def get_ai_response(user_id, user_message, with_web=False):
+    """Оптимизированный ИИ с быстрым ответом (до 750 токенов)"""
     global user_conversations
     
+    # Быстрая проверка на простые вопросы (чтобы не ходить в API)
+    lower_msg = user_message.lower()
+    
+    # Кэш для часто задаваемых вопросов
+    if "привет" in lower_msg or "здравствуй" in lower_msg or "ку" in lower_msg:
+        return "👋 Привет! Чем могу помочь?"
+    
+    if "как дела" in lower_msg:
+        return "😊 Всё отлично! А у тебя?"
+    
+    if "спасибо" in lower_msg or "благодарю" in lower_msg:
+        return "🙏 Пожалуйста! Обращайся."
+    
+    if "кто ты" in lower_msg or "ты кто" in lower_msg:
+        return "🤖 Я Justice Bot AI — твой помощник на этом сервере! Задавай любые вопросы."
+    
+    if "команды" in lower_msg or "help" in lower_msg or "помощь" in lower_msg:
+        return "📋 **Мои команды:** `j.help` — список всех команд\n`j.profile` — твой профиль\n`j.ai <вопрос>` — задать вопрос\n`j.weather <город>` — погода"
+    
+    if "погода" in lower_msg and not with_web:
+        return "🌤️ Используй команду `j.weather <город>` для реальной погоды!"
+    
+    if "дата" in lower_msg or "сегодня" in lower_msg or "число" in lower_msg or "день" in lower_msg:
+        now = datetime.now()
+        days_ru = {"Monday": "понедельник", "Tuesday": "вторник", "Wednesday": "среда", 
+                   "Thursday": "четверг", "Friday": "пятница", "Saturday": "суббота", "Sunday": "воскресенье"}
+        return f"📅 Сегодня **{now.strftime('%d.%m.%Y')}**, {days_ru.get(now.strftime('%A'), now.strftime('%A'))}."
+    
+    if "время" in lower_msg:
+        now = datetime.now()
+        return f"🕐 Сейчас **{now.strftime('%H:%M:%S')}** по МСК."
+    
+    if "сколько время" in lower_msg or "который час" in lower_msg:
+        now = datetime.now()
+        return f"🕐 Сейчас **{now.strftime('%H:%M:%S')}**"
+    
+    if "доброе утро" in lower_msg:
+        return "🌅 Доброе утро! Хорошего дня!"
+    
+    if "добрый вечер" in lower_msg:
+        return "🌆 Добрый вечер! Как прошёл день?"
+    
+    if "спокойной ночи" in lower_msg:
+        return "🌙 Спокойной ночи! Сладких снов!"
+    
+    # Контекст
     conversation = user_conversations.get(user_id, [])
     
     messages = [
-        {"role": "system", "content": AI_SYSTEM_PROMPT + "\n\nТы ведёшь диалог с пользователем. Учитывай предыдущие сообщения в этом диалоге, когда отвечаешь. Отвечай на том же языке, что и пользователь. Отвечай кратко, максимум 2-3 предложения."}
+        {"role": "system", "content": AI_SYSTEM_PROMPT + "\n\nОтвечай кратко, максимум 2-3 предложения. Сегодня " + datetime.now().strftime('%d.%m.%Y') + ". Будь дружелюбным и полезным."}
     ]
     
     for msg in conversation[-MAX_CONTEXT_MESSAGES:]:
@@ -520,40 +566,60 @@ async def get_ai_response(user_id, user_message, with_web=True):
     
     messages.append({"role": "user", "content": user_message})
     
-    # Пробуем отправить запрос с таймаутом
-    for attempt in range(3):  # 3 попытки
-        try:
+    # Запрос с таймаутом 8 секунд (быстрее)
+    try:
+        if with_web:
             resp = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(
-                    None, 
-                    lambda: ai_client.chat.completions.create(
+                    None,
+                    lambda: ai_client.responses.create(
                         model=AI_MODEL,
-                        messages=messages
+                        input=user_message,
+                        tools=[{"type": "web_search"}],
+                        max_completion_tokens=750  # ← 750 токенов
                     )
                 ),
-                timeout=15.0  # 15 секунд таймаут
+                timeout=10.0
+            )
+            answer = resp.output_text
+        else:
+            resp = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: ai_client.chat.completions.create(
+                        model=AI_MODEL,
+                        messages=messages,
+                        max_tokens=750  # ← 750 токенов (было 500, теперь 750)
+                    )
+                ),
+                timeout=10.0
             )
             answer = resp.choices[0].message.content
-            
-            # Сохраняем диалог
-            user_conversations[user_id].append({"role": "user", "content": user_message})
-            user_conversations[user_id].append({"role": "assistant", "content": answer})
-            
-            if len(user_conversations[user_id]) > MAX_CONTEXT_MESSAGES * 2:
-                user_conversations[user_id] = user_conversations[user_id][-MAX_CONTEXT_MESSAGES * 2:]
-            
-            return answer
-            
-        except asyncio.TimeoutError:
-            if attempt == 2:  # Последняя попытка
-                return "❌ Сервер ИИ не отвечает. Попробуйте позже."
-            continue
-        except Exception as e:
-            if attempt == 2:
-                return f"❌ Ошибка ИИ: {str(e)[:100]}"
-            continue
+        
+        # Сохраняем диалог
+        user_conversations[user_id].append({"role": "user", "content": user_message})
+        user_conversations[user_id].append({"role": "assistant", "content": answer})
+        
+        if len(user_conversations[user_id]) > MAX_CONTEXT_MESSAGES * 2:
+            user_conversations[user_id] = user_conversations[user_id][-MAX_CONTEXT_MESSAGES * 2:]
+        
+        # Если ответ слишком короткий или пустой
+        if not answer or len(answer) < 3:
+            return "😊 Понял! " + (answer if answer else "Задай вопрос ещё раз?")
+        
+        return answer
+        
+    except asyncio.TimeoutError:
+        return "⏳ **Немного подтормаживает...** Попробуй ещё раз или спроси проще."
     
-    return "❌ Не удалось получить ответ от ИИ."
+    except Exception as e:
+        error_msg = str(e)
+        if "rate" in error_msg.lower():
+            return "📊 **Слишком много запросов!** Подожди немного."
+        elif "key" in error_msg.lower():
+            return "🔑 **Проблема с ключом API.** Сообщи администратору."
+        else:
+            return f"⚡ **Ошибка:** {error_msg[:80]}\nПопробуй переформулировать вопрос."
 
 
 @bot.command()
@@ -3989,6 +4055,119 @@ async def admin_help(ctx):
     
     embed.set_footer(text="👑 Эти команды доступны только владельцу сервера")
     await ctx.send(embed=embed)
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def test_quiz(ctx):
+    """🧠 Тестовая викторина (только для админов, не влияет на основную)"""
+    global quiz_active, quiz_question, quiz_answer, quiz_options, quiz_message_id, quiz_answered_users
+    
+    # Сохраняем состояние основной викторины
+    was_active = quiz_active
+    old_question = quiz_question
+    old_answer = quiz_answer
+    old_options = quiz_options.copy() if quiz_options else {}
+    
+    # Временно отключаем основную викторину (если она активна)
+    quiz_active = True
+    
+    await ctx.send("🧠 **Генерация тестовой викторины...**")
+    
+    try:
+        # Генерируем вопрос через ИИ
+        test_question = "Сколько будет 2 + 2?"
+        test_answer = "B"
+        test_options = {"A": "3", "B": "4", "C": "5", "D": "6"}
+        
+        try:
+            resp = ai_client.chat.completions.create(
+                model=AI_MODEL,
+                messages=[
+                    {"role": "system", "content": "Ты генератор вопросов для викторины. Придумай интересный вопрос с 4 вариантами ответа (A, B, C, D). Верни в формате: ВОПРОС: ... | A: ... | B: ... | C: ... | D: ... | ОТВЕТ: буква (A/B/C/D)"},
+                    {"role": "user", "content": "Сгенерируй новый вопрос для викторины."}
+                ]
+            )
+            response = resp.choices[0].message.content
+            lines = response.split("|")
+            if len(lines) >= 6:
+                test_question = lines[0].replace("ВОПРОС:", "").strip()
+                test_options = {
+                    "A": lines[1].replace("A:", "").strip(),
+                    "B": lines[2].replace("B:", "").strip(),
+                    "C": lines[3].replace("C:", "").strip(),
+                    "D": lines[4].replace("D:", "").strip()
+                }
+                test_answer = lines[5].replace("ОТВЕТ:", "").strip().upper()[0]
+        except Exception as e:
+            await ctx.send(f"⚠️ ИИ не сгенерировал вопрос, использую запасной. Ошибка: {str(e)[:100]}")
+        
+        # Отправляем тестовую викторину
+        embed = discord.Embed(
+            title="🧠 ТЕСТОВАЯ ВИКТОРИНА!",
+            description=f"**{test_question}**\n\n"
+                        f"A) {test_options['A']}\n"
+                        f"B) {test_options['B']}\n"
+                        f"C) {test_options['C']}\n"
+                        f"D) {test_options['D']}\n\n"
+                        f"⏰ У вас есть 60 секунд, чтобы ответить буквой (A/B/C/D)!\n"
+                        f"*(тестовый режим, награда не выдаётся)*",
+            color=discord.Color.purple()
+        )
+        embed.set_footer(text="Тестовая викторина | Не влияет на основную")
+        
+        test_msg = await ctx.send(embed=embed)
+        test_question_id = test_msg.id
+        
+        # Ждём ответы 60 секунд
+        await ctx.send("⏳ Ожидание ответов 60 секунд...")
+        
+        # Собираем ответы
+        answers = {}
+        
+        def quiz_check(m):
+            return m.channel.id == ctx.channel.id and m.content.upper() in ["A", "B", "C", "D"]
+        
+        try:
+            while True:
+                resp_msg = await bot.wait_for('message', timeout=60.0, check=quiz_check)
+                if resp_msg.author.id not in answers:
+                    answers[resp_msg.author.id] = resp_msg.content.upper()
+                    await ctx.send(f"📝 {resp_msg.author.mention} ответил: **{resp_msg.content.upper()}**")
+        except asyncio.TimeoutError:
+            pass
+        
+        # Объявляем результаты
+        if not answers:
+            await ctx.send("😔 **Никто не ответил на тестовую викторину!**")
+        else:
+            results = f"**📊 РЕЗУЛЬТАТЫ ТЕСТОВОЙ ВИКТОРИНЫ**\n\n"
+            results += f"✅ **Правильный ответ: {test_answer}) {test_options[test_answer]}**\n\n"
+            results += "**Ответы участников:**\n"
+            
+            correct_count = 0
+            for user_id, answer in answers.items():
+                user = await bot.fetch_user(user_id)
+                status = "✅" if answer == test_answer else "❌"
+                if answer == test_answer:
+                    correct_count += 1
+                results += f"{status} {user.name}: {answer}\n"
+            
+            results += f"\n📊 **Правильных ответов: {correct_count}/{len(answers)}**"
+            
+            await ctx.send(results)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка при создании тестовой викторины: {str(e)[:200]}")
+    
+    finally:
+        # Восстанавливаем состояние основной викторины
+        quiz_active = was_active
+        quiz_question = old_question
+        quiz_answer = old_answer
+        quiz_options = old_options
+        quiz_answered_users = set()
+        
+        await ctx.send("✅ Тестовая викторина завершена. Основная викторина продолжит работу в обычном режиме.")
 
 if __name__ == "__main__":
     print("🚀 Запуск бота Justice...")
