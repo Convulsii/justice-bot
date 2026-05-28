@@ -524,7 +524,7 @@ async def get_ai_response(user_message, with_web=True):
                         {"role": "user", "content": user_message}
                     ],
                     temperature=0.7,
-                    max_tokens=2000
+                    max_completion_tokens=2000
                 )
                 return resp.choices[0].message.content
         else:
@@ -535,7 +535,7 @@ async def get_ai_response(user_message, with_web=True):
                     {"role": "user", "content": user_message}
                 ],
                 temperature=0.7,
-                max_tokens=2000
+                max_completion_tokens=2000
             )
             return resp.choices[0].message.content
     except Exception as e:
@@ -3165,7 +3165,7 @@ async def start_quiz():
                         {"role": "user", "content": "Сгенерируй новый вопрос для викторины."}
                     ],
                     temperature=0.8,
-                    max_tokens=500
+                    max_completion_tokens=500
                 )
                 response = resp.choices[0].message.content
                 lines = response.split("|")
