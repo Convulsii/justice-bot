@@ -505,14 +505,13 @@ async def weather(ctx, *, city: str = None):
 
 
 # ========== ИИ С ВЕБ-ПОИСКОМ ==========
-async def get_ai_response(user_id, user_message, with_web=False):
-    """Оптимизированный ИИ с быстрым ответом (до 750 токенов)"""
+async def get_ai_response(user_id, user_message, with_web=True):
+    """Максимально оптимизированный ИИ с веб-поиском"""
     global user_conversations
     
-    # Быстрая проверка на простые вопросы (чтобы не ходить в API)
     lower_msg = user_message.lower()
     
-    # Кэш для часто задаваемых вопросов
+    # ========== БЫСТРЫЕ ОТВЕТЫ БЕЗ API (чтобы не грузить сервер) ==========
     if "привет" in lower_msg or "здравствуй" in lower_msg or "ку" in lower_msg:
         return "👋 Привет! Чем могу помочь?"
     
@@ -523,27 +522,20 @@ async def get_ai_response(user_id, user_message, with_web=False):
         return "🙏 Пожалуйста! Обращайся."
     
     if "кто ты" in lower_msg or "ты кто" in lower_msg:
-        return "🤖 Я Justice Bot AI — твой помощник на этом сервере! Задавай любые вопросы."
+        return "🤖 Я Justice Bot AI — твой помощник на этом сервере! Могу искать информацию в интернете."
     
     if "команды" in lower_msg or "help" in lower_msg or "помощь" in lower_msg:
         return "📋 **Мои команды:** `j.help` — список всех команд\n`j.profile` — твой профиль\n`j.ai <вопрос>` — задать вопрос\n`j.weather <город>` — погода"
     
-    if "погода" in lower_msg and not with_web:
-        return "🌤️ Используй команду `j.weather <город>` для реальной погоды!"
-    
-    if "дата" in lower_msg or "сегодня" in lower_msg or "число" in lower_msg or "день" in lower_msg:
+    if "дата" in lower_msg or "сегодня" in lower_msg or "число" in lower_msg:
         now = datetime.now()
         days_ru = {"Monday": "понедельник", "Tuesday": "вторник", "Wednesday": "среда", 
                    "Thursday": "четверг", "Friday": "пятница", "Saturday": "суббота", "Sunday": "воскресенье"}
         return f"📅 Сегодня **{now.strftime('%d.%m.%Y')}**, {days_ru.get(now.strftime('%A'), now.strftime('%A'))}."
     
-    if "время" in lower_msg:
+    if "время" in lower_msg or "сколько время" in lower_msg or "который час" in lower_msg:
         now = datetime.now()
         return f"🕐 Сейчас **{now.strftime('%H:%M:%S')}** по МСК."
-    
-    if "сколько время" in lower_msg or "который час" in lower_msg:
-        now = datetime.now()
-        return f"🕐 Сейчас **{now.strftime('%H:%M:%S')}**"
     
     if "доброе утро" in lower_msg:
         return "🌅 Доброе утро! Хорошего дня!"
@@ -554,81 +546,101 @@ async def get_ai_response(user_id, user_message, with_web=False):
     if "спокойной ночи" in lower_msg:
         return "🌙 Спокойной ночи! Сладких снов!"
     
-    # Контекст
+    if "погода" in lower_msg:
+        return "🌤️ Используй команду `j.weather <город>` для точной погоды!"
+    
+    # ========== ОСНОВНОЙ ЗАПРОС С ВЕБ-ПОИСКОМ ==========
     conversation = user_conversations.get(user_id, [])
     
-    messages = [
-        {"role": "system", "content": AI_SYSTEM_PROMPT + "\n\nОтвечай кратко, максимум 2-3 предложения. Сегодня " + datetime.now().strftime('%d.%m.%Y') + ". Будь дружелюбным и полезным."}
-    ]
+    # Собираем контекст (только последние 5 сообщений для скорости)
+    context_messages = []
+    for msg in conversation[-10:]:  # Последние 10 сообщений
+        context_messages.append(msg)
     
-    for msg in conversation[-MAX_CONTEXT_MESSAGES:]:
-        messages.append(msg)
+    # Пробуем ответить с веб-поиском
+    for attempt in range(3):  # 3 попытки
+        try:
+            if with_web:
+                # ВЕБ-ПОИСК через responses.create (максимально быстро)
+                resp = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: ai_client.responses.create(
+                            model=AI_MODEL,
+                            input=user_message,
+                            tools=[{"type": "web_search"}],
+                            max_completion_tokens=500,  # Короткие ответы
+                            temperature=0.5  # Меньше фантазий
+                        )
+                    ),
+                    timeout=8.0  # Таймаут 8 секунд
+                )
+                answer = resp.output_text
+            else:
+                # Обычный чат
+                messages = [
+                    {"role": "system", "content": "Ты помощник. Отвечай кратко, максимум 2-3 предложения. Сегодня " + datetime.now().strftime('%d.%m.%Y')},
+                ]
+                for msg in context_messages:
+                    messages.append(msg)
+                messages.append({"role": "user", "content": user_message})
+                
+                resp = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: ai_client.chat.completions.create(
+                            model=AI_MODEL,
+                            messages=messages,
+                            max_tokens=500,
+                            temperature=0.7
+                        )
+                    ),
+                    timeout=6.0
+                )
+                answer = resp.choices[0].message.content
+            
+            # Сохраняем в историю
+            user_conversations[user_id].append({"role": "user", "content": user_message})
+            user_conversations[user_id].append({"role": "assistant", "content": answer})
+            
+            if len(user_conversations[user_id]) > 20:
+                user_conversations[user_id] = user_conversations[user_id][-20:]
+            
+            return answer
+            
+        except asyncio.TimeoutError:
+            if attempt == 2:  # Последняя попытка
+                return "⏳ **Поиск занял слишком много времени.** Попробуй спросить проще или повтори через минуту."
+            continue
+        except Exception as e:
+            error_msg = str(e)
+            if "rate" in error_msg.lower():
+                return "📊 **Слишком много запросов!** Подожди 30 секунд."
+            elif "key" in error_msg.lower():
+                return "🔑 **Проблема с ключом API.** Сообщи администратору."
+            elif "web_search" in error_msg.lower():
+                # Если веб-поиск не работает, пробуем без него
+                if with_web and attempt < 2:
+                    with_web = False
+                    continue
+            if attempt == 2:
+                return f"⚡ **Ошибка:** {error_msg[:100]}\nПопробуй переформулировать вопрос."
+            continue
     
-    messages.append({"role": "user", "content": user_message})
-    
-    # Запрос с таймаутом 8 секунд (быстрее)
-    try:
-        if with_web:
-            resp = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: ai_client.responses.create(
-                        model=AI_MODEL,
-                        input=user_message,
-                        tools=[{"type": "web_search"}],
-                        max_completion_tokens=750  # ← 750 токенов
-                    )
-                ),
-                timeout=10.0
-            )
-            answer = resp.output_text
-        else:
-            resp = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: ai_client.chat.completions.create(
-                        model=AI_MODEL,
-                        messages=messages,
-                        max_tokens=750  # ← 750 токенов (было 500, теперь 750)
-                    )
-                ),
-                timeout=10.0
-            )
-            answer = resp.choices[0].message.content
-        
-        # Сохраняем диалог
-        user_conversations[user_id].append({"role": "user", "content": user_message})
-        user_conversations[user_id].append({"role": "assistant", "content": answer})
-        
-        if len(user_conversations[user_id]) > MAX_CONTEXT_MESSAGES * 2:
-            user_conversations[user_id] = user_conversations[user_id][-MAX_CONTEXT_MESSAGES * 2:]
-        
-        # Если ответ слишком короткий или пустой
-        if not answer or len(answer) < 3:
-            return "😊 Понял! " + (answer if answer else "Задай вопрос ещё раз?")
-        
-        return answer
-        
-    except asyncio.TimeoutError:
-        return "⏳ **Немного подтормаживает...** Попробуй ещё раз или спроси проще."
-    
-    except Exception as e:
-        error_msg = str(e)
-        if "rate" in error_msg.lower():
-            return "📊 **Слишком много запросов!** Подожди немного."
-        elif "key" in error_msg.lower():
-            return "🔑 **Проблема с ключом API.** Сообщи администратору."
-        else:
-            return f"⚡ **Ошибка:** {error_msg[:80]}\nПопробуй переформулировать вопрос."
+    return "❌ **Не удалось получить ответ.** Попробуй позже."
 
 
 @bot.command()
 async def ai(ctx, *, question: str):
-    """🤖 Задать вопрос ИИ (с сохранением контекста диалога)"""
+    """🤖 Задать вопрос ИИ с веб-поиском"""
+    if len(question) > 500:
+        await ctx.send("❌ Вопрос слишком длинный! Максимум 500 символов.")
+        return
+    
+    msg = await ctx.send("🔍 **Ищу информацию в интернете...**")
     async with ctx.typing():
         response = await get_ai_response(ctx.author.id, question, with_web=True)
-    await ctx.reply(response, mention_author=False)
-
+    await msg.edit(content=response)
 
 # ========== АВТОМОДЕРАЦИЯ ==========
 @bot.command()
