@@ -13,7 +13,8 @@ from openai import OpenAI
 from collections import defaultdict
 import re
 import math
-
+import shutil
+import glob
 # ========== КОНФИГУРАЦИЯ ==========
 TOKEN = os.getenv('DISCORD_TOKEN')
 if not TOKEN:
@@ -189,7 +190,9 @@ vc_sessions = {}
 user_message_timestamps = defaultdict(list)
 user_warnings = defaultdict(list)
 spam_messages_to_delete = defaultdict(list)
-
+# Хранилище контекстов диалогов для каждого пользователя
+user_conversations = defaultdict(list)  # {user_id: [{"role": "user", "content": ...}, {"role": "assistant", "content": ...}]}
+MAX_CONTEXT_MESSAGES = 10  # Храним последние 10 сообщений из диалога
 # Ролевые GIF
 REACTION_GIFS = {
     "hug": "https://media.tenor.com/SYsRdiK-T7gAAAAM/hug-anime.gif",
@@ -502,45 +505,50 @@ async def weather(ctx, *, city: str = None):
 
 
 # ========== ИИ С ВЕБ-ПОИСКОМ ==========
-async def get_ai_response(user_message, with_web=True):
-    """Получение ответа от ИИ"""
+async def get_ai_response(user_id, user_message, with_web=True):
+    """Получение ответа от ИИ с сохранением контекста диалога для каждого пользователя"""
+    global user_conversations
+    
+    # Получаем историю диалога пользователя
+    conversation = user_conversations.get(user_id, [])
+    
+    # Формируем сообщения для ИИ
+    messages = [
+        {"role": "system", "content": AI_SYSTEM_PROMPT + "\n\nТы ведёшь диалог с пользователем. Учитывай предыдущие сообщения в этом диалоге, когда отвечаешь. Отвечай на том же языке, что и пользователь."}
+    ]
+    
+    # Добавляем историю диалога (последние MAX_CONTEXT_MESSAGES сообщений)
+    for msg in conversation[-MAX_CONTEXT_MESSAGES:]:
+        messages.append(msg)
+    
+    # Добавляем текущее сообщение пользователя
+    messages.append({"role": "user", "content": user_message})
+    
     try:
-        if with_web:
-            try:
-                resp = ai_client.responses.create(
-                    model=AI_MODEL,
-                    input=user_message,
-                    tools=[{"type": "web_search"}]
-                )
-                return resp.output_text
-            except Exception as e:
-                print(f"Веб-поиск не работает: {e}")
-                resp = ai_client.chat.completions.create(
-                    model=AI_MODEL,
-                    messages=[
-                        {"role": "system", "content": AI_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_message}
-                    ]
-                )
-                return resp.choices[0].message.content
-        else:
-            resp = ai_client.chat.completions.create(
-                model=AI_MODEL,
-                messages=[
-                    {"role": "system", "content": AI_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_message}
-                ]
-            )
-            return resp.choices[0].message.content
+        resp = ai_client.chat.completions.create(
+            model=AI_MODEL,
+            messages=messages
+        )
+        answer = resp.choices[0].message.content
+        
+        # Сохраняем диалог в историю
+        user_conversations[user_id].append({"role": "user", "content": user_message})
+        user_conversations[user_id].append({"role": "assistant", "content": answer})
+        
+        # Ограничиваем размер истории
+        if len(user_conversations[user_id]) > MAX_CONTEXT_MESSAGES * 2:
+            user_conversations[user_id] = user_conversations[user_id][-MAX_CONTEXT_MESSAGES * 2:]
+        
+        return answer
     except Exception as e:
-        return f"❌ Ошибка ИИ: {str(e)[:150]}\n\nПопробуйте позже."
+        return f"❌ Ошибка ИИ: {str(e)[:150]}"
 
 
 @bot.command()
 async def ai(ctx, *, question: str):
-    """🤖 Задать вопрос ИИ"""
+    """🤖 Задать вопрос ИИ (с сохранением контекста диалога)"""
     async with ctx.typing():
-        response = await get_ai_response(question, with_web=True)
+        response = await get_ai_response(ctx.author.id, question, with_web=True)
     await ctx.reply(response, mention_author=False)
 
 
@@ -3419,6 +3427,7 @@ async def on_member_join(member):
         embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
         await ch.send(embed=embed)
 
+# ========== ИНДЕКСЫ ==========
 @bot.command()
 async def check_indexes(ctx):
     data = await get_user(ctx.author.id, ctx.guild.id)
@@ -3431,6 +3440,427 @@ async def check_indexes(ctx):
     # Отправляем в личку, чтобы не засорять чат
     await ctx.author.send(result[:1900])
     await ctx.send("✅ Проверь личные сообщения!")
+
+# ========== РЕЗЕРВНОЕ КОПИРОВАНИЕ БАЗЫ ДАННЫХ ==========
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def backup_db(ctx):
+    """💾 Создать резервную копию базы данных (только для админов)"""
+    await ctx.send("⏳ Создание резервной копии...")
+    
+    try:
+        # Проверяем, существует ли база данных
+        if os.path.exists("justice.db"):
+            # Создаём имя бэкапа с текущей датой
+            now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            backup_name = f"backups/justice_db_backup_{now}.db"
+            
+            # Создаём папку backups, если её нет
+            if not os.path.exists("backups"):
+                os.makedirs("backups")
+            
+            # Удаляем старые бэкапы (оставляем только 5 последних)
+            backups = sorted(glob.glob("backups/justice_db_backup_*.db"))
+            while len(backups) >= 5:
+                os.remove(backups[0])
+                backups.pop(0)
+            
+            # Копируем файл
+            shutil.copy2("justice.db", backup_name)
+            
+            # Получаем размер файла
+            size = os.path.getsize(backup_name)
+            size_mb = size / (1024 * 1024)
+            
+            embed = discord.Embed(
+                title="💾 Резервная копия создана!",
+                description=f"**Имя файла:** `{backup_name}`\n**Размер:** {size_mb:.2f} MB\n**Дата:** {now}",
+                color=discord.Color.green()
+            )
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send("❌ База данных не найдена!")
+            
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка при создании бэкапа: {str(e)[:100]}")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def list_backups(ctx):
+    """📋 Показать список всех резервных копий (только для админов)"""
+    
+    if not os.path.exists("backups"):
+        await ctx.send("📭 Нет сохранённых резервных копий.")
+        return
+    
+    backups = sorted(glob.glob("backups/justice_db_backup_*.db"))
+    
+    if not backups:
+        await ctx.send("📭 Нет сохранённых резервных копий.")
+        return
+    
+    embed = discord.Embed(
+        title="📋 Список резервных копий",
+        color=discord.Color.blue()
+    )
+    
+    for i, backup in enumerate(backups, 1):
+        # Извлекаем дату из имени файла
+        name = os.path.basename(backup)
+        date_str = name.replace("justice_db_backup_", "").replace(".db", "")
+        size = os.path.getsize(backup)
+        size_mb = size / (1024 * 1024)
+        
+        embed.add_field(
+            name=f"#{i} - {date_str}",
+            value=f"📁 `{name}`\n📦 Размер: {size_mb:.2f} MB\n`j.restore_backup {i}`",
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def restore_backup(ctx, backup_number: int = None):
+    """🔄 Восстановить базу данных из резервной копии (только для админов)
+    Использование: j.restore_backup <номер_бэкапа>"""
+    
+    if backup_number is None:
+        await ctx.send("❌ Укажите номер бэкапа. Используйте `j.list_backups` для просмотра.")
+        return
+    
+    if not os.path.exists("backups"):
+        await ctx.send("📭 Нет сохранённых резервных копий.")
+        return
+    
+    backups = sorted(glob.glob("backups/justice_db_backup_*.db"))
+    
+    if backup_number < 1 or backup_number > len(backups):
+        await ctx.send(f"❌ Неверный номер бэкапа. Доступны: 1-{len(backups)}")
+        return
+    
+    backup_path = backups[backup_number - 1]
+    
+    embed = discord.Embed(
+        title="⚠️ ПОДТВЕРЖДЕНИЕ ВОССТАНОВЛЕНИЯ",
+        description=f"Вы уверены, что хотите восстановить базу данных из бэкапа?\n\n"
+                    f"**Файл:** `{os.path.basename(backup_path)}`\n\n"
+                    f"⚠️ **ВНИМАНИЕ!** Текущая база данных будет **ПОЛНОСТЬЮ ЗАМЕНЕНА**!\n"
+                    f"Нажмите ✅ для подтверждения.",
+        color=discord.Color.orange()
+    )
+    
+    msg = await ctx.send(embed=embed)
+    await msg.add_reaction("✅")
+    await msg.add_reaction("❌")
+    
+    def check(reaction, user):
+        return user.id == ctx.author.id and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+    
+    try:
+        reaction, user = await bot.wait_for('reaction_add', timeout=30, check=check)
+        
+        if str(reaction.emoji) == "✅":
+            # Создаём бэкап текущей БД перед восстановлением
+            now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            auto_backup = f"backups/auto_before_restore_{now}.db"
+            if os.path.exists("justice.db"):
+                shutil.copy2("justice.db", auto_backup)
+            
+            # Восстанавливаем
+            shutil.copy2(backup_path, "justice.db")
+            
+            await ctx.send("✅ База данных успешно восстановлена из резервной копии!\n🔄 Перезапустите бота для применения изменений.")
+            
+            # Удаляем сообщение с реакциями
+            await msg.delete()
+        else:
+            await ctx.send("❌ Восстановление отменено.")
+            await msg.delete()
+            
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Время вышло. Восстановление отменено.")
+        await msg.delete()
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def delete_backup(ctx, backup_number: int = None):
+    """🗑️ Удалить резервную копию (только для админов)
+    Использование: j.delete_backup <номер_бэкапа>"""
+    
+    if backup_number is None:
+        await ctx.send("❌ Укажите номер бэкапа. Используйте `j.list_backups` для просмотра.")
+        return
+    
+    if not os.path.exists("backups"):
+        await ctx.send("📭 Нет сохранённых резервных копий.")
+        return
+    
+    backups = sorted(glob.glob("backups/justice_db_backup_*.db"))
+    
+    if backup_number < 1 or backup_number > len(backups):
+        await ctx.send(f"❌ Неверный номер бэкапа. Доступны: 1-{len(backups)}")
+        return
+    
+    backup_path = backups[backup_number - 1]
+    backup_name = os.path.basename(backup_path)
+    
+    embed = discord.Embed(
+        title="🗑️ УДАЛЕНИЕ РЕЗЕРВНОЙ КОПИИ",
+        description=f"Вы уверены, что хотите удалить бэкап **{backup_name}**?\n\nНажмите ✅ для подтверждения.",
+        color=discord.Color.red()
+    )
+    
+    msg = await ctx.send(embed=embed)
+    await msg.add_reaction("✅")
+    await msg.add_reaction("❌")
+    
+    def check(reaction, user):
+        return user.id == ctx.author.id and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+    
+    try:
+        reaction, user = await bot.wait_for('reaction_add', timeout=30, check=check)
+        
+        if str(reaction.emoji) == "✅":
+            os.remove(backup_path)
+            await ctx.send(f"✅ Бэкап **{backup_name}** удалён.")
+            await msg.delete()
+        else:
+            await ctx.send("❌ Удаление отменено.")
+            await msg.delete()
+            
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Время вышло. Удаление отменено.")
+        await msg.delete()
+
+# ========== КОМАНДЫ ДЛЯ ВЛАДЕЛЬЦА (ONLY OWNER) ==========
+
+def is_owner(ctx):
+    """Проверка, является ли пользователь владельцем сервера"""
+    return ctx.author.id == ctx.guild.owner_id
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_give(ctx, member: discord.Member, amount: int):
+    """👑 Выдать деньги пользователю (только владелец сервера)
+    Использование: j.owner_give @user 1000"""
+    
+    if amount <= 0:
+        await ctx.send("❌ Сумма должна быть положительной!")
+        return
+    
+    await add_balance(member.id, ctx.guild.id, amount)
+    
+    embed = discord.Embed(
+        title="👑 ВЫДАЧА СРЕДСТВ (Владелец)",
+        description=f"{ctx.author.mention} выдал {amount} 💎 {member.mention}",
+        color=discord.Color.gold()
+    )
+    await ctx.send(embed=embed)
+    
+    # Лог в канал логов
+    log_embed = discord.Embed(
+        title="💰 Выдача средств (владелец)",
+        description=f"{ctx.author.mention} выдал {amount} 💎 {member.mention}",
+        color=discord.Color.green()
+    )
+    await send_log(ctx.guild.id, log_embed)
+    
+    # Уведомляем пользователя в ЛС
+    try:
+        await member.send(f"👑 Владелец сервера выдал вам **{amount}** 💎!")
+    except:
+        pass
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_take(ctx, member: discord.Member, amount: int):
+    """👑 Забрать деньги у пользователя (только владелец сервера)
+    Использование: j.owner_take @user 500"""
+    
+    if amount <= 0:
+        await ctx.send("❌ Сумма должна быть положительной!")
+        return
+    
+    user_data = await get_user(member.id, ctx.guild.id)
+    current_balance = user_data[4]
+    
+    if current_balance < amount:
+        await ctx.send(f"❌ У {member.mention} недостаточно средств! Баланс: {current_balance} 💎")
+        return
+    
+    await add_balance(member.id, ctx.guild.id, -amount)
+    
+    embed = discord.Embed(
+        title="👑 ИЗЪЯТИЕ СРЕДСТВ (Владелец)",
+        description=f"{ctx.author.mention} забрал {amount} 💎 у {member.mention}",
+        color=discord.Color.gold()
+    )
+    await ctx.send(embed=embed)
+    
+    # Лог в канал логов
+    log_embed = discord.Embed(
+        title="💰 Изъятие средств (владелец)",
+        description=f"{ctx.author.mention} забрал {amount} 💎 у {member.mention}",
+        color=discord.Color.red()
+    )
+    await send_log(ctx.guild.id, log_embed)
+    
+    # Уведомляем пользователя в ЛС
+    try:
+        await member.send(f"👑 Владелец сервера забрал у вас **{amount}** 💎!")
+    except:
+        pass
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_set_balance(ctx, member: discord.Member, amount: int):
+    """👑 Установить точный баланс пользователя (только владелец)
+    Использование: j.owner_set_balance @user 1000"""
+    
+    if amount < 0:
+        await ctx.send("❌ Баланс не может быть отрицательным!")
+        return
+    
+    user_data = await get_user(member.id, ctx.guild.id)
+    current_balance = user_data[4]
+    difference = amount - current_balance
+    
+    if difference > 0:
+        await add_balance(member.id, ctx.guild.id, difference)
+    elif difference < 0:
+        await add_balance(member.id, ctx.guild.id, difference)
+    
+    embed = discord.Embed(
+        title="👑 УСТАНОВКА БАЛАНСА (Владелец)",
+        description=f"{ctx.author.mention} установил баланс {member.mention} на **{amount}** 💎",
+        color=discord.Color.gold()
+    )
+    await ctx.send(embed=embed)
+    
+    # Лог в канал логов
+    log_embed = discord.Embed(
+        title="💰 Установка баланса (владелец)",
+        description=f"{member.mention} → {amount} 💎",
+        color=discord.Color.blue()
+    )
+    await send_log(ctx.guild.id, log_embed)
+    
+    try:
+        await member.send(f"👑 Владелец сервера установил ваш баланс на **{amount}** 💎!")
+    except:
+        pass
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_reset_user(ctx, member: discord.Member):
+    """👑 Полный сброс пользователя (уровень, баланс, опыт) - только владелец
+    Использование: j.owner_reset_user @user"""
+    
+    embed = discord.Embed(
+        title="⚠️ ПОДТВЕРЖДЕНИЕ",
+        description=f"Вы уверены, что хотите полностью сбросить прогресс {member.mention}?\n\n"
+                    f"Будут удалены:\n"
+                    f"• Уровень и опыт\n"
+                    f"• Баланс и банк\n"
+                    f"• Репутация\n"
+                    f"• Статистика сообщений\n"
+                    f"• Прогресс в ферме\n\n"
+                    f"Нажмите ✅ для подтверждения.",
+        color=discord.Color.red()
+    )
+    
+    msg = await ctx.send(embed=embed)
+    await msg.add_reaction("✅")
+    await msg.add_reaction("❌")
+    
+    def check(reaction, user):
+        return user.id == ctx.author.id and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+    
+    try:
+        reaction, user = await bot.wait_for('reaction_add', timeout=30, check=check)
+        
+        if str(reaction.emoji) == "✅":
+            async with aiosqlite.connect("justice.db") as db:
+                await db.execute('''
+                    UPDATE users SET 
+                        xp=0, level=0, balance=100, bank=0, reputation=0,
+                        warning_count=0, total_messages=0, today_messages=0, 
+                        week_messages=0, month_messages=0, voice_streak=0, 
+                        pots=0, crops='[]', inventory='[]', awards='[]'
+                    WHERE user_id=? AND guild_id=?
+                ''', (member.id, ctx.guild.id))
+                await db.commit()
+            
+            await ctx.send(f"✅ Прогресс {member.mention} полностью сброшен!")
+            
+            log_embed = discord.Embed(
+                title="👑 Полный сброс пользователя",
+                description=f"{ctx.author.mention} сбросил прогресс {member.mention}",
+                color=discord.Color.orange()
+            )
+            await send_log(ctx.guild.id, log_embed)
+            
+            try:
+                await member.send(f"👑 Владелец сервера полностью сбросил ваш прогресс!")
+            except:
+                pass
+        else:
+            await ctx.send("❌ Сброс отменён.")
+            
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Время вышло. Сброс отменён.")
+    
+    await msg.delete()
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_stats(ctx):
+    """👑 Показать статистику сервера (только владелец)"""
+    
+    async with aiosqlite.connect("justice.db") as db:
+        # Общее количество пользователей в БД
+        cur = await db.execute('SELECT COUNT(DISTINCT user_id) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_users = (await cur.fetchone())[0]
+        
+        # Общий баланс всех пользователей
+        cur = await db.execute('SELECT SUM(balance) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_balance = (await cur.fetchone())[0] or 0
+        
+        # Общий опыт всех пользователей
+        cur = await db.execute('SELECT SUM(xp) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_xp = (await cur.fetchone())[0] or 0
+        
+        # Всего сообщений
+        cur = await db.execute('SELECT SUM(total_messages) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_messages = (await cur.fetchone())[0] or 0
+        
+        # Всего предупреждений
+        cur = await db.execute('SELECT SUM(warning_count) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_warnings = (await cur.fetchone())[0] or 0
+    
+    embed = discord.Embed(
+        title="📊 СТАТИСТИКА СЕРВЕРА",
+        description=f"Статистика для **{ctx.guild.name}**",
+        color=discord.Color.gold()
+    )
+    embed.add_field(name="👥 Пользователей в БД", value=f"{total_users}", inline=True)
+    embed.add_field(name="💰 Общий баланс", value=f"{total_balance} 💎", inline=True)
+    embed.add_field(name="✨ Общий опыт", value=f"{total_xp} XP", inline=True)
+    embed.add_field(name="💬 Всего сообщений", value=f"{total_messages}", inline=True)
+    embed.add_field(name="⚠️ Всего предупреждений", value=f"{total_warnings}", inline=True)
+    embed.set_footer(text=f"Владелец: {ctx.guild.owner.name}")
+    
+    await ctx.send(embed=embed)
+
 if __name__ == "__main__":
     print("🚀 Запуск бота Justice...")
     bot.run(TOKEN)
