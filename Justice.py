@@ -2745,81 +2745,94 @@ async def on_voice_state_update(m, b, a):
 
 @bot.event
 async def on_message(msg):
-if bot.user in msg.mentions:
-    clean_text = msg.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()  # ← 4 пробела
-    if clean_text:
-        async with msg.channel.typing():
-            response = await get_ai_response(msg.author.id, clean_text, with_web=True)
-        await msg.reply(response, mention_author=False)
+    if msg.author.bot:
         return
     
-    # Автомод
-    sett = guild_settings.get(msg.guild.id, {})
-    exempt = any(msg.guild.get_role(rid) in msg.author.roles for rid in sett.get("automod_exempt_roles", []))
-    if not exempt and sett.get("automod_enabled", True):
-        spam, reason = await check_spam(msg)
-        if spam:
+    # Автомодерация
+    settings = guild_settings.get(msg.guild.id, {})
+    exempt_roles = settings.get("automod_exempt_roles", [])
+    is_exempt = False
+    for role_id in exempt_roles:
+        role = msg.guild.get_role(role_id)
+        if role and role in msg.author.roles:
+            is_exempt = True
+            break
+    
+    if not is_exempt and settings.get("automod_enabled", True):
+        is_spam, reason = await check_spam(msg)
+        if is_spam:
             try:
-                uid = msg.author.id
-                if uid in spam_messages_to_delete:
-                    for mid in spam_messages_to_delete[uid]:
+                user_id = msg.author.id
+                if user_id in spam_messages_to_delete:
+                    for msg_id in spam_messages_to_delete[user_id]:
                         try:
-                            dmsg = await msg.channel.fetch_message(mid)
-                            await dmsg.delete()
-                        except: pass
-                    spam_messages_to_delete[uid] = []
-                else: await msg.delete()
-                wc = await add_auto_warning(msg.author, reason, msg.channel)
-                try: await msg.author.send(f"⚠️ **Автомодерация**\nСообщения в {msg.channel.mention} удалены.\n📝 Причина: {reason}\n⚠️ Предупреждений: {wc}/{ANTISPAM_MAX_WARNINGS}")
-                except: pass
-                warn = await msg.channel.send(f"⚠️ {msg.author.mention}, ваши сообщения удалены. Причина: **{reason}**")
-                await asyncio.sleep(5); await warn.delete()
-            except: pass
+                            del_msg = await msg.channel.fetch_message(msg_id)
+                            await del_msg.delete()
+                        except:
+                            pass
+                    spam_messages_to_delete[user_id] = []
+                else:
+                    await msg.delete()
+                
+                warning_count = await add_auto_warning(msg.author, reason, msg.channel)
+                try:
+                    await msg.author.send(f"⚠️ **Автомодерация**\nВаши сообщения в {msg.channel.mention} были удалены.\n📝 Причина: {reason}\n⚠️ Предупреждений: {warning_count}/{ANTISPAM_MAX_WARNINGS}")
+                except:
+                    pass
+                warn_msg = await msg.channel.send(f"⚠️ {msg.author.mention}, ваши сообщения удалены. Причина: **{reason}**")
+                await asyncio.sleep(5)
+                await warn_msg.delete()
+            except:
+                pass
             return
     
-    # +rep/-rep
+    # +rep/-rep при ответе
     if msg.reference and msg.content:
         try:
-            ref = await msg.channel.fetch_message(msg.reference.message_id)
-            target = ref.author
+            referenced_msg = await msg.channel.fetch_message(msg.reference.message_id)
+            target = referenced_msg.author
             if target != msg.author:
-                cl = msg.content.lower().strip()
-                if cl in ["+rep", "+реп", "++", "👍", "спасибо", "+"]:
-                    can, w = check_rep_cooldown(msg.author.id, target.id)
+                content_lower = msg.content.lower().strip()
+                if content_lower in ["+rep", "+реп", "++", "👍", "спасибо", "+"]:
+                    can, wait = check_rep_cooldown(msg.author.id, target.id)
                     if can:
                         set_rep_cooldown(msg.author.id, target.id)
-                        nr = await add_reputation(target.id, msg.guild.id, 1)
-                        await msg.reply(f"👍 +1 репутации {target.mention}! ⭐ Теперь: {nr}")
-                elif cl in ["-rep", "-реп", "--", "👎", "-"]:
-                    can, w = check_rep_cooldown(msg.author.id, target.id)
+                        new_rep = await add_reputation(target.id, msg.guild.id, 1)
+                        await msg.reply(f"👍 +1 репутации {target.mention}! ⭐ Теперь: {new_rep}")
+                elif content_lower in ["-rep", "-реп", "--", "👎", "-"]:
+                    can, wait = check_rep_cooldown(msg.author.id, target.id)
                     if can:
                         set_rep_cooldown(msg.author.id, target.id)
-                        nr = await add_reputation(target.id, msg.guild.id, -1)
-                        await msg.reply(f"👎 -1 репутации {target.mention}! ⭐ Теперь: {nr}")
-        except: pass
+                        new_rep = await add_reputation(target.id, msg.guild.id, -1)
+                        await msg.reply(f"👎 -1 репутации {target.mention}! ⭐ Теперь: {new_rep}")
+        except:
+            pass
     
     # ИИ на упоминание
     if bot.user in msg.mentions:
-        clean = msg.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
-        if clean:
+        clean_text = msg.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+        if clean_text:
             async with msg.channel.typing():
-                resp = await get_ai_response(msg.author.id, clean, with_web=True)
-            await msg.reply(resp, mention_author=False)
+                response = await get_ai_response(msg.author.id, clean_text, with_web=True)
+            await msg.reply(response, mention_author=False)
             return
     
     # Опыт и деньги
-    if random.randint(1,3) == 1:
+    if random.randint(1, 3) == 1:
         xp_gain = random.randint(10, 25)
-        lv_up, nl = await add_xp(msg.author.id, msg.guild.id, xp_gain)
-        if lv_up:
-            lch = bot.get_channel(LEVEL_CHANNEL_ID)
-            if lch: await lch.send(f"🎉 {msg.author.mention} достиг {nl} уровня!")
-            if nl in LEVEL_ROLES:
-                role = msg.guild.get_role(LEVEL_ROLES[nl])
-                if role and role not in msg.author.roles: await msg.author.add_roles(role)
+        level_up, new_level = await add_xp(msg.author.id, msg.guild.id, xp_gain)
+        if level_up:
+            level_ch = bot.get_channel(LEVEL_CHANNEL_ID)
+            if level_ch:
+                await level_ch.send(f"🎉 {msg.author.mention} достиг {new_level} уровня!")
+            if new_level in LEVEL_ROLES:
+                role = msg.guild.get_role(LEVEL_ROLES[new_level])
+                if role and role not in msg.author.roles:
+                    await msg.author.add_roles(role)
     
     earn = random.randint(MIN_EARN, MAX_EARN)
     await add_balance(msg.author.id, msg.guild.id, earn)
+    
     await bot.process_commands(msg)
 
 
