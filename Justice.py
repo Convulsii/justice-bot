@@ -2765,6 +2765,212 @@ async def on_raw_reaction_remove(payload):
 
 
 # ========== ТИКЕТЫ ==========
+# ========== УЛУЧШЕННАЯ СИСТЕМА ТИКЕТОВ С ПРИНЯТИЕМ И ЛОГАМИ ==========
+
+class AcceptTicketButton(Button):
+    def __init__(self, channel_id, creator_id):
+        super().__init__(label="✅ Принять тикет", style=discord.ButtonStyle.success, emoji="✅")
+        self.channel_id = channel_id
+        self.creator_id = creator_id
+
+    async def callback(self, interaction: discord.Interaction):
+        # Проверяем, что пользователь имеет роль поддержки
+        is_support = False
+        for role_id in SUPPORT_ROLE_IDS:
+            role = interaction.guild.get_role(role_id)
+            if role and role in interaction.user.roles:
+                is_support = True
+                break
+        
+        if not is_support:
+            await interaction.response.send_message("❌ Только поддержка может принимать тикеты!", ephemeral=True)
+            return
+        
+        channel = bot.get_channel(self.channel_id)
+        if not channel:
+            await interaction.response.send_message("❌ Канал не найден!", ephemeral=True)
+            return
+        
+        # Обновляем название канала
+        old_name = channel.name
+        new_name = f"принят-{old_name.replace('тикет-', '')}" if old_name.startswith("тикет-") else f"принят-{old_name}"
+        await channel.edit(name=new_name)
+        
+        # Обновляем тему канала
+        old_topic = channel.topic or ""
+        await channel.edit(topic=f"{old_topic}\nПринят: {interaction.user.name} (ID: {interaction.user.id}) | {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
+        
+        # Отправляем сообщение о принятии
+        embed = discord.Embed(
+            title="✅ ТИКЕТ ПРИНЯТ",
+            description=f"Тикет принят **{interaction.user.mention}**\n\n"
+                        f"Ответственный: {interaction.user.mention}\n"
+                        f"Время: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n\n"
+                        f"Пожалуйста, опишите проблему подробно, если ещё не сделали этого.",
+            color=discord.Color.green()
+        )
+        await channel.send(embed=embed)
+        
+        # Отключаем кнопку принятия (убираем старый view)
+        try:
+            old_msg = await channel.fetch_message(interaction.message.id)
+            await old_msg.edit(view=None)
+        except:
+            pass
+        
+        await interaction.response.send_message("✅ Тикет принят!", ephemeral=True)
+        
+        # Логируем в канал логов
+        log_embed = discord.Embed(
+            title="🎫 Тикет принят",
+            description=f"Канал: {channel.mention}\nПринял: {interaction.user.mention}\nСоздатель: <@{self.creator_id}>",
+            color=discord.Color.green(),
+            timestamp=datetime.now()
+        )
+        await send_log(interaction.guild.id, log_embed)
+
+
+class CloseTicketWithLogsButton(Button):
+    def __init__(self, channel_id, creator_id):
+        super().__init__(label="🔒 Закрыть тикет", style=discord.ButtonStyle.danger, emoji="🔒")
+        self.channel_id = channel_id
+        self.creator_id = creator_id
+
+    async def callback(self, interaction: discord.Interaction):
+        # Проверяем права
+        is_support = False
+        for role_id in SUPPORT_ROLE_IDS:
+            role = interaction.guild.get_role(role_id)
+            if role and role in interaction.user.roles:
+                is_support = True
+                break
+        is_creator = interaction.user.id == self.creator_id
+        
+        if not (is_support or is_creator):
+            await interaction.response.send_message("❌ Только создатель тикета или поддержка могут закрыть тикет!", ephemeral=True)
+            return
+        
+        # Собираем историю тикета
+        channel = bot.get_channel(self.channel_id)
+        if not channel:
+            await interaction.response.send_message("❌ Канал не найден!", ephemeral=True)
+            return
+        
+        await interaction.response.send_message("⏳ Сбор истории тикета...")
+        
+        # Собираем все сообщения из канала
+        messages = []
+        async for msg in channel.history(limit=500, oldest_first=True):
+            timestamp = msg.created_at.strftime('%d.%m.%Y %H:%M:%S')
+            author = f"{msg.author.name}#{msg.author.discriminator}" if msg.author.discriminator != '0' else msg.author.name
+            content = msg.content if msg.content else "[Вложение или embed]"
+            messages.append(f"[{timestamp}] {author}: {content}")
+        
+        # Сохраняем историю в файл
+        log_dir = "ticket_logs"
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        
+        now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        log_filename = f"{log_dir}/ticket_{channel.name}_{now}.txt"
+        
+        with open(log_filename, 'w', encoding='utf-8') as f:
+            f.write(f"=== ИСТОРИЯ ТИКЕТА ===\n")
+            f.write(f"Канал: {channel.name}\n")
+            f.write(f"Создатель: {self.creator_id}\n")
+            f.write(f"Закрыт: {interaction.user.name} (ID: {interaction.user.id})\n")
+            f.write(f"Дата закрытия: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
+            f.write(f"Всего сообщений: {len(messages)}\n")
+            f.write(f"\n=== СООБЩЕНИЯ ===\n\n")
+            f.write("\n".join(messages))
+        
+        # Отправляем лог в канал для логов
+        log_channel = bot.get_channel(LOGS_CHANNEL_ID)
+        if log_channel:
+            embed = discord.Embed(
+                title="📋 ЗАКРЫТИЕ ТИКЕТА",
+                description=f"**Канал:** {channel.mention}\n**Закрыл:** {interaction.user.mention}\n**Создатель:** <@{self.creator_id}>\n**Всего сообщений:** {len(messages)}",
+                color=discord.Color.orange(),
+                timestamp=datetime.now()
+            )
+            await log_channel.send(embed=embed)
+            await log_channel.send(file=discord.File(log_filename))
+        
+        # Удаляем канал через 5 секунд
+        embed = discord.Embed(
+            title="🔒 Закрытие тикета",
+            description="Тикет будет закрыт через 5 секунд...\nИстория сохранена в логах.",
+            color=discord.Color.orange()
+        )
+        await interaction.edit_original_response(content=None, embed=embed, view=None)
+        
+        await asyncio.sleep(5)
+        
+        if self.channel_id in active_tickets:
+            del active_tickets[self.channel_id]
+        await channel.delete()
+        
+        # Удаляем файл лога (он уже отправлен)
+        try:
+            os.remove(log_filename)
+        except:
+            pass
+
+
+class TicketButtonWithAccept(Button):
+    def __init__(self):
+        super().__init__(label="🎫 Создать тикет", style=discord.ButtonStyle.primary, emoji="🎫")
+
+    async def callback(self, interaction: discord.Interaction):
+        category = interaction.guild.get_channel(TICKET_CATEGORY_ID)
+        if not category:
+            await interaction.response.send_message("❌ Категория для тикетов не найдена!", ephemeral=True)
+            return
+        
+        for channel in category.channels:
+            if channel.topic and str(interaction.user.id) in channel.topic:
+                await interaction.response.send_message("❌ У вас уже есть открытый тикет!", ephemeral=True)
+                return
+        
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, read_message_history=True),
+            interaction.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True)
+        }
+        for role_id in SUPPORT_ROLE_IDS:
+            role = interaction.guild.get_role(role_id)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, read_message_history=True, manage_channels=True)
+        
+        ticket_number = len([c for c in category.channels if c.name.startswith("тикет-")]) + 1
+        channel = await category.create_text_channel(
+            name=f"тикет-{ticket_number}",
+            overwrites=overwrites,
+            topic=f"Создатель: {interaction.user.id} | Создан: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}"
+        )
+        active_tickets[channel.id] = {"creator": interaction.user.id, "channel": channel}
+        
+        embed = discord.Embed(
+            title="🎫 Тикет создан",
+            description=f"{interaction.user.mention}, опишите вашу проблему.\nПоддержка ответит в ближайшее время.\n\n"
+                        f"**Инструкция:**\n"
+                        f"1. Опишите проблему подробно\n"
+                        f"2. Приложите доказательства (скриншоты)\n"
+                        f"3. Дождитесь ответа поддержки\n\n"
+                        f"*История тикета будет сохранена после закрытия.*",
+            color=discord.Color.green()
+        )
+        
+        # Кнопки: принять и закрыть
+        view = View()
+        view.add_item(AcceptTicketButton(channel.id, interaction.user.id))
+        view.add_item(CloseTicketWithLogsButton(channel.id, interaction.user.id))
+        
+        await channel.send(embed=embed, view=view)
+        await interaction.response.send_message(f"✅ Тикет создан! Перейдите в {channel.mention}", ephemeral=True)
+
+
+# Обновлённая функция настройки тикетов
 async def setup_ticket_system():
     channel = bot.get_channel(TICKET_CREATE_CHANNEL_ID)
     if not channel:
@@ -2775,142 +2981,79 @@ async def setup_ticket_system():
         if msg.author == bot.user:
             await msg.delete()
     
-    rules_embed = discord.Embed(title="📜 **ПРАВИЛА ТИКЕТОВ**", color=discord.Color.gold(), description="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    rules_embed = discord.Embed(
+        title="📜 **ПРАВИЛА ТИКЕТОВ**",
+        color=discord.Color.gold(),
+        description="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    )
     rules_embed.add_field(name="**1.**", value="Не открывать тикеты по абсурдной причине.", inline=False)
     rules_embed.add_field(name="**2.**", value="Если тикет уже принят модератором, то строго запрещается влезать в этот тикет.", inline=False)
     rules_embed.add_field(name="**3.**", value="Если принявший тикет модератор не отвечает в течении **20 минут**, то влезать в тикет разрешается всем выше и ниже стоящим админам.", inline=False)
     rules_embed.add_field(name="**4.**", value="В тикетах должна быть описана сама проблема.", inline=False)
-    rules_embed.add_field(name="**5.**", value="Если тикет касается человека, есть доказательства его неправомерных действий, то с согласия любого модератора оно может передаться в суд.", inline=False)
-    rules_embed.add_field(name="**6.**", value="На суд дается не больше **недели**.", inline=False)
-    rules_embed.add_field(name="**7.**", value="За клевету и введение суда в заблуждение полагается наказание.", inline=False)
+    rules_embed.add_field(name="**5.**", value="История всех тикетов сохраняется и может быть проверена главным администратором.", inline=False)
     rules_embed.set_footer(text="Нажимая на кнопку, вы соглашаетесь с правилами")
     await channel.send(embed=rules_embed)
     
     main_embed = discord.Embed(
         title="🎫 **ТИКЕТЫ ПОДДЕРЖКИ**",
-        description="Нажмите на кнопку ниже, чтобы создать тикет.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📌 **Краткая инструкция:**\n• Опишите проблему подробно и по делу\n• Приложите доказательства\n• Дождитесь ответа модератора\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        description="Нажмите на кнопку ниже, чтобы создать тикет.\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "📌 **Как это работает:**\n"
+                    "• Нажмите на кнопку \"Создать тикет\"\n"
+                    "• Опишите проблему\n"
+                    "• Модератор примет тикет и ответит\n"
+                    "• После решения — тикет закрывается\n"
+                    "• **История тикета сохраняется в логах**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         color=discord.Color.blue()
     )
     view = View()
-    view.add_item(TicketButtonMultipleRoles())
+    view.add_item(TicketButtonWithAccept())
     await channel.send(embed=main_embed, view=view)
     print(f"✅ Система тикетов отправлена в канал {channel.mention}")
 
 
-class TicketButtonMultipleRoles(Button):
-    def __init__(self):
-        super().__init__(label="🎫 Создать тикет", style=discord.ButtonStyle.primary, emoji="🎫")
-
-    async def callback(self, interaction: discord.Interaction):
-        category = interaction.guild.get_channel(TICKET_CATEGORY_ID)
-        if not category:
-            await interaction.response.send_message("❌ Категория для тикетов не найдена!", ephemeral=True)
-            return
-        for channel in category.channels:
-            if channel.topic and str(interaction.user.id) in channel.topic:
-                await interaction.response.send_message("❌ У вас уже есть открытый тикет!", ephemeral=True)
-                return
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, read_message_history=True),
-            interaction.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True)
-        }
-        for role_id in SUPPORT_ROLE_IDS:
-            role = interaction.guild.get_role(role_id)
-            if role:
-                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, read_message_history=True, manage_channels=True)
-        ticket_number = len([c for c in category.channels if c.name.startswith("тикет-")]) + 1
-        channel = await category.create_text_channel(name=f"тикет-{ticket_number}", overwrites=overwrites, topic=f"Создатель: {interaction.user.id}")
-        active_tickets[channel.id] = {"creator": interaction.user.id, "channel": channel}
-        embed = discord.Embed(title="🎫 Тикет создан", description=f"{interaction.user.mention}, опишите вашу проблему.\nПоддержка ответит в ближайшее время.\n\n**Для закрытия тикета используйте кнопку ниже.**", color=discord.Color.green())
-        close_button = CloseTicketButtonMultipleRoles(channel.id, interaction.user.id)
-        view = View()
-        view.add_item(close_button)
-        await channel.send(embed=embed, view=view)
-        await interaction.response.send_message(f"✅ Тикет создан! Перейдите в {channel.mention}", ephemeral=True)
-
-
-class CloseTicketButtonMultipleRoles(Button):
-    def __init__(self, channel_id, creator_id):
-        super().__init__(label="🔒 Закрыть тикет", style=discord.ButtonStyle.danger, emoji="🔒")
-        self.channel_id = channel_id
-        self.creator_id = creator_id
-
-    async def callback(self, interaction: discord.Interaction):
-        is_support = False
-        for role_id in SUPPORT_ROLE_IDS:
-            role = interaction.guild.get_role(role_id)
-            if role and role in interaction.user.roles:
-                is_support = True
-                break
-        is_creator = interaction.user.id == self.creator_id
-        if not (is_support or is_creator):
-            await interaction.response.send_message("❌ Только создатель тикета или поддержка могут закрыть тикет!", ephemeral=True)
-            return
-        embed = discord.Embed(title="🔒 Закрытие тикета", description="Тикет будет закрыт через 5 секунд...", color=discord.Color.orange())
-        await interaction.response.send_message(embed=embed)
-        await asyncio.sleep(5)
-        channel = interaction.guild.get_channel(self.channel_id)
-        if channel:
-            await channel.delete()
-        if self.channel_id in active_tickets:
-            del active_tickets[self.channel_id]
-
-
 @bot.command()
-async def ticket_close(ctx):
-    if not ctx.channel.category or ctx.channel.category.id != TICKET_CATEGORY_ID:
-        await ctx.send("❌ Эта команда доступна только в каналах тикетов!")
+@commands.has_permissions(administrator=True)
+async def ticket_history(ctx, ticket_channel: discord.TextChannel = None):
+    """📋 Показать историю тикета (только для админов)"""
+    
+    if ticket_channel is None:
+        await ctx.send("❌ Укажите канал тикета: `j.ticket_history #канал`")
         return
-    creator_id = None
-    if ctx.channel.id in active_tickets:
-        creator_id = active_tickets[ctx.channel.id]["creator"]
-    elif ctx.channel.topic and "Создатель:" in ctx.channel.topic:
-        try:
-            creator_id = int(ctx.channel.topic.split("Создатель:")[1].strip())
-        except:
-            pass
-    is_support = False
-    for role_id in SUPPORT_ROLE_IDS:
-        role = ctx.guild.get_role(role_id)
-        if role and role in ctx.author.roles:
-            is_support = True
-            break
-    is_creator = ctx.author.id == creator_id
-    if not (is_support or is_creator):
-        await ctx.send("❌ Только создатель тикета или поддержка могут закрыть тикет!")
+    
+    if not ticket_channel.name.startswith(("тикет-", "принят-")):
+        await ctx.send("❌ Это не канал тикета!")
         return
-    embed = discord.Embed(title="🔒 Закрытие тикета", description="Тикет будет закрыт через 5 секунд...", color=discord.Color.orange())
-    await ctx.send(embed=embed)
-    await asyncio.sleep(5)
-    if ctx.channel.id in active_tickets:
-        del active_tickets[ctx.channel.id]
-    await ctx.channel.delete()
-
-
-@bot.command()
-async def tickets_list(ctx):
-    is_support = False
-    for role_id in SUPPORT_ROLE_IDS:
-        role = ctx.guild.get_role(role_id)
-        if role and role in ctx.author.roles:
-            is_support = True
-            break
-    if not is_support:
-        await ctx.send("❌ Только поддержка может просматривать список тикетов!")
+    
+    await ctx.send(f"⏳ Сбор истории канала {ticket_channel.mention}...")
+    
+    messages = []
+    async for msg in ticket_channel.history(limit=500, oldest_first=True):
+        timestamp = msg.created_at.strftime('%d.%m.%Y %H:%M:%S')
+        author = msg.author.name
+        content = msg.content if msg.content else "[Вложение или embed]"
+        messages.append(f"[{timestamp}] {author}: {content}")
+    
+    if not messages:
+        await ctx.send("📭 Нет сообщений в этом тикете.")
         return
-    if not active_tickets:
-        await ctx.send("📭 Нет активных тикетов.")
-        return
-    embed = discord.Embed(title="📋 Активные тикеты", color=discord.Color.blue())
-    for channel_id, data in active_tickets.items():
-        channel = ctx.guild.get_channel(channel_id)
-        if channel:
-            creator = await bot.fetch_user(data["creator"])
-            embed.add_field(name=f"#{channel.name}", value=f"Создатель: {creator.mention}\nСсылка: {channel.mention}", inline=False)
-    await ctx.send(embed=embed)
-
-
+    
+    # Создаём файл с историей
+    now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    log_filename = f"ticket_history_{ticket_channel.name}_{now}.txt"
+    
+    with open(log_filename, 'w', encoding='utf-8') as f:
+        f.write(f"=== ИСТОРИЯ ТИКЕТА ===\n")
+        f.write(f"Канал: {ticket_channel.name}\n")
+        f.write(f"Топик: {ticket_channel.topic or 'Нет'}\n")
+        f.write(f"Дата выгрузки: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
+        f.write(f"Всего сообщений: {len(messages)}\n")
+        f.write(f"\n=== СООБЩЕНИЯ ===\n\n")
+        f.write("\n".join(messages))
+    
+    await ctx.send(file=discord.File(log_filename))
+    os.remove(log_filename)
 # ========== ПРИВАТНЫЕ ГОЛОСОВЫЕ ==========
 class VCControlPanel(View):
     def __init__(self, channel_id, owner_id):
