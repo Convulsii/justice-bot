@@ -522,8 +522,11 @@ async def get_ai_response(user_id, user_message, with_web=True):
 
 
 @bot.command()
-async def ai(ctx, *, question: str):
+async def ai(ctx, *, question: str = None):
     """🤖 Задать вопрос ИИ с веб-поиском"""
+    if not question:
+        await ctx.send("❌ Введите вопрос после команды!\nПример: `j.ai Как дела?`")
+        return
     if len(question) > 500:
         await ctx.send("❌ Вопрос слишком длинный! Максимум 500 символов.")
         return
@@ -2742,7 +2745,13 @@ async def on_voice_state_update(m, b, a):
 
 @bot.event
 async def on_message(msg):
-    if msg.author.bot: return
+    if bot.user in msg.mentions:
+    clean_text = msg.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+    if clean_text:
+        async with msg.channel.typing():
+            response = await get_ai_response(msg.author.id, clean_text, with_web=True)  # ← добавил msg.author.id
+        await msg.reply(response, mention_author=False)
+        return
     
     # Автомод
     sett = guild_settings.get(msg.guild.id, {})
