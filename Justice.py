@@ -1251,12 +1251,12 @@ async def profile(ctx, member: discord.Member = None):
     bank = data[5] if len(data) > 5 else 0
     reputation = data[6] if len(data) > 6 else 0
     total_msgs = data[9] if len(data) > 9 else 0
-    today_msgs = data[21] if len(data) > 20 else 0
-    week_msgs = data[22] if len(data) > 21 else 0
-    month_msgs = data[23] if len(data) > 22 else 0
+    today_msgs = data[21] if len(data) > 21 else 0
+    week_msgs = data[22] if len(data) > 22 else 0
+    month_msgs = data[23] if len(data) > 23 else 0
     voice_streak = data[26] if len(data) > 26 else 0
     bio = data[17] if len(data) > 17 and data[17] else "Нет биографии"
-    gender = data[20] if len(data) > 19 else ""
+    gender = data[20] if len(data) > 20 else ""
     
     # Расчёт XP
     xp_for_next = 200 * ((level + 1) ** 2)
@@ -3359,13 +3359,7 @@ async def reset_activity_counters():
 
 
 # ========== ЗАПУСК ВИКТОРИНЫ И СТО ЛОТО ==========
-quiz_active = False
-quiz_question = None
-quiz_answer = None
-quiz_options = {}
-quiz_message_id = None
-quiz_answered_users = set()
-
+# ========== ЗАПУСК ВИКТОРИНЫ И СТО ЛОТО ==========
 
 async def start_quiz():
     """Запуск викторины (первый раз через 2 часа, потом каждые 2 часа)"""
@@ -3382,143 +3376,66 @@ async def start_quiz():
         quiz_active = True
         quiz_answered_users = set()
         
-        try:
-            # Запасной вопрос если ИИ не работает
-            quiz_question = "Сколько будет 2 + 2?"
-            quiz_answer = "B"
-            quiz_options = {"A": "3", "B": "4", "C": "5", "D": "6"}
-            
-            try:
-                resp = ai_client.chat.completions.create(
-                    model=AI_MODEL,
-                    messages=[
-                        {"role": "system", "content": "Ты генератор вопросов для викторины. Придумай интересный вопрос с 4 вариантами ответа (A, B, C, D). Верни в формате: ВОПРОС: ... | A: ... | B: ... | C: ... | D: ... | ОТВЕТ: буква (A/B/C/D)"},
-                        {"role": "user", "content": "Сгенерируй новый вопрос для викторины."}
-                    ]
-                )
-                response = resp.choices[0].message.content
-                lines = response.split("|")
-                if len(lines) >= 6:
-                    quiz_question = lines[0].replace("ВОПРОС:", "").strip()
-                    quiz_options = {
-                        "A": lines[1].replace("A:", "").strip(),
-                        "B": lines[2].replace("B:", "").strip(),
-                        "C": lines[3].replace("C:", "").strip(),
-                        "D": lines[4].replace("D:", "").strip()
-                    }
-                    quiz_answer = lines[5].replace("ОТВЕТ:", "").strip().upper()[0]
-            except:
-                pass
-            
-            channel = bot.get_channel(QUIZ_CHANNEL_ID)
-            if channel:
-                embed = discord.Embed(
-                    title="🧠 ВИКТОРИНА!",
-                    description=f"**{quiz_question}**\n\n"
-                                f"A) {quiz_options['A']}\n"
-                                f"B) {quiz_options['B']}\n"
-                                f"C) {quiz_options['C']}\n"
-                                f"D) {quiz_options['D']}\n\n"
-                                f"⏰ У вас есть {QUIZ_ANSWER_TIME // 60} минут, чтобы ответить буквой (A/B/C/D)!",
-                    color=discord.Color.purple()
-                )
-                msg = await channel.send(embed=embed)
-                quiz_message_id = msg.id
-                
-                await asyncio.sleep(QUIZ_ANSWER_TIME)
-                
-                quiz_active = False
-                await channel.send(f"⏰ Время вышло! Правильный ответ: **{quiz_answer}) {quiz_options[quiz_answer]}**")
+        # Запасной вопрос по умолчанию (если ИИ не сработает)
+        quiz_question = "Сколько будет 2 + 2?"
+        quiz_answer = "B"
+        quiz_options = {"A": "3", "B": "4", "C": "5", "D": "6"}
         
+        # Пытаемся получить вопрос от ИИ
+        try:
+            resp = ai_client.chat.completions.create(
+                model=AI_MODEL,
+                messages=[
+                    {"role": "system", "content": "Ты генератор вопросов для викторины. Придумай интересный вопрос с 4 вариантами ответа (A, B, C, D). Верни в формате: ВОПРОС: ... | A: ... | B: ... | C: ... | D: ... | ОТВЕТ: буква (A/B/C/D)"},
+                    {"role": "user", "content": "Сгенерируй новый вопрос для викторины. Вопрос должен быть понятным и не слишком сложным."}
+                ],
+                temperature=0.7,
+                max_tokens=300
+            )
+            response = resp.choices[0].message.content
+            lines = response.split("|")
+            if len(lines) >= 6:
+                quiz_question = lines[0].replace("ВОПРОС:", "").strip()
+                quiz_options = {
+                    "A": lines[1].replace("A:", "").strip(),
+                    "B": lines[2].replace("B:", "").strip(),
+                    "C": lines[3].replace("C:", "").strip(),
+                    "D": lines[4].replace("D:", "").strip()
+                }
+                quiz_answer = lines[5].replace("ОТВЕТ:", "").strip().upper()[0]
+                # Проверяем, что ответ действительно A/B/C/D
+                if quiz_answer not in ["A", "B", "C", "D"]:
+                    quiz_answer = "B"
         except Exception as e:
-            print(f"Ошибка викторины: {e}")
-            quiz_active = False
+            print(f"Ошибка генерации вопроса для викторины: {e}")
+            # Оставляем запасной вопрос
+        
+        # Отправляем викторину в канал
+        channel = bot.get_channel(QUIZ_CHANNEL_ID)
+        if channel:
+            embed = discord.Embed(
+                title="🧠 ВИКТОРИНА!",
+                description=f"**{quiz_question}**\n\n"
+                            f"A) {quiz_options['A']}\n"
+                            f"B) {quiz_options['B']}\n"
+                            f"C) {quiz_options['C']}\n"
+                            f"D) {quiz_options['D']}\n\n"
+                            f"⏰ У вас есть {QUIZ_ANSWER_TIME // 60} минут, чтобы ответить буквой (A/B/C/D)!\n"
+                            f"💰 Награда: {QUIZ_REWARD} 💎",
+                color=discord.Color.purple()
+            )
+            await channel.send(embed=embed)
+            
+            # Ждём ответы
+            await asyncio.sleep(QUIZ_ANSWER_TIME)
+            
+            # Объявляем правильный ответ
+            await channel.send(f"⏰ Время вышло! Правильный ответ: **{quiz_answer}) {quiz_options[quiz_answer]}**")
+        
+        quiz_active = False
         
         # Ждём 2 часа до следующей викторины
         await asyncio.sleep(QUIZ_INTERVAL_SECONDS)
-
-
-async def stoloto_scheduler():
-    while True:
-        now = datetime.now()
-        target_time = now.replace(hour=14, minute=0, second=0, microsecond=0)
-        if now >= target_time:
-            target_time += timedelta(days=1)
-        
-        wait_seconds = (target_time - now).total_seconds()
-        await asyncio.sleep(wait_seconds)
-        
-        await run_stoloto()
-
-
-async def run_stoloto():
-    global stoloto_active, stoloto_tickets
-    
-    channel = bot.get_channel(STOLOTO_CHANNEL_ID)
-    if not channel:
-        return
-    
-    stoloto_active = True
-    stoloto_tickets = []
-    stoloto_end_time = datetime.now().replace(hour=14, minute=0, second=0) + timedelta(days=1)
-    
-    embed = discord.Embed(
-        title="🎰 СТО ЛОТО",
-        description=f"**Новый розыгрыш начался!**\n\n"
-                    f"⏰ Продажа билетов до: <t:{int(stoloto_end_time.timestamp())}:R>\n"
-                    f"💰 Призовой фонд: **0** 💎\n\n"
-                    f"**Купить билет:** `j.loto_buy` (цена: 50💎)\n"
-                    f"Чем больше участников — тем больше приз!",
-        color=discord.Color.gold()
-    )
-    await channel.send(embed=embed)
-    
-    await asyncio.sleep(86400)
-    
-    if not stoloto_tickets:
-        embed = discord.Embed(title="🎰 СТО ЛОТО", description="😔 **Никто не купил билеты сегодня!**", color=discord.Color.red())
-        await channel.send(embed=embed)
-    else:
-        winner_id = random.choice(stoloto_tickets)
-        prize = len(stoloto_tickets) * 50
-        await add_balance(winner_id, channel.guild.id, prize)
-        winner = await bot.fetch_user(winner_id)
-        
-        embed = discord.Embed(title="🎰 СТО ЛОТО", description=f"**РОЗЫГРЫШ СОСТОЯЛСЯ!**\n\n🏆 **ПОБЕДИТЕЛЬ:** {winner.mention}\n💰 **ПРИЗ:** {prize} 💎\n📊 Всего участников: {len(stoloto_tickets)}", color=discord.Color.gold())
-        await channel.send(embed=embed)
-    
-    stoloto_active = False
-
-
-@bot.command()
-async def loto_buy(ctx):
-    global stoloto_tickets
-    
-    if not stoloto_active:
-        await ctx.send("❌ Сейчас нет активного розыгрыша! Новый начинается каждый день в 14:00 МСК")
-        return
-    
-    if datetime.now() >= stoloto_end_time:
-        await ctx.send("❌ Продажа билетов на сегодня закончена!")
-        return
-    
-    if ctx.author.id in stoloto_tickets:
-        await ctx.send("❌ У вас уже есть билет на сегодня!")
-        return
-    
-    balance = (await get_user(ctx.author.id, ctx.guild.id))[4]
-    ticket_price = 50
-    
-    if balance < ticket_price:
-        await ctx.send(f"❌ Недостаточно средств! Билет стоит {ticket_price} 💎")
-        return
-    
-    await add_balance(ctx.author.id, ctx.guild.id, -ticket_price)
-    stoloto_tickets.append(ctx.author.id)
-    
-    await ctx.send(f"✅ {ctx.author.mention}, вы купили билет за {ticket_price} 💎! Всего участников: {len(stoloto_tickets)}")
-
-
 # ========== НАСТРОЙКИ ==========
 @bot.command()
 @commands.has_permissions(administrator=True)
