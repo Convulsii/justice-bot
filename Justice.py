@@ -75,7 +75,7 @@ LEVEL_ROLES = {
 # ИИ настройки
 AI_API_KEY = "rk_live_G15mOokgVTN8hKFBvWVda38wZGOiXkVs"
 AI_BASE_URL = "https://api.ranvik.ru/v1"
-AI_MODEL = "gpt-5-nano"
+AI_MODEL = "gemini-2.0-flash"
 
 AI_SYSTEM_PROMPT = """Ты дружелюбный помощник в Discord сервере.
 
