@@ -3136,7 +3136,11 @@ quiz_answered_users = set()
 
 
 async def start_quiz():
+    """Запуск викторины (первый раз через 2 часа, потом каждые 2 часа)"""
     global quiz_active, quiz_question, quiz_answer, quiz_options, quiz_message_id, quiz_answered_users
+    
+    # Ждём 2 часа перед ПЕРВЫМ запуском
+    await asyncio.sleep(QUIZ_INTERVAL_SECONDS)
     
     while True:
         if quiz_active:
@@ -3147,6 +3151,7 @@ async def start_quiz():
         quiz_answered_users = set()
         
         try:
+            # Запасной вопрос если ИИ не работает
             quiz_question = "Сколько будет 2 + 2?"
             quiz_answer = "B"
             quiz_options = {"A": "3", "B": "4", "C": "5", "D": "6"}
@@ -3157,9 +3162,7 @@ async def start_quiz():
                     messages=[
                         {"role": "system", "content": "Ты генератор вопросов для викторины. Придумай интересный вопрос с 4 вариантами ответа (A, B, C, D). Верни в формате: ВОПРОС: ... | A: ... | B: ... | C: ... | D: ... | ОТВЕТ: буква (A/B/C/D)"},
                         {"role": "user", "content": "Сгенерируй новый вопрос для викторины."}
-                    ],
-                    temperature=0.8,
-                    max_completion_tokens=500
+                    ]
                 )
                 response = resp.choices[0].message.content
                 lines = response.split("|")
@@ -3199,6 +3202,7 @@ async def start_quiz():
             print(f"Ошибка викторины: {e}")
             quiz_active = False
         
+        # Ждём 2 часа до следующей викторины
         await asyncio.sleep(QUIZ_INTERVAL_SECONDS)
 
 
