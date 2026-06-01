@@ -44,7 +44,7 @@ DEFAULT_ROLE_ID = 1502637204487278744
 VC_CREATE_CATEGORY_ID = 1507479787223126036
 VC_TRIGGER_CHANNEL_ID = 1507485728739688549
 TICKET_CATEGORY_ID = 1507503146744938506
-TICKET_CREATE_CHANNEL_ID = 1507503353117020241
+TICKET_CREATE_CHANNEL_ID = 1510991265154601111  # ← НОВЫЙ ID!
 STOLOTO_CHANNEL_ID = 1509190455106211840
 IDEA_REVIEW_CHANNEL_ID = 1502637204982206679
 
@@ -91,6 +91,7 @@ GAME_COOLDOWN = {
     "casino": 300, "dice": 300, "coin": 300, "rps": 300,
     "blackjack": 300, "rob": 3600, "work": 3600, "rep": 3600
 }
+FISHING_COOLDOWN = 300  # 5 минут между рыбалками
 
 # Шансы
 WIN_CHANCE = {
@@ -169,6 +170,7 @@ vc_sessions = {}
 user_message_timestamps = defaultdict(list)
 user_warnings = defaultdict(list)
 user_conversations = defaultdict(list)
+spam_messages_to_delete = defaultdict(list)  # ← ДЛЯ УДАЛЕНИЯ ВСЕХ СООБЩЕНИЙ
 MAX_CONTEXT_MESSAGES = 10
 
 # Ролевые GIF
@@ -370,7 +372,6 @@ def set_rep_cooldown(from_id, to_id):
 # ========== ПОГОДА ==========
 @bot.command()
 async def weather(ctx, *, city: str = None):
-    """🌤️ Погода в любом городе (Яндекс.Погода)"""
     if city is None:
         await ctx.send("🌤️ **Погода**\n`j.weather <город>` - показать погоду\nПример: `j.weather Москва`")
         return
@@ -443,7 +444,6 @@ async def get_ai_response(user_id, user_message, with_web=False):
     
     lower_msg = user_message.lower()
     
-    # Быстрые ответы
     if any(x in lower_msg for x in ["привет", "здравствуй"]):
         return "👋 Привет!"
     if "как дела" in lower_msg:
@@ -457,7 +457,6 @@ async def get_ai_response(user_id, user_message, with_web=False):
     if "погода" in lower_msg:
         return "🌤️ Используй `j.weather <город>`"
     
-    # Контекст
     conv = user_conversations.get(user_id, [])
     messages = [{"role": "system", "content": f"Ты помощник. Сегодня {datetime.now().strftime('%d.%m.%Y')}. Отвечай кратко."}]
     messages.extend(conv[-MAX_CONTEXT_MESSAGES:])
@@ -487,7 +486,6 @@ async def get_ai_response(user_id, user_message, with_web=False):
 
 @bot.command()
 async def ai(ctx, *, question: str = None):
-    """🤖 Задать вопрос ИИ"""
     if not question:
         await ctx.send("❌ Напиши вопрос: `j.ai Как дела?`")
         return
@@ -500,7 +498,7 @@ async def ai(ctx, *, question: str = None):
     await msg.edit(content=response)
 
 
-# ========== АВТОМОДЕРАЦИЯ ==========
+# ========== АВТОМОДЕРАЦИЯ (С УДАЛЕНИЕМ ВСЕХ СООБЩЕНИЙ) ==========
 async def check_spam(message):
     user_id = message.author.id
     content = message.content.strip().lower()
@@ -508,33 +506,37 @@ async def check_spam(message):
     
     settings = guild_settings.get(message.guild.id, {})
     
-    # Запрещённые слова
     for word in settings.get("automod_bad_words", []):
         if word in content:
+            spam_messages_to_delete[user_id].append(message.id)
             return True, f"запрещённое слово: {word}"
     
-    # Реклама Discord серверов
     if settings.get("automod_invites_enabled", True):
         if "discord.gg/" in content or "discord.com/invite/" in content or "dsc.gg/" in content:
+            spam_messages_to_delete[user_id].append(message.id)
             return True, "реклама Discord сервера"
     
-    # Фишинг
     if settings.get("automod_phishing_enabled", True):
         if ("free" in content or "giveaway" in content) and ("nitro" in content or "steam" in content):
+            spam_messages_to_delete[user_id].append(message.id)
             return True, "подозрение на фишинг"
         if ("пополни" in content or "баланс" in content) and ("http" in content or "www" in content):
+            spam_messages_to_delete[user_id].append(message.id)
             return True, "подозрение на фишинг"
     
-    # Флуд
     if user_id not in user_message_timestamps:
         user_message_timestamps[user_id] = []
-    
     user_message_timestamps[user_id].append(now)
-    user_message_timestamps[user_id] = [t for t in user_message_timestamps[user_id] if now - t < ANTISPAM_WINDOW_SECONDS]
+    spam_messages_to_delete[user_id].append(message.id)
+    
+    cutoff = now - ANTISPAM_WINDOW_SECONDS
+    old_indices = [i for i, t in enumerate(user_message_timestamps[user_id]) if t < cutoff]
+    for i in sorted(old_indices, reverse=True):
+        user_message_timestamps[user_id].pop(i)
+        spam_messages_to_delete[user_id].pop(i)
     
     if len(user_message_timestamps[user_id]) > ANTISPAM_MAX_MESSAGES:
-        user_message_timestamps[user_id] = []
-        return True, f"флуд ({ANTISPAM_MAX_MESSAGES} сообщений за {ANTISPAM_WINDOW_SECONDS} секунд)"
+        return True, f"флуд ({len(user_message_timestamps[user_id])} сообщений за {ANTISPAM_WINDOW_SECONDS} секунд)"
     
     return False, None
 
@@ -560,6 +562,13 @@ async def add_auto_warning(user, reason, channel):
         await send_log(user.guild.id, alert)
     
     return warning_count
+
+
+async def send_warning_dm(user, reason, wc, channel):
+    try:
+        await user.send(f"⚠️ **Автомодерация**\nВаши сообщения в {channel.mention} были удалены.\n📝 Причина: {reason}\n⚠️ Предупреждений: {wc}/{ANTISPAM_MAX_WARNINGS}")
+    except:
+        pass
 
 
 @bot.command()
@@ -1026,10 +1035,10 @@ async def bio(ctx, *, text: str = None):
     await ctx.send("✅ Ваша биография обновлена!")
 
 
-# ========== STEAM (С КНОПКАМИ) ==========
+# ========== STEAM ==========
 class SteamProfileView(discord.ui.View):
     def __init__(self, target_user, steam_id):
-        super().__init__(timeout=120)
+        super().__init__(timeout=None)
         self.target_user = target_user
         self.steam_id = steam_id
         self.current_action = "profile"
@@ -2529,6 +2538,15 @@ class CloseTicketButton(Button):
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         
+        channel = bot.get_channel(self.channel_id)
+        if not channel:
+            await interaction.followup.send("❌ Канал не найден!", ephemeral=True)
+            return
+        
+        if not channel.category or channel.category.id != TICKET_CATEGORY_ID:
+            await interaction.followup.send("❌ Это не канал тикета!", ephemeral=True)
+            return
+        
         is_support = False
         for role_id in SUPPORT_ROLE_IDS:
             role = interaction.guild.get_role(role_id)
@@ -2540,11 +2558,6 @@ class CloseTicketButton(Button):
         
         if not (is_support or is_creator):
             await interaction.followup.send("❌ Только создатель тикета или поддержка могут закрыть тикет!", ephemeral=True)
-            return
-        
-        channel = bot.get_channel(self.channel_id)
-        if not channel:
-            await interaction.followup.send("❌ Канал не найден!", ephemeral=True)
             return
         
         messages = []
@@ -2619,7 +2632,7 @@ class TicketButton(Button):
             color=discord.Color.green()
         )
         
-        view = View()
+        view = View(timeout=None)
         view.add_item(AcceptTicketButton(channel.id, interaction.user.id))
         view.add_item(CloseTicketButton(channel.id, interaction.user.id))
         
@@ -2630,7 +2643,11 @@ class TicketButton(Button):
 @bot.command()
 async def close_ticket(ctx):
     if not ctx.channel.category or ctx.channel.category.id != TICKET_CATEGORY_ID:
-        await ctx.send("❌ Эта команда доступна только в каналах тикетов!")
+        await ctx.send("❌ Эта команда доступна **только в каналах тикетов**!")
+        return
+    
+    if not ctx.channel.name.startswith(("тикет-", "принят-")):
+        await ctx.send("❌ Это не канал тикета!")
         return
     
     creator_id = None
@@ -2653,31 +2670,50 @@ async def close_ticket(ctx):
         await ctx.send("❌ Только создатель тикета или поддержка могут закрыть тикет!")
         return
     
-    messages = []
-    async for m in ctx.channel.history(limit=200, oldest_first=True):
-        messages.append(f"[{m.created_at.strftime('%d.%m.%Y %H:%M:%S')}] {m.author.name}: {m.content[:100] if m.content else '[вложение]'}")
+    embed = discord.Embed(title="⚠️ ПОДТВЕРЖДЕНИЕ", description="Вы уверены, что хотите закрыть этот тикет?\nИстория будет сохранена.", color=discord.Color.orange())
+    msg = await ctx.send(embed=embed)
+    await msg.add_reaction("✅")
+    await msg.add_reaction("❌")
     
-    if not os.path.exists("ticket_logs"):
-        os.makedirs("ticket_logs")
+    def check(r, u):
+        return u.id == ctx.author.id and str(r.emoji) in ["✅", "❌"] and r.message.id == msg.id
     
-    now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    log_file = f"ticket_logs/ticket_{ctx.channel.name}_{now}.txt"
-    
-    with open(log_file, 'w', encoding='utf-8') as f:
-        f.write(f"=== ТИКЕТ {ctx.channel.name} ===\n")
-        f.write(f"Создатель: {creator_id}\n")
-        f.write(f"Закрыл: {ctx.author.name}\n")
-        f.write(f"Дата: {now}\n")
-        f.write(f"Всего сообщений: {len(messages)}\n\n")
-        f.write("\n".join(messages))
-    
-    log_channel = bot.get_channel(LOGS_CHANNEL_ID)
-    if log_channel:
-        await log_channel.send(f"📋 **Закрыт тикет** {ctx.channel.mention}\n👤 Закрыл: {ctx.author.mention}\n📊 Сообщений: {len(messages)}")
-        await log_channel.send(file=discord.File(log_file))
-    
-    await ctx.channel.delete()
-    os.remove(log_file)
+    try:
+        r, u = await bot.wait_for('reaction_add', timeout=30, check=check)
+        if str(r.emoji) == "❌":
+            await ctx.send("❌ Закрытие отменено.")
+            await msg.delete()
+            return
+        
+        messages = []
+        async for m in ctx.channel.history(limit=200, oldest_first=True):
+            messages.append(f"[{m.created_at.strftime('%d.%m.%Y %H:%M:%S')}] {m.author.name}: {m.content[:100] if m.content else '[вложение]'}")
+        
+        if not os.path.exists("ticket_logs"):
+            os.makedirs("ticket_logs")
+        
+        now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        log_file = f"ticket_logs/ticket_{ctx.channel.name}_{now}.txt"
+        
+        with open(log_file, 'w', encoding='utf-8') as f:
+            f.write(f"=== ТИКЕТ {ctx.channel.name} ===\n")
+            f.write(f"Создатель: {creator_id}\n")
+            f.write(f"Закрыл: {ctx.author.name}\n")
+            f.write(f"Дата: {now}\n")
+            f.write(f"Всего сообщений: {len(messages)}\n\n")
+            f.write("\n".join(messages))
+        
+        log_channel = bot.get_channel(LOGS_CHANNEL_ID)
+        if log_channel:
+            await log_channel.send(f"📋 **Закрыт тикет** {ctx.channel.mention}\n👤 Закрыл: {ctx.author.mention}\n📊 Сообщений: {len(messages)}")
+            await log_channel.send(file=discord.File(log_file))
+        
+        await ctx.channel.delete()
+        os.remove(log_file)
+        
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Время вышло. Закрытие отменено.")
+        await msg.delete()
 
 
 @bot.command()
@@ -3118,7 +3154,7 @@ async def backup_info(ctx):
         cur = await db.execute('SELECT COUNT(DISTINCT user_id) FROM users')
         user_count = (await cur.fetchone())[0]
     
-    embed = discord.Embed(title="📊 ИНФОРМАЦИЯ О БД", color=discord.Color.blue())
+    embed = discord.Embed(title="📊 ИНФОРМАЦИЯ О БАЗЕ ДАННЫХ", color=discord.Color.blue())
     embed.add_field(name="📁 Файл", value="`justice.db`", inline=True)
     embed.add_field(name="📦 Размер", value=f"{size_mb:.2f} MB", inline=True)
     embed.add_field(name="🕐 Изменён", value=modified.strftime("%d.%m.%Y %H:%M:%S"), inline=True)
@@ -3129,7 +3165,7 @@ async def backup_info(ctx):
 # ========== НОВЫЙ HELP С КНОПКАМИ ==========
 class HelpView(discord.ui.View):
     def __init__(self, author_id: int):
-        super().__init__(timeout=120)
+        super().__init__(timeout=None)
         self.author_id = author_id
         self.current_category = "profile"
         
@@ -3161,13 +3197,7 @@ class HelpView(discord.ui.View):
                     "`j.rps <камень/ножницы/бумага> <ставка>` - КНБ с ботом (x2)\n"
                     "`j.blackjack <ставка>` - Блэкджек (x2)\n"
                     "`j.ttt @user <ставка>` - Крестики-нолики\n"
-                    "`j.hod <1-9>` - Ход в крестиках-ноликах\n"
-                    "`j.poker create <2-6> <ставка>` - Создать покер лобби\n"
-                    "`j.poker join` - Присоединиться к лобби\n"
-                    "`j.poker start` - Начать игру\n"
-                    "`j.poker_bet <сумма>` - Сделать ставку\n"
-                    "`j.poker_check` - Чек (пропустить ход)\n"
-                    "`j.poker_fold` - Спасовать"
+                    "`j.hod <1-9>` - Ход в крестиках-ноликах"
                 )
             },
             "reputation": {
@@ -3246,7 +3276,7 @@ class HelpView(discord.ui.View):
                 "name": "🎮 STEAM",
                 "commands": (
                     "`j.steam set <steam_id>` - Привязать Steam ID\n"
-                    "`j.steam profile [@user]` - Показать профиль (с кнопками)\n"
+                    "`j.steam profile [@user]` - Показать профиль\n"
                     "`j.steam games [@user]` - Список игр (топ 10)\n"
                     "`j.steam recent [@user]` - Недавние игры"
                 )
@@ -3512,23 +3542,33 @@ async def owner_stats(ctx):
 async def on_message(msg):
     if msg.author.bot: return
     
-    # Автомод
     sett = guild_settings.get(msg.guild.id, {})
     exempt = any(msg.guild.get_role(rid) in msg.author.roles for rid in sett.get("automod_exempt_roles", []))
     if not exempt and sett.get("automod_enabled", True):
         spam, reason = await check_spam(msg)
         if spam:
             try:
-                await msg.delete()
+                uid = msg.author.id
+                if uid in spam_messages_to_delete and spam_messages_to_delete[uid]:
+                    deleted = 0
+                    for mid in spam_messages_to_delete[uid]:
+                        try:
+                            dmsg = await msg.channel.fetch_message(mid)
+                            await dmsg.delete()
+                            deleted += 1
+                        except: pass
+                    spam_messages_to_delete[uid] = []
+                    if deleted > 0:
+                        await msg.channel.send(f"⚠️ {msg.author.mention}, удалено **{deleted}** сообщений за нарушение.", delete_after=5)
+                else:
+                    await msg.delete()
+                
                 wc = await add_auto_warning(msg.author, reason, msg.channel)
                 asyncio.create_task(send_warning_dm(msg.author, reason, wc, msg.channel))
-                warn_msg = await msg.channel.send(f"⚠️ {msg.author.mention}, удалено за: **{reason}**")
-                await asyncio.sleep(3)
-                await warn_msg.delete()
+                
             except: pass
             return
     
-    # +rep/-rep
     if msg.reference and msg.content:
         try:
             ref = await msg.channel.fetch_message(msg.reference.message_id)
@@ -3549,7 +3589,6 @@ async def on_message(msg):
                         await msg.reply(f"👎 -1 репутации {target.mention}! ⭐ Теперь: {nr}")
         except: pass
     
-    # ИИ на упоминание
     if bot.user in msg.mentions:
         clean = msg.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
         if clean:
@@ -3558,7 +3597,6 @@ async def on_message(msg):
             await msg.reply(resp, mention_author=False)
             return
     
-    # Опыт и деньги
     if random.randint(1,3) == 1:
         xp_gain = random.randint(10, 25)
         lv_up, nl = await add_xp(msg.author.id, msg.guild.id, xp_gain)
@@ -3573,12 +3611,6 @@ async def on_message(msg):
     earn = random.randint(MIN_EARN, MAX_EARN)
     await add_balance(msg.author.id, msg.guild.id, earn)
     await bot.process_commands(msg)
-
-
-async def send_warning_dm(user, reason, wc, channel):
-    try:
-        await user.send(f"⚠️ **Автомодерация**\nВаше сообщение в {channel.mention} удалено.\n📝 Причина: {reason}\n⚠️ Предупреждений: {wc}/{ANTISPAM_MAX_WARNINGS}")
-    except: pass
 
 
 async def reset_activity_counters():
@@ -3629,6 +3661,815 @@ async def on_member_join(member):
         embed = discord.Embed(title="🎉 Добро пожаловать!", description=f"{member.mention} присоединился!", color=discord.Color.green())
         embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
         await ch.send(embed=embed)
+
+
+# ========== РАСШИРЕННАЯ СИСТЕМА РЫБАЛКИ ==========
+
+# МУСОР (что можно выловить вместо рыбы)
+TRASH_ITEMS = {
+    "старый ботинок": {"price": 1, "emoji": "👞", "exp": 1, "chance": 15},
+    "ржавая банка": {"price": 1, "emoji": "🥫", "exp": 1, "chance": 15},
+    "мокрая тряпка": {"price": 1, "emoji": "🧤", "exp": 1, "chance": 10},
+    "битая бутылка": {"price": 1, "emoji": "🍾", "exp": 1, "chance": 10},
+    "сломанная удочка": {"price": 2, "emoji": "🎣💔", "exp": 2, "chance": 8},
+    "старая шина": {"price": 2, "emoji": "🛞", "exp": 2, "chance": 8},
+    "консервная банка": {"price": 1, "emoji": "🥫", "exp": 1, "chance": 10},
+    "пластиковая бутылка": {"price": 1, "emoji": "🧴", "exp": 1, "chance": 10},
+    "сгнившее дерево": {"price": 2, "emoji": "🪵", "exp": 2, "chance": 7},
+    "скелет рыбы": {"price": 3, "emoji": "☠️🐟", "exp": 3, "chance": 5},
+    "золотая монета": {"price": 50, "emoji": "💰", "exp": 10, "chance": 2},
+    "старинная карта": {"price": 100, "emoji": "🗺️", "exp": 15, "chance": 1},
+}
+
+# НАЖИВКИ
+BAITS = {
+    "червь": {"price": 10, "luck": 5, "emoji": "🪱", "duration": 5, "description": "Обычная наживка, +5% к удаче на 5 рыбалок"},
+    "опарыш": {"price": 20, "luck": 10, "emoji": "🐛", "duration": 5, "description": "Хорошая наживка, +10% к удаче на 5 рыбалок"},
+    "кукуруза": {"price": 15, "luck": 8, "emoji": "🌽", "duration": 5, "description": "Сладкая наживка, +8% к удаче на 5 рыбалок"},
+    "тесто": {"price": 25, "luck": 12, "emoji": "🍞", "duration": 5, "description": "Домашняя наживка, +12% к удаче на 5 рыбалок"},
+    "живец": {"price": 50, "luck": 20, "emoji": "🐟", "duration": 5, "description": "Маленькая рыбка, +20% к удаче на 5 рыбалок"},
+    "икра": {"price": 100, "luck": 30, "emoji": "🥚", "duration": 5, "description": "Деликатес для хищной рыбы, +30% к удаче на 5 рыбалок"},
+    "магическая наживка": {"price": 500, "luck": 50, "emoji": "✨🪱✨", "duration": 10, "description": "Зачарованная наживка, +50% к удаче на 10 рыбалок"},
+}
+
+# Рыбы
+FISHING_ITEMS = {
+    # Обычная рыба
+    "окунь": {"price": 5, "rarity": "обычная", "emoji": "🐟", "exp": 5, "base_chance": 60},
+    "плотва": {"price": 3, "rarity": "обычная", "emoji": "🐟", "exp": 3, "base_chance": 60},
+    "карась": {"price": 4, "rarity": "обычная", "emoji": "🐟", "exp": 4, "base_chance": 60},
+    "ёрш": {"price": 2, "rarity": "обычная", "emoji": "🐟", "exp": 2, "base_chance": 60},
+    "уклейка": {"price": 3, "rarity": "обычная", "emoji": "🐟", "exp": 3, "base_chance": 60},
+    "пескарь": {"price": 3, "rarity": "обычная", "emoji": "🐟", "exp": 3, "base_chance": 60},
+    
+    # Средняя рыба
+    "щука": {"price": 15, "rarity": "средняя", "emoji": "🐡", "exp": 10, "base_chance": 25},
+    "судак": {"price": 12, "rarity": "средняя", "emoji": "🐡", "exp": 8, "base_chance": 25},
+    "лещ": {"price": 10, "rarity": "средняя", "emoji": "🐡", "exp": 7, "base_chance": 25},
+    "жерех": {"price": 14, "rarity": "средняя", "emoji": "🐡", "exp": 9, "base_chance": 25},
+    "густера": {"price": 11, "rarity": "средняя", "emoji": "🐡", "exp": 8, "base_chance": 25},
+    "язь": {"price": 13, "rarity": "средняя", "emoji": "🐡", "exp": 9, "base_chance": 25},
+    
+    # Редкая рыба
+    "сом": {"price": 30, "rarity": "редкая", "emoji": "🐋", "exp": 20, "base_chance": 10},
+    "лосось": {"price": 35, "rarity": "редкая", "emoji": "🐋", "exp": 22, "base_chance": 10},
+    "форель": {"price": 40, "rarity": "редкая", "emoji": "🐋", "exp": 25, "base_chance": 10},
+    "угорь": {"price": 45, "rarity": "редкая", "emoji": "🐋", "exp": 28, "base_chance": 10},
+    "налим": {"price": 32, "rarity": "редкая", "emoji": "🐋", "exp": 21, "base_chance": 10},
+    "хариус": {"price": 38, "rarity": "редкая", "emoji": "🐋", "exp": 24, "base_chance": 10},
+    
+    # Легендарная рыба
+    "осётр": {"price": 100, "rarity": "легендарная", "emoji": "🐉", "exp": 50, "base_chance": 4},
+    "белуга": {"price": 120, "rarity": "легендарная", "emoji": "🐉", "exp": 60, "base_chance": 4},
+    "сазан": {"price": 90, "rarity": "легендарная", "emoji": "🐉", "exp": 45, "base_chance": 4},
+    "карп": {"price": 85, "rarity": "легендарная", "emoji": "🐉", "exp": 42, "base_chance": 4},
+    
+    # Мифическая рыба
+    "золотая рыбка": {"price": 500, "rarity": "мифическая", "emoji": "✨🐟✨", "exp": 100, "base_chance": 1},
+    "морской царь": {"price": 1000, "rarity": "мифическая", "emoji": "👑🐟👑", "exp": 200, "base_chance": 1},
+    "дракон моря": {"price": 1500, "rarity": "мифическая", "emoji": "🐉🌊", "exp": 300, "base_chance": 0.5},
+}
+
+# Удочки
+FISHING_RODS = {
+    "простая удочка": {"price": 0, "luck": 0, "emoji": "🎣", "required_level": 0, "upgrade_cost": 100},
+    "улучшенная удочка": {"price": 500, "luck": 5, "emoji": "🎣✨", "required_level": 5, "upgrade_cost": 200},
+    "профессиональная удочка": {"price": 1500, "luck": 15, "emoji": "🎣🌟", "required_level": 15, "upgrade_cost": 500},
+    "золотая удочка": {"price": 5000, "luck": 30, "emoji": "👑🎣", "required_level": 30, "upgrade_cost": 1000},
+    "божественная удочка": {"price": 15000, "luck": 50, "emoji": "⭐🎣⭐", "required_level": 50, "upgrade_cost": 5000},
+}
+
+# Хранилища
+fishing_cooldowns = defaultdict(int)
+active_baits = defaultdict(dict)
+fishing_upgrades = defaultdict(lambda: {"luck": 0, "exp": 0, "price": 0, "double_chance": 0})
+fishing_experience = defaultdict(int)
+fishing_levels = defaultdict(int)
+
+
+# Класс для мини-игры
+class FishingGameView(discord.ui.View):
+    def __init__(self, user_id, fish_name, fish_data, timeout=5):
+        super().__init__(timeout=timeout)
+        self.user_id = user_id
+        self.fish_name = fish_name
+        self.fish_data = fish_data
+        self.result = None
+        self.reaction_time = None
+        self.start_time = time.time()
+    
+    @discord.ui.button(label="🎣 ТЯНУТЬ!", style=discord.ButtonStyle.success, emoji="🎣")
+    async def pull_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ Не вы!", ephemeral=True)
+            return
+        
+        self.reaction_time = time.time() - self.start_time
+        self.result = "success"
+        self.stop()
+        
+        # Определяем качество рывка
+        if self.reaction_time < 1.5:
+            quality = "⚡ МОЛНИЕНОСНО! ⚡"
+            bonus_mult = 1.5
+            rarity_bonus_text = "Редкость повышена!"
+        elif self.reaction_time < 3:
+            quality = "✅ ОТЛИЧНО!"
+            bonus_mult = 1.2
+            rarity_bonus_text = ""
+        elif self.reaction_time < 4.5:
+            quality = "👍 НОРМАЛЬНО"
+            bonus_mult = 1.0
+            rarity_bonus_text = ""
+        else:
+            quality = "😰 ЕЛЕ-ЕЛЕ"
+            bonus_mult = 0.8
+            rarity_bonus_text = ""
+        
+        await interaction.response.edit_message(
+            content=f"🎣 {quality}\n⏱️ Время реакции: {self.reaction_time:.1f} сек.\n🎉 Вы вытащили рыбу с бонусом x{bonus_mult}!",
+            view=None
+        )
+    
+    async def on_timeout(self):
+        if self.result is None:
+            self.result = "fail"
+            self.stop()
+
+
+# Функции для рыбалки
+async def get_fishing_level(user_id, guild_id):
+    """Получение уровня рыболова"""
+    global fishing_levels, fishing_experience
+    
+    if user_id not in fishing_levels:
+        data = await get_user(user_id, guild_id)
+        fishing_exp = data[30] if len(data) > 30 else 0
+        fishing_level = int((fishing_exp ** 0.5) / 2)
+        fishing_levels[user_id] = fishing_level
+        fishing_experience[user_id] = fishing_exp
+        return fishing_level, fishing_exp
+    
+    return fishing_levels[user_id], fishing_experience[user_id]
+
+
+async def add_fishing_exp(user_id, guild_id, amount):
+    """Добавление опыта рыболова и повышение уровня"""
+    current_exp = fishing_experience[user_id]
+    new_exp = current_exp + amount
+    fishing_experience[user_id] = new_exp
+    
+    new_level = int((new_exp ** 0.5) / 2)
+    old_level = fishing_levels[user_id]
+    
+    if new_level > old_level:
+        fishing_levels[user_id] = new_level
+        upgrade_points = new_level - old_level
+        return True, new_level, upgrade_points
+    return False, new_level, 0
+
+
+def get_upgrade_bonus(user_id):
+    """Получение бонусов от прокачки"""
+    upgrades = fishing_upgrades[user_id]
+    return {
+        "luck": upgrades.get("luck", 0),
+        "exp": upgrades.get("exp", 0),
+        "price": upgrades.get("price", 0),
+        "double_chance": upgrades.get("double_chance", 0)
+    }
+
+
+# ========== КОМАНДЫ РЫБАЛКИ ==========
+
+@bot.command()
+async def fishing_upgrade(ctx, stat: str = None):
+    """📈 Прокачать характеристики рыболова"""
+    user_id = ctx.author.id
+    fishing_level, fishing_exp = await get_fishing_level(user_id, ctx.guild.id)
+    
+    available_points = fishing_level
+    upgrades = fishing_upgrades[user_id]
+    spent_points = upgrades.get("luck", 0) + upgrades.get("exp", 0) + upgrades.get("price", 0) + upgrades.get("double_chance", 0)
+    remaining_points = available_points - spent_points
+    
+    if stat is None:
+        embed = discord.Embed(title="📈 ПРОКАЧКА РЫБОЛОВА", color=discord.Color.blue())
+        embed.add_field(name="🎣 Уровень рыболова", value=f"**{fishing_level}** уровень", inline=True)
+        embed.add_field(name="📊 Опыт", value=f"{fishing_exp} XP", inline=True)
+        embed.add_field(name="⭐ Доступно очков", value=f"**{remaining_points}**", inline=True)
+        embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━", value="", inline=False)
+        embed.add_field(name="🍀 УДАЧА", value=f"Уровень: {upgrades.get('luck', 0)} | Бонус: +{upgrades.get('luck', 0) * 2}%\n`j.fishing_upgrade luck`", inline=True)
+        embed.add_field(name="✨ ОПЫТ", value=f"Уровень: {upgrades.get('exp', 0)} | Бонус: +{upgrades.get('exp', 0) * 5}%\n`j.fishing_upgrade exp`", inline=True)
+        embed.add_field(name="💰 ЦЕНА", value=f"Уровень: {upgrades.get('price', 0)} | Бонус: +{upgrades.get('price', 0) * 3}%\n`j.fishing_upgrade price`", inline=True)
+        embed.add_field(name="🎲 ДВОЙНОЙ УЛОВ", value=f"Уровень: {upgrades.get('double_chance', 0)} | Шанс: {upgrades.get('double_chance', 0)}%\n`j.fishing_upgrade double`", inline=True)
+        embed.set_footer(text=f"Доступно очков: {remaining_points}")
+        await ctx.send(embed=embed)
+        return
+    
+    if remaining_points <= 0:
+        await ctx.send(f"❌ Нет свободных очков! Повышайте уровень рыболова (сейчас {fishing_level} уровень).")
+        return
+    
+    if stat == "luck":
+        fishing_upgrades[user_id]["luck"] = upgrades.get("luck", 0) + 1
+        await ctx.send(f"✅ Удача повышена! +{fishing_upgrades[user_id]['luck'] * 2}% к шансу редкой рыбы.")
+    elif stat == "exp":
+        fishing_upgrades[user_id]["exp"] = upgrades.get("exp", 0) + 1
+        await ctx.send(f"✅ Опыт повышен! +{fishing_upgrades[user_id]['exp'] * 5}% к опыту.")
+    elif stat == "price":
+        fishing_upgrades[user_id]["price"] = upgrades.get("price", 0) + 1
+        await ctx.send(f"✅ Цена повышена! +{fishing_upgrades[user_id]['price'] * 3}% к цене.")
+    elif stat == "double":
+        fishing_upgrades[user_id]["double_chance"] = upgrades.get("double_chance", 0) + 1
+        await ctx.send(f"✅ Шанс двойного улова повышен до {fishing_upgrades[user_id]['double_chance']}%!")
+    else:
+        await ctx.send("❌ Доступные статы: luck, exp, price, double")
+
+
+@bot.command()
+async def buy_bait(ctx, bait_name: str = None, amount: int = 1):
+    """🪱 Купить наживку"""
+    if not bait_name:
+        baits_list = "\n".join([f"• **{name}** {data['emoji']} - {data['price']} 💎 | +{data['luck']}% удачи на {data['duration']} рыбалок" 
+                               for name, data in BAITS.items()])
+        await ctx.send(f"🪱 **Наживки:**\n{baits_list}\n\n`j.buy_bait <название> [кол-во]`")
+        return
+    
+    bait_name = bait_name.lower()
+    if bait_name not in BAITS:
+        await ctx.send(f"❌ Наживка `{bait_name}` не найдена!")
+        return
+    
+    bait_data = BAITS[bait_name]
+    total_price = bait_data["price"] * amount
+    
+    user_data = await get_user(ctx.author.id, ctx.guild.id)
+    if user_data[4] < total_price:
+        await ctx.send(f"❌ Нужно **{total_price}** 💎")
+        return
+    
+    await add_balance(ctx.author.id, ctx.guild.id, -total_price)
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inventory = json.loads(row[0]) if row[0] else []
+        for _ in range(amount):
+            inventory.append(f"bait_{bait_name}")
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inventory), ctx.author.id, ctx.guild.id))
+        await db.commit()
+    
+    await ctx.send(f"✅ Куплено **{amount}** шт. **{bait_name.capitalize()}** {bait_data['emoji']} за {total_price} 💎!")
+
+
+@bot.command()
+async def use_bait(ctx, bait_name: str = None):
+    """🪱 Использовать наживку"""
+    if not bait_name:
+        await ctx.send("❌ `j.use_bait червь`")
+        return
+    
+    bait_name = bait_name.lower()
+    if bait_name not in BAITS:
+        await ctx.send(f"❌ Наживка `{bait_name}` не найдена!")
+        return
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inventory = json.loads(row[0]) if row[0] else []
+        
+        item = f"bait_{bait_name}"
+        if item not in inventory:
+            await ctx.send(f"❌ Нет **{bait_name.capitalize()}** в инвентаре!")
+            return
+        
+        inventory.remove(item)
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inventory), ctx.author.id, ctx.guild.id))
+        await db.commit()
+    
+    bait_data = BAITS[bait_name]
+    active_baits[ctx.author.id] = {
+        "bait": bait_name,
+        "remaining": bait_data["duration"],
+        "luck_bonus": bait_data["luck"]
+    }
+    
+    await ctx.send(f"✅ Использована **{bait_name.capitalize()}** {bait_data['emoji']}!\n+{bait_data['luck']}% удачи на {bait_data['duration']} рыбалок.")
+
+
+@bot.command()
+async def bait_list(ctx):
+    """🪱 Список наживок"""
+    embed = discord.Embed(title="🪱 НАЖИВКИ", color=discord.Color.green())
+    for name, data in BAITS.items():
+        embed.add_field(
+            name=f"{data['emoji']} {name.capitalize()}",
+            value=f"💰 {data['price']} 💎 | +{data['luck']}% удачи на {data['duration']} рыбалок\n📝 {data['description']}",
+            inline=False
+        )
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+async def buy_rod(ctx, *, rod_name: str = None):
+    """🎣 Купить удочку"""
+    if not rod_name:
+        rods_list = "\n".join([f"• **{name}** - {data['price']} 💎 (нужен {data['required_level']} уровень, +{data['luck']}% удачи)" 
+                               for name, data in FISHING_RODS.items()])
+        await ctx.send(f"🎣 **Удочки:**\n{rods_list}\n\n`j.buy_rod <название>`")
+        return
+    
+    rod_name = rod_name.lower()
+    if rod_name not in FISHING_RODS:
+        await ctx.send(f"❌ Удочка `{rod_name}` не найдена!")
+        return
+    
+    rod_data = FISHING_RODS[rod_name]
+    user_data = await get_user(ctx.author.id, ctx.guild.id)
+    
+    if user_data[3] < rod_data["required_level"]:
+        await ctx.send(f"❌ Нужен {rod_data['required_level']} уровень!")
+        return
+    
+    if user_data[4] < rod_data["price"]:
+        await ctx.send(f"❌ Нужно **{rod_data['price']}** 💎")
+        return
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inventory = json.loads(row[0]) if row[0] else []
+        
+        if f"rod_{rod_name}" in inventory:
+            await ctx.send(f"❌ У вас уже есть **{rod_name.capitalize()}**!")
+            return
+        
+        await add_balance(ctx.author.id, ctx.guild.id, -rod_data["price"])
+        inventory.append(f"rod_{rod_name}")
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inventory), ctx.author.id, ctx.guild.id))
+        await db.commit()
+    
+    await ctx.send(f"✅ Куплена **{rod_name.capitalize()}** {rod_data['emoji']} за {rod_data['price']} 💎!")
+
+
+@bot.command()
+async def fish(ctx):
+    """🎣 Пойти на рыбалку с мини-игрой!"""
+    user_id = ctx.author.id
+    now = time.time()
+    
+    # Проверка КД
+    last_fish = fishing_cooldowns.get(user_id, 0)
+    if now - last_fish < FISHING_COOLDOWN:
+        remaining = int(FISHING_COOLDOWN - (now - last_fish))
+        mins = remaining // 60
+        secs = remaining % 60
+        await ctx.send(f"⏰ Отдохните **{mins}мин {secs}сек**")
+        return
+    
+    # Получаем данные пользователя
+    user_data = await get_user(ctx.author.id, ctx.guild.id)
+    inventory = json.loads(user_data[19] if len(user_data) > 19 else "[]")
+    fishing_level, fishing_exp = await get_fishing_level(ctx.author.id, ctx.guild.id)
+    upgrade_bonus = get_upgrade_bonus(ctx.author.id)
+    
+    # Определяем удочку
+    current_rod = "простая удочка"
+    for rod in FISHING_RODS:
+        if f"rod_{rod}" in inventory:
+            current_rod = rod
+    rod_data = FISHING_RODS[current_rod]
+    
+    # Проверяем наживку
+    bait_bonus = 0
+    bait_name = None
+    if user_id in active_baits:
+        bait = active_baits[user_id]
+        bait_bonus = bait["luck_bonus"]
+        bait_name = bait["bait"]
+        bait["remaining"] -= 1
+        if bait["remaining"] <= 0:
+            del active_baits[user_id]
+    
+    # Общий бонус удачи
+    total_luck = rod_data["luck"] + bait_bonus + upgrade_bonus["luck"] * 2 + fishing_level
+    fishing_cooldowns[user_id] = now
+    
+    # Анимация
+    msg = await ctx.send(f"🎣 {ctx.author.mention} закидывает удочку {rod_data['emoji']}...")
+    await asyncio.sleep(1.5)
+    await msg.edit(content=f"🎣 {ctx.author.mention} ждёт поклёвку... {rod_data['emoji']}")
+    
+    bite_time = random.uniform(2, 6)
+    await asyncio.sleep(bite_time)
+    
+    # Определяем, что клюнуло
+    roll = random.randint(1, 100) + total_luck
+    trash_chance = max(5, 15 - fishing_level // 2)
+    
+    if random.randint(1, 100) <= trash_chance:
+        # Мусор
+        items = list(TRASH_ITEMS.items())
+        catch_name, catch_data = random.choice(items)
+        
+        await msg.edit(content=f"🎣 {ctx.author.mention} выловил **{catch_name}**! 🗑️")
+        
+        async with aiosqlite.connect("justice.db") as db:
+            cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+            row = await cur.fetchone()
+            inventory = json.loads(row[0]) if row[0] else []
+            inventory.append(f"trash_{catch_name}")
+            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inventory), ctx.author.id, ctx.guild.id))
+            await db.commit()
+        
+        fishing_exp_gain = catch_data["exp"]
+        level_up, new_level, upgrade_points = await add_fishing_exp(ctx.author.id, ctx.guild.id, fishing_exp_gain)
+        
+        embed = discord.Embed(title=f"{catch_data['emoji']} {catch_name.upper()}!", color=discord.Color.red())
+        embed.add_field(name="💰 Цена", value=f"{catch_data['price']} 💎", inline=True)
+        embed.add_field(name="✨ Опыт", value=f"+{catch_data['exp']} XP", inline=True)
+        if level_up:
+            embed.add_field(name="🌟 ПОВЫШЕНИЕ УРОВНЯ!", value=f"Вы достигли **{new_level}** уровня! +{upgrade_points} очков прокачки.", inline=False)
+        await msg.edit(content=None, embed=embed)
+        return
+    
+    # Определяем рыбу
+    if roll >= 98:
+        rarity = "мифическая"
+        items = [(k, v) for k, v in FISHING_ITEMS.items() if v["rarity"] == "мифическая"]
+    elif roll >= 90:
+        rarity = "легендарная"
+        items = [(k, v) for k, v in FISHING_ITEMS.items() if v["rarity"] == "легендарная"]
+    elif roll >= 70:
+        rarity = "редкая"
+        items = [(k, v) for k, v in FISHING_ITEMS.items() if v["rarity"] == "редкая"]
+    elif roll >= 40:
+        rarity = "средняя"
+        items = [(k, v) for k, v in FISHING_ITEMS.items() if v["rarity"] == "средняя"]
+    else:
+        rarity = "обычная"
+        items = [(k, v) for k, v in FISHING_ITEMS.items() if v["rarity"] == "обычная"]
+    
+    if not items:
+        items = [("окунь", FISHING_ITEMS["окунь"])]
+    
+    fish_name, fish_data = random.choice(items)
+    
+    # Мини-игра
+    await msg.edit(content=f"🎣 **КЛЮНУЛО!** {fish_name.capitalize()} {fish_data['emoji']}\n\n"
+                           f"**БЫСТРО НАЖМИ КНОПКУ!** У тебя 5 секунд!")
+    
+    game_view = FishingGameView(ctx.author.id, fish_name, fish_data, timeout=5)
+    game_msg = await ctx.send("🎣 **ТЯНИ!**", view=game_view)
+    await game_view.wait()
+    
+    if game_view.result != "success":
+        await game_msg.edit(content=f"💔 **Леска порвалась!** {ctx.author.mention} не успел вытащить **{fish_name.capitalize()}**!")
+        return
+    
+    # Успешная рыбалка
+    reaction_time = game_view.reaction_time
+    if reaction_time < 1.5:
+        quality = "⚡ МОЛНИЕНОСНО!"
+        bonus_mult = 1.5
+        if rarity == "обычная":
+            rarity = "средняя"
+        elif rarity == "средняя":
+            rarity = "редкая"
+        elif rarity == "редкая":
+            rarity = "легендарная"
+        elif rarity == "легендарная":
+            rarity = "мифическая"
+    elif reaction_time < 3:
+        quality = "✅ ОТЛИЧНО!"
+        bonus_mult = 1.2
+    elif reaction_time < 4.5:
+        quality = "👍 НОРМАЛЬНО"
+        bonus_mult = 1.0
+    else:
+        quality = "😰 ЕЛЕ-ЕЛЕ"
+        bonus_mult = 0.8
+    
+    base_price = fish_data["price"]
+    if upgrade_bonus["price"] > 0:
+        base_price = int(base_price * (1 + upgrade_bonus["price"] * 0.03))
+    final_price = int(base_price * bonus_mult)
+    
+    base_exp = fish_data["exp"]
+    if upgrade_bonus["exp"] > 0:
+        base_exp = int(base_exp * (1 + upgrade_bonus["exp"] * 0.05))
+    final_exp = int(base_exp * bonus_mult)
+    
+    # Добавляем рыбу
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inventory = json.loads(row[0]) if row[0] else []
+        inventory.append(f"fish_{fish_name}")
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inventory), ctx.author.id, ctx.guild.id))
+        await db.commit()
+    
+    level_up, new_level, upgrade_points = await add_fishing_exp(ctx.author.id, ctx.guild.id, final_exp)
+    
+    # Двойной улов
+    double_catch = False
+    if upgrade_bonus["double_chance"] > 0 and random.randint(1, 100) <= upgrade_bonus["double_chance"]:
+        double_catch = True
+        async with aiosqlite.connect("justice.db") as db:
+            cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+            row = await cur.fetchone()
+            inventory = json.loads(row[0]) if row[0] else []
+            inventory.append(f"fish_{fish_name}")
+            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inventory), ctx.author.id, ctx.guild.id))
+            await db.commit()
+    
+    rarity_colors = {"обычная": "🟢", "средняя": "🔵", "редкая": "🟣", "легендарная": "🟠", "мифическая": "🔴"}
+    
+    embed = discord.Embed(title=f"{fish_data['emoji']} {fish_name.upper()}!", color=discord.Color.gold())
+    embed.add_field(name="🎮 Качество", value=quality, inline=True)
+    embed.add_field(name="⏱️ Время", value=f"{reaction_time:.1f} сек.", inline=True)
+    embed.add_field(name="🎮 Бонус", value=f"x{bonus_mult}", inline=True)
+    embed.add_field(name="📊 Редкость", value=f"**{rarity.upper()}** {rarity_colors.get(rarity, '')}", inline=True)
+    embed.add_field(name="💰 Цена", value=f"{final_price} 💎", inline=True)
+    embed.add_field(name="✨ Опыт", value=f"+{final_exp} XP", inline=True)
+    embed.add_field(name="🎣 Удочка", value=f"{rod_data['emoji']} {current_rod}\n+{rod_data['luck']}% удачи", inline=True)
+    
+    if bait_name:
+        embed.add_field(name="🪱 Наживка", value=f"{BAITS[bait_name]['emoji']} {bait_name.capitalize()}\n+{bait_bonus}% удачи", inline=True)
+    
+    if double_catch:
+        embed.add_field(name="🎉 ДВОЙНОЙ УЛОВ!", value=f"+1 {fish_name.capitalize()}!", inline=False)
+    
+    if level_up:
+        embed.add_field(name="🌟 ПОВЫШЕНИЕ УРОВНЯ!", value=f"**{new_level}** уровень! +{upgrade_points} очков прокачки!", inline=False)
+    
+    await msg.edit(content=None, embed=embed)
+
+
+@bot.command()
+async def fishing_inventory(ctx, member: discord.Member = None):
+    """🎣 Инвентарь рыбака"""
+    target = member or ctx.author
+    data = await get_user(target.id, ctx.guild.id)
+    inventory = json.loads(data[19] if len(data) > 19 else "[]")
+    
+    fish_inv = [item for item in inventory if item.startswith("fish_")]
+    trash_inv = [item for item in inventory if item.startswith("trash_")]
+    baits_inv = [item for item in inventory if item.startswith("bait_")]
+    rods_inv = [item for item in inventory if item.startswith("rod_")]
+    
+    if not fish_inv and not trash_inv and not baits_inv:
+        await ctx.send(f"📭 У {target.mention} ничего нет! Используйте `j.fish`")
+        return
+    
+    embed = discord.Embed(title=f"🎣 ИНВЕНТАРЬ | {target.display_name}", color=discord.Color.blue())
+    
+    if fish_inv:
+        fish_count = {}
+        for fish in fish_inv:
+            name = fish.replace("fish_", "")
+            fish_count[name] = fish_count.get(name, 0) + 1
+        text = "\n".join([f"{FISHING_ITEMS.get(name, {}).get('emoji', '🐟')} {name.capitalize()} x{count} - {FISHING_ITEMS.get(name, {}).get('price', 10)}💎" 
+                         for name, count in list(fish_count.items())[:10]])
+        embed.add_field(name="🐟 РЫБА", value=text if text else "Нет", inline=False)
+    
+    if trash_inv:
+        trash_count = {}
+        for trash in trash_inv:
+            name = trash.replace("trash_", "")
+            trash_count[name] = trash_count.get(name, 0) + 1
+        text = "\n".join([f"{TRASH_ITEMS.get(name, {}).get('emoji', '🗑️')} {name} x{count} - {TRASH_ITEMS.get(name, {}).get('price', 1)}💎" 
+                         for name, count in list(trash_count.items())[:10]])
+        embed.add_field(name="🗑️ МУСОР", value=text if text else "Нет", inline=False)
+    
+    if baits_inv:
+        baits_count = {}
+        for bait in baits_inv:
+            name = bait.replace("bait_", "")
+            baits_count[name] = baits_count.get(name, 0) + 1
+        text = "\n".join([f"{BAITS.get(name, {}).get('emoji', '🪱')} {name.capitalize()} x{count}" 
+                         for name, count in baits_count.items()])
+        embed.add_field(name="🪱 НАЖИВКИ", value=text if text else "Нет", inline=False)
+    
+    if rods_inv:
+        rods_text = "\n".join([f"{FISHING_RODS.get(rod.replace('rod_', ''), {}).get('emoji', '🎣')} {rod.replace('rod_', '').capitalize()}" 
+                               for rod in rods_inv])
+        embed.add_field(name="🎣 УДОЧКИ", value=rods_text, inline=False)
+    
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+async def sell_fish(ctx, *, fish_name: str = None):
+    """💰 Продать рыбу"""
+    if not fish_name:
+        await ctx.send("❌ `j.sell_fish окунь`")
+        return
+    
+    fish_name = fish_name.lower()
+    if fish_name not in FISHING_ITEMS:
+        await ctx.send(f"❌ Рыба `{fish_name}` не найдена!")
+        return
+    
+    upgrade_bonus = get_upgrade_bonus(ctx.author.id)
+    price_bonus = 1 + upgrade_bonus["price"] * 0.03
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inventory = json.loads(row[0]) if row[0] else []
+        
+        item = f"fish_{fish_name}"
+        if item not in inventory:
+            await ctx.send(f"❌ Нет **{fish_name.capitalize()}** в инвентаре!")
+            return
+        
+        count = inventory.count(item)
+        base_price = FISHING_ITEMS[fish_name]["price"]
+        total_price = int(base_price * count * price_bonus)
+        
+        embed = discord.Embed(title="⚠️ ПОДТВЕРЖДЕНИЕ", description=f"Продать **{count}** шт. **{fish_name.capitalize()}** за **{total_price}** 💎?", color=discord.Color.orange())
+        msg = await ctx.send(embed=embed)
+        await msg.add_reaction("✅")
+        await msg.add_reaction("❌")
+        
+        def check(r, u):
+            return u.id == ctx.author.id and str(r.emoji) in ["✅", "❌"] and r.message.id == msg.id
+        
+        try:
+            r, u = await bot.wait_for('reaction_add', timeout=30, check=check)
+            if str(r.emoji) == "❌":
+                await ctx.send("❌ Отменено.")
+                await msg.delete()
+                return
+            
+            while item in inventory:
+                inventory.remove(item)
+            
+            await add_balance(ctx.author.id, ctx.guild.id, total_price)
+            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inventory), ctx.author.id, ctx.guild.id))
+            await db.commit()
+            
+            await ctx.send(f"✅ Продано **{count}** шт. **{fish_name.capitalize()}** за **{total_price}** 💎!")
+            await msg.delete()
+            
+        except asyncio.TimeoutError:
+            await ctx.send("⏰ Время вышло.")
+            await msg.delete()
+
+
+@bot.command()
+async def sell_trash(ctx, *, trash_name: str = None):
+    """🗑️ Продать мусор"""
+    if not trash_name:
+        await ctx.send("❌ `j.sell_trash старый_ботинок`")
+        return
+    
+    trash_name = trash_name.lower()
+    if trash_name not in TRASH_ITEMS:
+        await ctx.send(f"❌ Мусор `{trash_name}` не найден!")
+        return
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inventory = json.loads(row[0]) if row[0] else []
+        
+        item = f"trash_{trash_name}"
+        if item not in inventory:
+            await ctx.send(f"❌ Нет **{trash_name}** в инвентаре!")
+            return
+        
+        count = inventory.count(item)
+        total_price = TRASH_ITEMS[trash_name]["price"] * count
+        
+        embed = discord.Embed(title="⚠️ ПОДТВЕРЖДЕНИЕ", description=f"Продать **{count}** шт. **{trash_name}** за **{total_price}** 💎?", color=discord.Color.orange())
+        msg = await ctx.send(embed=embed)
+        await msg.add_reaction("✅")
+        await msg.add_reaction("❌")
+        
+        def check(r, u):
+            return u.id == ctx.author.id and str(r.emoji) in ["✅", "❌"] and r.message.id == msg.id
+        
+        try:
+            r, u = await bot.wait_for('reaction_add', timeout=30, check=check)
+            if str(r.emoji) == "❌":
+                await ctx.send("❌ Отменено.")
+                await msg.delete()
+                return
+            
+            while item in inventory:
+                inventory.remove(item)
+            
+            await add_balance(ctx.author.id, ctx.guild.id, total_price)
+            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inventory), ctx.author.id, ctx.guild.id))
+            await db.commit()
+            
+            await ctx.send(f"✅ Продано **{count}** шт. **{trash_name}** за **{total_price}** 💎!")
+            await msg.delete()
+            
+        except asyncio.TimeoutError:
+            await ctx.send("⏰ Время вышло.")
+            await msg.delete()
+
+
+@bot.command()
+async def sell_all_fish(ctx):
+    """💰 Продать всю рыбу"""
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inventory = json.loads(row[0]) if row[0] else []
+        
+        fish_items = [item for item in inventory if item.startswith("fish_")]
+        if not fish_items:
+            await ctx.send("❌ Нет рыбы в инвентаре!")
+            return
+        
+        upgrade_bonus = get_upgrade_bonus(ctx.author.id)
+        price_bonus = 1 + upgrade_bonus["price"] * 0.03
+        
+        total_price = 0
+        fish_counts = {}
+        for item in fish_items:
+            fish_name = item.replace("fish_", "")
+            fish_counts[fish_name] = fish_counts.get(fish_name, 0) + 1
+            total_price += int(FISHING_ITEMS[fish_name]["price"] * price_bonus)
+        
+        fish_list = "\n".join([f"{FISHING_ITEMS.get(name, {}).get('emoji', '🐟')} {name.capitalize()} x{count}" for name, count in fish_counts.items()])
+        
+        embed = discord.Embed(title="⚠️ ПОДТВЕРЖДЕНИЕ", description=f"Продать ВСЮ рыбу за **{total_price}** 💎?\n\n{fish_list}", color=discord.Color.orange())
+        msg = await ctx.send(embed=embed)
+        await msg.add_reaction("✅")
+        await msg.add_reaction("❌")
+        
+        def check(r, u):
+            return u.id == ctx.author.id and str(r.emoji) in ["✅", "❌"] and r.message.id == msg.id
+        
+        try:
+            r, u = await bot.wait_for('reaction_add', timeout=30, check=check)
+            if str(r.emoji) == "❌":
+                await ctx.send("❌ Отменено.")
+                await msg.delete()
+                return
+            
+            for item in fish_items:
+                inventory.remove(item)
+            
+            await add_balance(ctx.author.id, ctx.guild.id, total_price)
+            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inventory), ctx.author.id, ctx.guild.id))
+            await db.commit()
+            
+            await ctx.send(f"✅ Продана вся рыба за **{total_price}** 💎!")
+            await msg.delete()
+            
+        except asyncio.TimeoutError:
+            await ctx.send("⏰ Время вышло.")
+            await msg.delete()
+
+
+@bot.command()
+async def fisherman(ctx, member: discord.Member = None):
+    """🎣 Профиль рыболова"""
+    target = member or ctx.author
+    fishing_level, fishing_exp = await get_fishing_level(target.id, ctx.guild.id)
+    upgrades = fishing_upgrades[target.id]
+    upgrade_bonus = get_upgrade_bonus(target.id)
+    
+    data = await get_user(target.id, ctx.guild.id)
+    inventory = json.loads(data[19] if len(data) > 19 else "[]")
+    
+    fish_count = sum(1 for item in inventory if item.startswith("fish_"))
+    trash_count = sum(1 for item in inventory if item.startswith("trash_"))
+    
+    current_rod = "простая удочка"
+    for rod in FISHING_RODS:
+        if f"rod_{rod}" in inventory:
+            current_rod = rod
+    rod_data = FISHING_RODS[current_rod]
+    
+    active_bait = None
+    if target.id in active_baits:
+        bait = active_baits[target.id]
+        active_bait = f"{BAITS[bait['bait']]['emoji']} {bait['bait'].capitalize()} (ещё {bait['remaining']} рыбалок)"
+    
+    embed = discord.Embed(title=f"🎣 ПРОФИЛЬ РЫБОЛОВА | {target.display_name}", color=discord.Color.blue())
+    embed.add_field(name="📊 Уровень", value=f"**{fishing_level}**", inline=True)
+    embed.add_field(name="✨ Опыт", value=f"{fishing_exp} XP", inline=True)
+    embed.add_field(name="🎣 Удочка", value=f"{rod_data['emoji']} {current_rod}", inline=True)
+    embed.add_field(name="📈 Прокачка", 
+                   value=f"🍀 Удача: +{upgrade_bonus['luck']*2}%\n✨ Опыт: +{upgrade_bonus['exp']*5}%\n💰 Цена: +{upgrade_bonus['price']*3}%\n🎲 Двойной улов: {upgrade_bonus['double_chance']}%", 
+                   inline=True)
+    embed.add_field(name="🐟 Поймано рыбы", value=f"{fish_count} шт.", inline=True)
+    embed.add_field(name="🗑️ Поймано мусора", value=f"{trash_count} шт.", inline=True)
+    
+    if active_bait:
+        embed.add_field(name="🪱 Активная наживка", value=active_bait, inline=True)
+    
+    await ctx.send(embed=embed)
+
 
 
 if __name__ == "__main__":
