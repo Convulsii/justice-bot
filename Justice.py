@@ -3606,9 +3606,13 @@ async def on_ready():
     
     print(f"✅ {bot.user} запущен!")
     print(f"📊 На {len(bot.guilds)} серверах")
-    print(f"👥 Всего пользователей в БД: {len(await get_all_users_count())}")
     
+    # СНАЧАЛА инициализируем БД
     await init_db()
+    
+    # ПОТОМ получаем количество пользователей
+    users_count = await get_all_users_count()
+    print(f"👥 Всего пользователей в БД: {users_count}")
     
     # Запускаем фоновые задачи
     bank_interest.start()
@@ -3636,7 +3640,8 @@ async def on_ready():
 async def get_all_users_count():
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT COUNT(DISTINCT user_id) FROM users')
-        return (await cur.fetchone())[0]
+        result = await cur.fetchone()
+        return result[0] if result else 0
 
 
 # ========== ОБРАБОТКА ОШИБОК ==========
