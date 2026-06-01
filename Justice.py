@@ -509,7 +509,7 @@ async def donate(ctx):
     )
     embed.add_field(
         name="🔗 Ссылка для доната",
-        value="https://www.donationalerts.com/dashboard/payouts/settings",
+        value="https://www.donationalerts.com/r/primera_espada",
         inline=False
     )
     embed.add_field(
