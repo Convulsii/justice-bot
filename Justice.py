@@ -16,7 +16,7 @@ from openai import OpenAI
 from collections import defaultdict
 
 # ========== КОНФИГУРАЦИЯ ==========
-TOKEN = "ВСТАВЬ_СВОЙ_ТОКЕН"  # ⬅️ ТОЛЬКО ЭТО ЗАМЕНИТЬ!
+TOKEN = os.getenv('DISCORD_TOKEN')  
 
 STEAM_API_KEY = os.getenv('STEAM_API_KEY')
 YANDEX_WEATHER_API_KEY = os.getenv('YANDEX_WEATHER_API_KEY')
