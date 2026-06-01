@@ -8,13 +8,13 @@ import json
 import aiohttp
 import time
 import os
-from datetime import datetime, timedelta
-from openai import OpenAI
-from collections import defaultdict
 import re
 import math
 import shutil
-import glob
+from datetime import datetime, timedelta
+from openai import OpenAI
+from collections import defaultdict
+
 # ========== КОНФИГУРАЦИЯ ==========
 TOKEN = os.getenv('DISCORD_TOKEN')
 if not TOKEN:
@@ -31,8 +31,8 @@ AI_BASE_URL = "https://api.ranvik.ru/v1"
 AI_MODEL = "gpt-5-nano"
 
 AI_SYSTEM_PROMPT = """Ты дружелюбный помощник в Discord сервере.
-СЕЙЧАС 2026 ГОД! Если тебя спрашивают о погоде, дате или новостях — используй веб-поиск.
-Отвечай кратко и по делу. Представься как Justice Bot AI."""
+СЕЙЧАС 2026 ГОД! Отвечай кратко и по делу.
+Представься как Justice Bot AI."""
 
 # ID каналов (ЗАМЕНИ НА СВОИ!)
 WELCOME_CHANNEL_ID = 1502637204982206686
@@ -47,7 +47,6 @@ TICKET_CATEGORY_ID = 1507503146744938506
 TICKET_CREATE_CHANNEL_ID = 1507503353117020241
 STOLOTO_CHANNEL_ID = 1509190455106211840
 IDEA_REVIEW_CHANNEL_ID = 1502637204982206679
-QUIZ_CHANNEL_ID = 1502637205187723433
 
 # Роли поддержки
 SUPPORT_ROLE_IDS = [
@@ -141,11 +140,6 @@ CARD_RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 CARD_SUITS = ['♠️', '♥️', '♣️', '♦️']
 FULL_DECK = [f"{r}{s}" for r in CARD_RANKS for s in CARD_SUITS]
 
-# Викторина
-QUIZ_INTERVAL_SECONDS = 7200
-QUIZ_ANSWER_TIME = 180
-QUIZ_REWARD = 200
-
 # СТО ЛОТО
 STOLOTO_TIME = "14:00"
 
@@ -165,26 +159,15 @@ rep_cooldowns = defaultdict(dict)
 ttt_games = {}
 poker_games = {}
 poker_lobbies = {}
-durak_games = {}
-quiz_active = False
-quiz_question = None
-quiz_answer = None
-quiz_options = {}
-quiz_message_id = None
 stoloto_active = False
 stoloto_tickets = []
 stoloto_end_time = None
-daily_reset_time = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-active_vc_sessions = {}
-voice_streaks = {}
-farm_data = {}
 guild_settings = {}
 active_tickets = {}
 color_message_id = None
 vc_sessions = {}
 user_message_timestamps = defaultdict(list)
 user_warnings = defaultdict(list)
-spam_messages_to_delete = defaultdict(list)
 user_conversations = defaultdict(list)
 MAX_CONTEXT_MESSAGES = 10
 
@@ -299,7 +282,8 @@ async def get_user(user_id, guild_id):
         row = await cur.fetchone()
         if not row:
             now = datetime.now().isoformat()
-            await db.execute('INSERT INTO users (user_id, guild_id, join_date, balance, today_messages, week_messages, month_messages, total_messages, last_message_time, pots) VALUES (?,?,?,?,?,?,?,?,?,0)', (user_id, guild_id, now, START_BALANCE, 0, 0, 0, 0, now))
+            await db.execute('''INSERT INTO users (user_id, guild_id, join_date, balance, today_messages, week_messages, month_messages, total_messages, last_message_time, pots) 
+                               VALUES (?,?,?,?,?,?,?,?,?,0)''', (user_id, guild_id, now, START_BALANCE, 0, 0, 0, 0, now))
             await db.commit()
             return await get_user(user_id, guild_id)
         return row
@@ -339,7 +323,11 @@ async def add_xp(user_id, guild_id, amount):
     level_up = new_level > user[3]
     
     async with aiosqlite.connect("justice.db") as db:
-        await db.execute('UPDATE users SET xp=?, level=?, total_messages=total_messages+1, today_messages=today_messages+1, week_messages=week_messages+1, month_messages=month_messages+1, last_message_time=? WHERE user_id=? AND guild_id=?', (new_xp, new_level, datetime.now().isoformat(), user_id, guild_id))
+        await db.execute('''UPDATE users SET xp=?, level=?, total_messages=total_messages+1, 
+                         today_messages=today_messages+1, week_messages=week_messages+1, 
+                         month_messages=month_messages+1, last_message_time=? 
+                         WHERE user_id=? AND guild_id=?''', 
+                         (new_xp, new_level, datetime.now().isoformat(), user_id, guild_id))
         await db.commit()
     
     return level_up, new_level
@@ -379,40 +367,33 @@ def set_rep_cooldown(from_id, to_id):
     rep_cooldowns[key] = time.time()
 
 
-# ========== ПОГОДА (ЯНДЕКС) ==========
+# ========== ПОГОДА ==========
 @bot.command()
 async def weather(ctx, *, city: str = None):
     """🌤️ Погода в любом городе (Яндекс.Погода)"""
     if city is None:
-        await ctx.send("🌤️ **Погода**\n`j.weather <город>` - показать погоду\nПример: `j.weather Москва`\n`j.weather 55.75,37.62` - по координатам")
+        await ctx.send("🌤️ **Погода**\n`j.weather <город>` - показать погоду\nПример: `j.weather Москва`")
         return
     
     if not YANDEX_WEATHER_API_KEY:
-        await ctx.send("❌ Погода не настроена! Администратор должен добавить YANDEX_WEATHER_API_KEY в переменные окружения Railway.")
+        await ctx.send("❌ Погода не настроена! Добавьте YANDEX_WEATHER_API_KEY в переменные окружения.")
         return
     
-    lat, lon, city_name = None, None, city
-    coord_pattern = r'^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$'
-    match = re.match(coord_pattern, city.replace(' ', ''))
-    
-    if match:
-        lat, lon = float(match.group(1)), float(match.group(2))
-        city_name = f"{lat}, {lon}"
-    else:
-        async with aiohttp.ClientSession() as session:
-            geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
-            headers = {'User-Agent': 'JusticeBot/1.0'}
-            try:
-                async with session.get(geo_url, headers=headers) as resp:
-                    data = await resp.json()
-                    if not data:
-                        await ctx.send(f"❌ Город **{city}** не найден!")
-                        return
-                    lat, lon = float(data[0]['lat']), float(data[0]['lon'])
-                    city_name = data[0].get('display_name', city).split(',')[0]
-            except Exception as e:
-                await ctx.send(f"❌ Ошибка поиска города: {str(e)[:100]}")
-                return
+    async with aiohttp.ClientSession() as session:
+        geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
+        headers = {'User-Agent': 'JusticeBot/1.0'}
+        try:
+            async with session.get(geo_url, headers=headers) as resp:
+                data = await resp.json()
+                if not data:
+                    await ctx.send(f"❌ Город **{city}** не найден!")
+                    return
+                lat = float(data[0]['lat'])
+                lon = float(data[0]['lon'])
+                city_name = data[0].get('display_name', city).split(',')[0]
+        except Exception as e:
+            await ctx.send(f"❌ Ошибка поиска города: {str(e)[:100]}")
+            return
     
     headers = {'X-Yandex-API-Key': YANDEX_WEATHER_API_KEY}
     url = f"https://api.weather.yandex.ru/v2/forecast?lat={lat}&lon={lon}&limit=1&lang=ru_RU"
@@ -427,14 +408,25 @@ async def weather(ctx, *, city: str = None):
                     await ctx.send(f"❌ Ошибка API: {resp.status}")
                     return
                 
-                data, fact = await resp.json(), None
+                data = await resp.json()
                 fact = data.get('fact', {})
                 
-                condition_map = {"clear": "☀️", "partly-cloudy": "⛅", "cloudy": "☁️", "overcast": "☁️", "light-rain": "🌧️", "rain": "🌧️", "heavy-rain": "🌧️", "showers": "🌧️", "wet-snow": "🌨️", "light-snow": "❄️", "snow": "❄️", "heavy-snow": "❄️", "thunderstorm": "⛈️", "hail": "🌨️"}
-                condition_ru = {"clear": "Ясно", "partly-cloudy": "Малооблачно", "cloudy": "Облачно с прояснениями", "overcast": "Пасмурно", "light-rain": "Небольшой дождь", "rain": "Дождь", "heavy-rain": "Сильный дождь", "showers": "Ливень", "wet-snow": "Дождь со снегом", "light-snow": "Небольшой снег", "snow": "Снег", "heavy-snow": "Сильный снег", "thunderstorm": "Гроза", "hail": "Град"}
-                wind_dir_map = {"nw": "Северо-западный", "n": "Северный", "ne": "Северо-восточный", "w": "Западный", "e": "Восточный", "sw": "Юго-западный", "s": "Южный", "se": "Юго-восточный", "c": "Штиль"}
+                condition_map = {"clear": "☀️", "partly-cloudy": "⛅", "cloudy": "☁️", "overcast": "☁️",
+                                "light-rain": "🌧️", "rain": "🌧️", "heavy-rain": "🌧️", "showers": "🌧️",
+                                "wet-snow": "🌨️", "light-snow": "❄️", "snow": "❄️", "heavy-snow": "❄️",
+                                "thunderstorm": "⛈️", "hail": "🌨️"}
+                condition_ru = {"clear": "Ясно", "partly-cloudy": "Малооблачно", "cloudy": "Облачно с прояснениями",
+                              "overcast": "Пасмурно", "light-rain": "Небольшой дождь", "rain": "Дождь",
+                              "heavy-rain": "Сильный дождь", "showers": "Ливень", "wet-snow": "Дождь со снегом",
+                              "light-snow": "Небольшой снег", "snow": "Снег", "heavy-snow": "Сильный снег",
+                              "thunderstorm": "Гроза", "hail": "Град"}
+                wind_dir_map = {"nw": "Северо-западный", "n": "Северный", "ne": "Северо-восточный",
+                              "w": "Западный", "e": "Восточный", "sw": "Юго-западный",
+                              "s": "Южный", "se": "Юго-восточный", "c": "Штиль"}
                 
-                embed = discord.Embed(title=f"{condition_map.get(fact.get('condition'), '🌡️')} Погода в {city_name}", description=f"*{condition_ru.get(fact.get('condition'), fact.get('condition', 'Неизвестно')).capitalize()}*", color=discord.Color.blue())
+                embed = discord.Embed(title=f"{condition_map.get(fact.get('condition'), '🌡️')} Погода в {city_name}",
+                                    description=f"*{condition_ru.get(fact.get('condition'), fact.get('condition', 'Неизвестно')).capitalize()}*",
+                                    color=discord.Color.blue())
                 embed.add_field(name="🌡️ Температура", value=f"{fact.get('temp')}°C", inline=True)
                 embed.add_field(name="🤔 Ощущается как", value=f"{fact.get('feels_like')}°C", inline=True)
                 embed.add_field(name="💧 Влажность", value=f"{fact.get('humidity')}%", inline=True)
@@ -445,93 +437,66 @@ async def weather(ctx, *, city: str = None):
             await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
 
 
-# ========== ИИ С ВЕБ-ПОИСКОМ ==========
-async def get_ai_response(user_id, user_message, with_web=True):
+# ========== ИИ ==========
+async def get_ai_response(user_id, user_message, with_web=False):
     global user_conversations
     
     lower_msg = user_message.lower()
     
-    # Быстрые ответы без API
-    if any(x in lower_msg for x in ["привет", "здравствуй", "ку"]):
-        return "👋 Привет! Чем могу помочь?"
+    # Быстрые ответы
+    if any(x in lower_msg for x in ["привет", "здравствуй"]):
+        return "👋 Привет!"
     if "как дела" in lower_msg:
-        return "😊 Всё отлично! А у тебя?"
-    if any(x in lower_msg for x in ["спасибо", "благодарю"]):
-        return "🙏 Пожалуйста! Обращайся."
-    if any(x in lower_msg for x in ["кто ты", "ты кто"]):
-        return "🤖 Я Justice Bot AI — твой помощник на этом сервере!"
-    if any(x in lower_msg for x in ["команды", "help", "помощь"]):
-        return "📋 **Мои команды:** `j.help` — список всех команд\n`j.profile` — твой профиль\n`j.ai <вопрос>` — задать вопрос\n`j.weather <город>` — погода"
-    if any(x in lower_msg for x in ["дата", "сегодня", "число", "день"]):
-        now = datetime.now()
-        days = {"Monday": "понедельник", "Tuesday": "вторник", "Wednesday": "среда", "Thursday": "четверг", "Friday": "пятница", "Saturday": "суббота", "Sunday": "воскресенье"}
-        return f"📅 Сегодня **{now.strftime('%d.%m.%Y')}**, {days.get(now.strftime('%A'), now.strftime('%A'))}."
-    if any(x in lower_msg for x in ["время", "сколько время", "который час"]):
-        return f"🕐 Сейчас **{datetime.now().strftime('%H:%M:%S')}** по МСК."
-    if "доброе утро" in lower_msg:
-        return "🌅 Доброе утро! Хорошего дня!"
-    if "добрый вечер" in lower_msg:
-        return "🌆 Добрый вечер! Как прошёл день?"
-    if "спокойной ночи" in lower_msg:
-        return "🌙 Спокойной ночи! Сладких снов!"
+        return "😊 Всё отлично!"
+    if "спасибо" in lower_msg:
+        return "🙏 Пожалуйста!"
+    if any(x in lower_msg for x in ["дата", "сегодня", "число"]):
+        return f"📅 Сегодня {datetime.now().strftime('%d.%m.%Y')}"
+    if any(x in lower_msg for x in ["время", "который час"]):
+        return f"🕐 Сейчас {datetime.now().strftime('%H:%M:%S')}"
     if "погода" in lower_msg:
-        return "🌤️ Используй команду `j.weather <город>` для точной погоды!"
+        return "🌤️ Используй `j.weather <город>`"
     
-    # Основной запрос
-    context_messages = []
-    for msg in user_conversations.get(user_id, [])[-10:]:
-        context_messages.append(msg)
+    # Контекст
+    conv = user_conversations.get(user_id, [])
+    messages = [{"role": "system", "content": f"Ты помощник. Сегодня {datetime.now().strftime('%d.%m.%Y')}. Отвечай кратко."}]
+    messages.extend(conv[-MAX_CONTEXT_MESSAGES:])
+    messages.append({"role": "user", "content": user_message})
     
-    for attempt in range(3):
-        try:
-            if with_web:
-                resp = await asyncio.wait_for(asyncio.get_event_loop().run_in_executor(None, lambda: ai_client.responses.create(model=AI_MODEL, input=user_message, tools=[{"type": "web_search"}], max_completion_tokens=500, temperature=0.5)), timeout=8.0)
-                answer = resp.output_text
-            else:
-                messages = [{"role": "system", "content": "Ты помощник. Отвечай кратко, максимум 2-3 предложения. Сегодня " + datetime.now().strftime('%d.%m.%Y')}]
-                messages.extend(context_messages)
-                messages.append({"role": "user", "content": user_message})
-                resp = await asyncio.wait_for(asyncio.get_event_loop().run_in_executor(None, lambda: ai_client.chat.completions.create(model=AI_MODEL, messages=messages, max_tokens=500, temperature=0.7)), timeout=6.0)
-                answer = resp.choices[0].message.content
-            
-            user_conversations[user_id].append({"role": "user", "content": user_message})
-            user_conversations[user_id].append({"role": "assistant", "content": answer})
-            if len(user_conversations[user_id]) > 20:
-                user_conversations[user_id] = user_conversations[user_id][-20:]
-            return answer
-            
-        except asyncio.TimeoutError:
-            if attempt == 2:
-                return "⏳ **Поиск занял слишком много времени.** Попробуй спросить проще."
-            continue
-        except Exception as e:
-            error_msg = str(e)
-            if "rate" in error_msg.lower():
-                return "📊 **Слишком много запросов!** Подожди 30 секунд."
-            elif "key" in error_msg.lower():
-                return "🔑 **Проблема с ключом API.** Сообщи администратору."
-            elif "web_search" in error_msg.lower() and with_web and attempt < 2:
-                with_web = False
-                continue
-            if attempt == 2:
-                return f"⚡ **Ошибка:** {error_msg[:100]}\nПопробуй переформулировать вопрос."
-            continue
-    
-    return "❌ **Не удалось получить ответ.** Попробуй позже."
+    try:
+        resp = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: ai_client.chat.completions.create(
+                    model=AI_MODEL,
+                    messages=messages,
+                    max_tokens=500
+                )
+            ),
+            timeout=10.0
+        )
+        answer = resp.choices[0].message.content
+        user_conversations[user_id].append({"role": "user", "content": user_message})
+        user_conversations[user_id].append({"role": "assistant", "content": answer})
+        return answer if answer else "😊 Понял!"
+    except asyncio.TimeoutError:
+        return "⏳ Немного подтормаживает... Попробуй ещё раз."
+    except Exception as e:
+        return f"❌ Ошибка: {str(e)[:100]}"
 
 
 @bot.command()
 async def ai(ctx, *, question: str = None):
-    """🤖 Задать вопрос ИИ с веб-поиском"""
+    """🤖 Задать вопрос ИИ"""
     if not question:
-        await ctx.send("❌ Введите вопрос после команды!\nПример: `j.ai Как дела?`")
+        await ctx.send("❌ Напиши вопрос: `j.ai Как дела?`")
         return
     if len(question) > 500:
         await ctx.send("❌ Вопрос слишком длинный! Максимум 500 символов.")
         return
-    msg = await ctx.send("🔍 **Ищу информацию...**")
+    msg = await ctx.send("💭 Думаю...")
     async with ctx.typing():
-        response = await get_ai_response(ctx.author.id, question, with_web=True)
+        response = await get_ai_response(ctx.author.id, question)
     await msg.edit(content=response)
 
 
@@ -542,28 +507,30 @@ async def check_spam(message):
     now = time.time()
     
     settings = guild_settings.get(message.guild.id, {})
+    
+    # Запрещённые слова
     for word in settings.get("automod_bad_words", []):
         if word in content:
-            spam_messages_to_delete[user_id].append(message.id)
-            return True, f"использование запрещённого слова: {word}"
+            return True, f"запрещённое слово: {word}"
     
+    # Реклама Discord серверов
     if settings.get("automod_invites_enabled", True):
-        if re.search(r'(?:https?://)?(?:www\.)?(?:discord\.(?:gg|com/invite)|dsc\.gg)/[a-zA-Z0-9]+', content, re.IGNORECASE):
-            spam_messages_to_delete[user_id].append(message.id)
+        if "discord.gg/" in content or "discord.com/invite/" in content or "dsc.gg/" in content:
             return True, "реклама Discord сервера"
     
+    # Фишинг
     if settings.get("automod_phishing_enabled", True):
-        phishing = [r'(?:nitro|steam|discord)(?:\.gift|gift|\.com).*\b(free|giveaway|бесплатно)\b', r'(?:пополни|пополнение|баланс|займ|кредит|деньги)\b.*\b(https?://|www\.)', r'\b(банк|карт[аы]|сбер|тиньк|паспорт|снилс|инн|пароль|логин)\b.*\b(https?://|www\.)']
-        for pattern in phishing:
-            if re.search(pattern, content, re.IGNORECASE):
-                spam_messages_to_delete[user_id].append(message.id)
-                return True, "подозрение на фишинг/мошенничество"
+        if ("free" in content or "giveaway" in content) and ("nitro" in content or "steam" in content):
+            return True, "подозрение на фишинг"
+        if ("пополни" in content or "баланс" in content) and ("http" in content or "www" in content):
+            return True, "подозрение на фишинг"
     
+    # Флуд
     if user_id not in user_message_timestamps:
         user_message_timestamps[user_id] = []
+    
     user_message_timestamps[user_id].append(now)
     user_message_timestamps[user_id] = [t for t in user_message_timestamps[user_id] if now - t < ANTISPAM_WINDOW_SECONDS]
-    spam_messages_to_delete[user_id].append(message.id)
     
     if len(user_message_timestamps[user_id]) > ANTISPAM_MAX_MESSAGES:
         user_message_timestamps[user_id] = []
@@ -587,7 +554,9 @@ async def add_auto_warning(user, reason, channel):
     await send_log(user.guild.id, embed)
     
     if warning_count >= ANTISPAM_MAX_WARNINGS:
-        alert = discord.Embed(title="🚨 ПРЕВЫШЕН ЛИМИТ ПРЕДУПРЕЖДЕНИЙ", description=f"Пользователь {user.mention} получил {warning_count} автоматических предупреждений за 24 часа.", color=discord.Color.red())
+        alert = discord.Embed(title="🚨 ПРЕВЫШЕН ЛИМИТ ПРЕДУПРЕЖДЕНИЙ",
+                             description=f"Пользователь {user.mention} получил {warning_count} автоматических предупреждений за 24 часа.",
+                             color=discord.Color.red())
         await send_log(user.guild.id, alert)
     
     return warning_count
@@ -601,7 +570,8 @@ async def automod(ctx, action: str = None, module: str = None, *args):
     settings = guild_settings[ctx.guild.id]
     
     if "automod_enabled" not in settings:
-        settings.update({"automod_enabled": True, "automod_bad_words": [], "automod_invites_enabled": True, "automod_phishing_enabled": True, "automod_exempt_roles": []})
+        settings.update({"automod_enabled": True, "automod_bad_words": [], "automod_invites_enabled": True,
+                        "automod_phishing_enabled": True, "automod_exempt_roles": []})
     
     if action is None or action == "status":
         embed = discord.Embed(title="⚙️ НАСТРОЙКИ АВТОМОДЕРАЦИИ", color=discord.Color.blue())
@@ -635,7 +605,10 @@ async def automod(ctx, action: str = None, module: str = None, *args):
                 await ctx.send(f"✅ Удалено слово: **{word}**")
         elif args[0] == "list":
             words = settings["automod_bad_words"]
-            await ctx.send(f"**📝 Список запрещённых слов ({len(words)}):**\n" + ", ".join([f"`{w}`" for w in words[:50]]) if words else "📝 Список запрещённых слов пуст")
+            if words:
+                await ctx.send(f"**📝 Список запрещённых слов ({len(words)}):**\n" + ", ".join([f"`{w}`" for w in words[:50]]))
+            else:
+                await ctx.send("📝 Список запрещённых слов пуст")
         elif args[0] == "clear":
             settings["automod_bad_words"] = []
             await ctx.send("✅ Список запрещённых слов очищен")
@@ -773,7 +746,8 @@ async def awarn(ctx, member: discord.Member, *, reason: str = "Не указан
 async def update_voice_streak(member):
     today = datetime.now().date()
     async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT voice_streak, last_voice_join FROM users WHERE user_id=? AND guild_id=?', (member.id, member.guild.id))
+        cur = await db.execute('SELECT voice_streak, last_voice_join FROM users WHERE user_id=? AND guild_id=?', 
+                               (member.id, member.guild.id))
         row = await cur.fetchone()
         
         if not row:
@@ -792,13 +766,14 @@ async def update_voice_streak(member):
             else:
                 streak = 1
         
-        await db.execute('UPDATE users SET voice_streak=?, last_voice_join=? WHERE user_id=? AND guild_id=?', (streak, datetime.now().isoformat(), member.id, member.guild.id))
+        await db.execute('UPDATE users SET voice_streak=?, last_voice_join=? WHERE user_id=? AND guild_id=?',
+                        (streak, datetime.now().isoformat(), member.id, member.guild.id))
         await db.commit()
         await add_balance(member.id, member.guild.id, streak * 5)
         return streak
 
 
-# ========== ФЕРМА (СОКРАЩЕНО) ==========
+# ========== ФЕРМА ==========
 @bot.command()
 async def farm(ctx):
     data = await get_user(ctx.author.id, ctx.guild.id)
@@ -1002,7 +977,7 @@ async def sell_all_crops(ctx):
     await ctx.send(f"💰 Вы продали весь урожай за **{total}** 💎!")
 
 
-# ========== ПРОФИЛЬ (ИСПРАВЛЕННЫЙ) ==========
+# ========== ПРОФИЛЬ ==========
 @bot.command()
 async def profile(ctx, member: discord.Member = None):
     target = member or ctx.author
@@ -1051,26 +1026,20 @@ async def bio(ctx, *, text: str = None):
     await ctx.send("✅ Ваша биография обновлена!")
 
 
-# ========== STEAM СТАТИСТИКА ==========
+# ========== STEAM (С КНОПКАМИ) ==========
 class SteamProfileView(discord.ui.View):
-    def __init__(self, target_user: discord.User, steam_id: str):
+    def __init__(self, target_user, steam_id):
         super().__init__(timeout=120)
         self.target_user = target_user
         self.steam_id = steam_id
         self.current_action = "profile"
         
-        # Добавляем кнопку-ссылку вручную (URL)
-        self.add_item(discord.ui.Button(
-            label="Открыть в Steam",
-            style=discord.ButtonStyle.link,
-            url=f"https://steamcommunity.com/profiles/{steam_id}"
-        ))
-
+        self.add_item(discord.ui.Button(label="Открыть в Steam", style=discord.ButtonStyle.link, url=f"https://steamcommunity.com/profiles/{steam_id}"))
+    
     async def fetch_steam_data(self, action: str, page: int = 0):
-        """Получает данные из Steam API для выбранного раздела."""
         if not STEAM_API_KEY:
             return None, "❌ Steam API не настроен!"
-
+        
         async with aiohttp.ClientSession() as session:
             if action == "profile":
                 url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={STEAM_API_KEY}&steamids={self.steam_id}"
@@ -1082,13 +1051,13 @@ class SteamProfileView(discord.ui.View):
                     p = players[0]
                     status_map = {0: "Офлайн", 1: "В сети", 2: "Занят", 3: "Нет на месте", 4: "Спит", 5: "Ищет игру", 6: "Играет"}
                     embed = discord.Embed(title=f"🎮 Steam Профиль: {self.target_user.display_name}",
-                                          description=f"**{p.get('personaname', 'Неизвестно')}**",
-                                          color=discord.Color.blue())
+                                        description=f"**{p.get('personaname', 'Неизвестно')}**",
+                                        color=discord.Color.blue())
                     if p.get('avatarfull'):
                         embed.set_thumbnail(url=p['avatarfull'])
                     embed.add_field(name="🆔 Steam ID", value=self.steam_id, inline=True)
                     embed.add_field(name="🎮 Статус", value=status_map.get(p.get('personastate', 0), "Неизвестно"), inline=True)
-                    # Доп. информация об играх
+                    
                     games_url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={STEAM_API_KEY}&steamid={self.steam_id}&include_appinfo=true"
                     async with session.get(games_url) as gr:
                         games_data = await gr.json()
@@ -1098,7 +1067,7 @@ class SteamProfileView(discord.ui.View):
                             total_hours = sum(g.get('playtime_forever', 0) for g in games_list) / 60
                             embed.add_field(name="⏱️ Часов в играх", value=f"{total_hours:.0f}ч", inline=True)
                     return embed, None
-
+            
             elif action == "games":
                 url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={STEAM_API_KEY}&steamid={self.steam_id}&include_appinfo=true"
                 async with session.get(url) as resp:
@@ -1116,7 +1085,7 @@ class SteamProfileView(discord.ui.View):
                     embed = discord.Embed(title=f"🎮 Игры: {self.target_user.display_name}", description=text, color=discord.Color.blue())
                     embed.set_footer(text=f"Страница {page+1} из {total_pages}")
                     return embed, total_pages
-
+            
             elif action == "friends":
                 url = f"https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key={STEAM_API_KEY}&steamid={self.steam_id}&relationship=friend"
                 async with session.get(url) as resp:
@@ -1124,43 +1093,48 @@ class SteamProfileView(discord.ui.View):
                     friends = data.get('friendslist', {}).get('friends', [])
                     if not friends:
                         return None, "❌ Список друзей не найден или скрыт."
-                    # Для отображения имён нужен дополнительный запрос, пока только ID
                     text = "\n".join([f"**{f.get('steamid', 'Неизвестно')}**" for f in friends[:10]])
                     embed = discord.Embed(title=f"👥 Друзья: {self.target_user.display_name}", description=text or "Список друзей пуст.", color=discord.Color.blue())
                     return embed, None
-
-            else:
-                return None, "❌ Неизвестный раздел."
-
+            
+            return None, "❌ Неизвестный раздел."
+    
     async def update_message(self, interaction: discord.Interaction, action: str, page: int = 0):
-        """Обновляет embed в соответствии с выбранным действием."""
         embed, total_pages = await self.fetch_steam_data(action, page)
         if embed is None:
             await interaction.response.edit_message(content=total_pages or "❌ Ошибка загрузки.", view=self)
             return
-
-        # Управление кнопками пагинации
+        
         for item in self.children[:]:
             if isinstance(item, (PrevPageButton, NextPageButton)):
                 self.remove_item(item)
-
+        
         if action == "games" and total_pages and total_pages > 1:
             self.add_item(PrevPageButton(action, page))
             self.add_item(NextPageButton(action, page, total_pages))
-
+        
         self.current_action = action
         await interaction.response.edit_message(embed=embed, view=self)
-
+    
     @discord.ui.button(label="Профиль", style=discord.ButtonStyle.primary, row=0)
     async def profile_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target_user.id and not any(interaction.guild.get_role(rid) in interaction.user.roles for rid in SUPPORT_ROLE_IDS):
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
         await self.update_message(interaction, "profile")
-
+    
     @discord.ui.button(label="Игры", style=discord.ButtonStyle.primary, row=0)
     async def games_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target_user.id and not any(interaction.guild.get_role(rid) in interaction.user.roles for rid in SUPPORT_ROLE_IDS):
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
         await self.update_message(interaction, "games", 0)
-
+    
     @discord.ui.button(label="Друзья", style=discord.ButtonStyle.primary, row=0)
     async def friends_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target_user.id and not any(interaction.guild.get_role(rid) in interaction.user.roles for rid in SUPPORT_ROLE_IDS):
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
         await self.update_message(interaction, "friends")
 
 
@@ -1169,9 +1143,9 @@ class PrevPageButton(discord.ui.Button):
         super().__init__(label="◀", style=discord.ButtonStyle.secondary, row=1)
         self.action = action
         self.current_page = current_page
-
+    
     async def callback(self, interaction: discord.Interaction):
-        view: SteamProfileView = self.view
+        view = self.view
         await view.update_message(interaction, self.action, self.current_page - 1)
 
 
@@ -1181,27 +1155,18 @@ class NextPageButton(discord.ui.Button):
         self.action = action
         self.current_page = current_page
         self.total_pages = total_pages
-
+    
     async def callback(self, interaction: discord.Interaction):
-        view: SteamProfileView = self.view
+        view = self.view
         await view.update_message(interaction, self.action, self.current_page + 1)
 
 
 @bot.command()
 async def steam(ctx, action: str = None, *, arg: str = None):
-    """🎮 Steam команды с интерактивными кнопками.
-
-    Примеры:
-    j.steam profile [@user] - показать профиль (по умолчанию свой)
-    j.steam set <steam_id> - привязать Steam ID к себе
-    """
     if not action:
-        await ctx.send("🎮 **Steam команды:**\n"
-                       "`j.steam set <steam_id>` - привязать Steam ID\n"
-                       "`j.steam profile [@user]` - показать профиль")
+        await ctx.send("🎮 **Steam команды:**\n`j.steam set <steam_id>` - привязать Steam ID\n`j.steam profile [@user]` - показать профиль")
         return
-
-    # Привязка Steam ID
+    
     if action == "set":
         if not arg:
             await ctx.send("❌ Использование: `j.steam set <steam_id>`")
@@ -1211,10 +1176,8 @@ async def steam(ctx, action: str = None, *, arg: str = None):
             await db.commit()
         await ctx.send(f"✅ Steam ID привязан: `{arg}`")
         return
-
-    # Просмотр профиля
+    
     if action == "profile":
-        # Определяем целевого пользователя
         target_user = ctx.author
         if arg:
             match = re.match(r'<@!?(\d+)>', arg)
@@ -1224,15 +1187,13 @@ async def steam(ctx, action: str = None, *, arg: str = None):
             else:
                 await ctx.send("❌ Укажите пользователя через @, например `j.steam profile @user`")
                 return
-
-        # Получаем Steam ID из БД
+        
         user_data = await get_user(target_user.id, ctx.guild.id)
         steam_id = user_data[25] if len(user_data) > 25 else None
         if not steam_id:
             await ctx.send(f"❌ У пользователя {target_user.mention} не привязан Steam ID!")
             return
-
-        # Отправляем интерактивное меню
+        
         view = SteamProfileView(target_user, steam_id)
         embed, _ = await view.fetch_steam_data("profile")
         if embed:
@@ -1240,7 +1201,7 @@ async def steam(ctx, action: str = None, *, arg: str = None):
         else:
             await ctx.send("❌ Не удалось загрузить профиль.")
         return
-
+    
     await ctx.send("❌ Неизвестная команда. Используйте `j.steam set <id>` или `j.steam profile [@user]`.")
 
 
@@ -2114,7 +2075,6 @@ async def rps(ctx, choice: str = None, bet: int = None):
             await msg.edit(content=f"✊ {choice} vs {botc} → **ПРОИГРЫШ!** -{bet} 💎")
 
 
-# ========== БЛЭКДЖЕК (УПРОЩЁННО) ==========
 @bot.command()
 async def blackjack(ctx, bet: int = None):
     if not bet:
@@ -2518,133 +2478,206 @@ async def on_raw_reaction_remove(payload):
 
 # ========== ТИКЕТЫ ==========
 class AcceptTicketButton(Button):
-    def __init__(self, cid, creator):
+    def __init__(self, channel_id, creator_id):
         super().__init__(label="✅ Принять тикет", style=discord.ButtonStyle.success, emoji="✅")
-        self.cid, self.creator = cid, creator
-    
-    async def callback(self, i):
-        is_sup = any(i.guild.get_role(rid) in i.user.roles for rid in SUPPORT_ROLE_IDS)
-        if not is_sup:
-            await i.response.send_message("❌ Только поддержка может принимать тикеты!", ephemeral=True)
+        self.channel_id = channel_id
+        self.creator_id = creator_id
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        is_support = False
+        for role_id in SUPPORT_ROLE_IDS:
+            role = interaction.guild.get_role(role_id)
+            if role and role in interaction.user.roles:
+                is_support = True
+                break
+        
+        if not is_support:
+            await interaction.followup.send("❌ Только поддержка может принимать тикеты!", ephemeral=True)
             return
-        ch = bot.get_channel(self.cid)
-        if not ch: return
-        await ch.edit(name=f"принят-{ch.name.replace('тикет-','')}")
-        await ch.edit(topic=f"{ch.topic or ''}\nПринят: {i.user.name} (ID: {i.user.id}) | {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
-        await ch.send(embed=discord.Embed(title="✅ ТИКЕТ ПРИНЯТ", description=f"Тикет принят {i.user.mention}\nОтветственный: {i.user.mention}", color=discord.Color.green()))
+        
+        channel = bot.get_channel(self.channel_id)
+        if not channel:
+            await interaction.followup.send("❌ Канал не найден!", ephemeral=True)
+            return
+        
+        new_name = f"принят-{channel.name.replace('тикет-', '')}"
+        await channel.edit(name=new_name)
+        
+        old_topic = channel.topic or ""
+        await channel.edit(topic=f"{old_topic}\nПринят: {interaction.user.name} | {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+        
+        embed = discord.Embed(title="✅ ТИКЕТ ПРИНЯТ", description=f"Тикет принят {interaction.user.mention}\nОтветственный: {interaction.user.mention}", color=discord.Color.green())
+        await channel.send(embed=embed)
+        
         try:
-            await i.message.edit(view=None)
-        except: pass
-        await i.response.send_message("✅ Тикет принят!", ephemeral=True)
+            msg = await channel.fetch_message(interaction.message.id)
+            await msg.edit(view=None)
+        except:
+            pass
+        
+        await interaction.followup.send("✅ Тикет принят!", ephemeral=True)
 
 
-class CloseTicketWithLogsButton(Button):
-    def __init__(self, cid, creator):
+class CloseTicketButton(Button):
+    def __init__(self, channel_id, creator_id):
         super().__init__(label="🔒 Закрыть тикет", style=discord.ButtonStyle.danger, emoji="🔒")
-        self.cid, self.creator = cid, creator
-    
-    async def callback(self, i):
-        is_sup = any(i.guild.get_role(rid) in i.user.roles for rid in SUPPORT_ROLE_IDS)
-        is_creator = i.user.id == self.creator
-        if not (is_sup or is_creator):
-            await i.response.send_message("❌ Только создатель тикета или поддержка могут закрыть тикет!", ephemeral=True)
+        self.channel_id = channel_id
+        self.creator_id = creator_id
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        is_support = False
+        for role_id in SUPPORT_ROLE_IDS:
+            role = interaction.guild.get_role(role_id)
+            if role and role in interaction.user.roles:
+                is_support = True
+                break
+        
+        is_creator = interaction.user.id == self.creator_id
+        
+        if not (is_support or is_creator):
+            await interaction.followup.send("❌ Только создатель тикета или поддержка могут закрыть тикет!", ephemeral=True)
             return
-        ch = bot.get_channel(self.cid)
-        if not ch: return
         
-        await i.response.send_message("⏳ Сбор истории тикета...")
-        msgs = []
-        async for m in ch.history(limit=500, oldest_first=True):
-            msgs.append(f"[{m.created_at.strftime('%d.%m.%Y %H:%M:%S')}] {m.author.name}: {m.content if m.content else '[Вложение]'}")
+        channel = bot.get_channel(self.channel_id)
+        if not channel:
+            await interaction.followup.send("❌ Канал не найден!", ephemeral=True)
+            return
         
-        if not os.path.exists("ticket_logs"): os.makedirs("ticket_logs")
+        messages = []
+        async for m in channel.history(limit=200, oldest_first=True):
+            messages.append(f"[{m.created_at.strftime('%d.%m.%Y %H:%M:%S')}] {m.author.name}: {m.content[:100] if m.content else '[вложение]'}")
+        
+        if not os.path.exists("ticket_logs"):
+            os.makedirs("ticket_logs")
+        
         now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-        fname = f"ticket_logs/ticket_{ch.name}_{now}.txt"
-        with open(fname, 'w', encoding='utf-8') as f:
-            f.write(f"=== ИСТОРИЯ ТИКЕТА ===\nКанал: {ch.name}\nСоздатель: {self.creator}\nЗакрыл: {i.user.name}\nДата: {now}\nВсего сообщений: {len(msgs)}\n\n=== СООБЩЕНИЯ ===\n\n" + "\n".join(msgs))
+        log_file = f"ticket_logs/ticket_{channel.name}_{now}.txt"
         
-        log_ch = bot.get_channel(LOGS_CHANNEL_ID)
-        if log_ch:
-            await log_ch.send(embed=discord.Embed(title="📋 ЗАКРЫТИЕ ТИКЕТА", description=f"**Канал:** {ch.mention}\n**Закрыл:** {i.user.mention}\n**Всего сообщений:** {len(msgs)}", color=discord.Color.orange()), file=discord.File(fname))
+        with open(log_file, 'w', encoding='utf-8') as f:
+            f.write(f"=== ТИКЕТ {channel.name} ===\n")
+            f.write(f"Создатель: {self.creator_id}\n")
+            f.write(f"Закрыл: {interaction.user.name}\n")
+            f.write(f"Дата: {now}\n")
+            f.write(f"Всего сообщений: {len(messages)}\n\n")
+            f.write("\n".join(messages))
         
-        await i.edit_original_response(content=None, embed=discord.Embed(title="🔒 Закрытие тикета", description="Тикет будет закрыт через 5 секунд...\nИстория сохранена.", color=discord.Color.orange()), view=None)
-        await asyncio.sleep(5)
-        if self.cid in active_tickets: del active_tickets[self.cid]
-        await ch.delete()
-        os.remove(fname)
+        log_channel = bot.get_channel(LOGS_CHANNEL_ID)
+        if log_channel:
+            await log_channel.send(f"📋 **Закрыт тикет** {channel.mention}\n👤 Закрыл: {interaction.user.mention}\n📊 Сообщений: {len(messages)}")
+            await log_channel.send(file=discord.File(log_file))
+        
+        await channel.delete()
+        os.remove(log_file)
+        
+        await interaction.followup.send("🔒 Тикет закрыт!", ephemeral=True)
 
 
-class TicketButtonWithAccept(Button):
+class TicketButton(Button):
     def __init__(self):
         super().__init__(label="🎫 Создать тикет", style=discord.ButtonStyle.primary, emoji="🎫")
-    
-    async def callback(self, i):
-        cat = i.guild.get_channel(TICKET_CATEGORY_ID)
-        if not cat:
-            await i.response.send_message("❌ Категория для тикетов не найдена!", ephemeral=True)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        category = interaction.guild.get_channel(TICKET_CATEGORY_ID)
+        if not category:
+            await interaction.followup.send("❌ Категория для тикетов не найдена!", ephemeral=True)
             return
-        for ch in cat.channels:
-            if ch.topic and str(i.user.id) in ch.topic:
-                await i.response.send_message("❌ У вас уже есть открытый тикет!", ephemeral=True)
+        
+        for channel in category.channels:
+            if channel.topic and str(interaction.user.id) in channel.topic:
+                await interaction.followup.send("❌ У вас уже есть открытый тикет!", ephemeral=True)
                 return
         
-        ov = {i.guild.default_role: discord.PermissionOverwrite(view_channel=False), i.user: discord.PermissionOverwrite(view_channel=True, send_messages=True), i.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True)}
-        for rid in SUPPORT_ROLE_IDS:
-            r = i.guild.get_role(rid)
-            if r: ov[r] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, read_message_history=True),
+            interaction.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True)
+        }
         
-        num = len([c for c in cat.channels if c.name.startswith("тикет-")]) + 1
-        ch = await cat.create_text_channel(name=f"тикет-{num}", overwrites=ov, topic=f"Создатель: {i.user.id} | {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
-        active_tickets[ch.id] = {"creator": i.user.id}
+        for role_id in SUPPORT_ROLE_IDS:
+            role = interaction.guild.get_role(role_id)
+            if role:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, attach_files=True, read_message_history=True, manage_channels=True)
+        
+        ticket_number = len([c for c in category.channels if c.name.startswith("тикет-")]) + 1
+        channel = await category.create_text_channel(
+            name=f"тикет-{ticket_number}",
+            overwrites=overwrites,
+            topic=f"Создатель: {interaction.user.id}"
+        )
+        
+        active_tickets[channel.id] = {"creator": interaction.user.id}
+        
+        embed = discord.Embed(
+            title="🎫 Тикет создан",
+            description=f"{interaction.user.mention}, опишите вашу проблему.\n\nПоддержка скоро ответит.\n\n**Для закрытия тикета используйте кнопку ниже.**",
+            color=discord.Color.green()
+        )
         
         view = View()
-        view.add_item(AcceptTicketButton(ch.id, i.user.id))
-        view.add_item(CloseTicketWithLogsButton(ch.id, i.user.id))
-        await ch.send(embed=discord.Embed(title="🎫 Тикет создан", description=f"{i.user.mention}, опишите вашу проблему.\nПоддержка ответит в ближайшее время.", color=discord.Color.green()), view=view)
-        await i.response.send_message(f"✅ Тикет создан! Перейдите в {ch.mention}", ephemeral=True)
-
-
-async def setup_ticket_system():
-    ch = bot.get_channel(TICKET_CREATE_CHANNEL_ID)
-    if not ch:
-        print(f"❌ Канал для тикетов {TICKET_CREATE_CHANNEL_ID} не найден!")
-        return
-    async for msg in ch.history(limit=30):
-        if msg.author == bot.user: await msg.delete()
-    
-    rules = discord.Embed(title="📜 **ПРАВИЛА ТИКЕТОВ**", color=discord.Color.gold(), description="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    for i, r in enumerate(["Не открывать тикеты по абсурдной причине.", "Если тикет уже принят модератором, то строго запрещается влезать в этот тикет.", "Если принявший тикет модератор не отвечает в течении **20 минут**, то влезать в тикет разрешается всем выше и ниже стоящим админам.", "В тикетах должна быть описана сама проблема.", "История всех тикетов сохраняется и может быть проверена главным администратором."], 1):
-        rules.add_field(name=f"**{i}.**", value=r, inline=False)
-    rules.set_footer(text="Нажимая на кнопку, вы соглашаетесь с правилами")
-    await ch.send(embed=rules)
-    
-    main = discord.Embed(title="🎫 **ТИКЕТЫ ПОДДЕРЖКИ**", description="Нажмите на кнопку ниже, чтобы создать тикет.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", color=discord.Color.blue())
-    view = View()
-    view.add_item(TicketButtonWithAccept())
-    await ch.send(embed=main, view=view)
-    print(f"✅ Система тикетов отправлена в канал {ch.mention}")
+        view.add_item(AcceptTicketButton(channel.id, interaction.user.id))
+        view.add_item(CloseTicketButton(channel.id, interaction.user.id))
+        
+        await channel.send(embed=embed, view=view)
+        await interaction.followup.send(f"✅ Тикет создан! Перейдите в {channel.mention}", ephemeral=True)
 
 
 @bot.command()
-async def ticket_close(ctx):
+async def close_ticket(ctx):
     if not ctx.channel.category or ctx.channel.category.id != TICKET_CATEGORY_ID:
         await ctx.send("❌ Эта команда доступна только в каналах тикетов!")
         return
-    creator = None
+    
+    creator_id = None
     if ctx.channel.id in active_tickets:
-        creator = active_tickets[ctx.channel.id]["creator"]
+        creator_id = active_tickets[ctx.channel.id]["creator"]
     elif ctx.channel.topic and "Создатель:" in ctx.channel.topic:
         try:
-            creator = int(ctx.channel.topic.split("Создатель:")[1].split("|")[0].strip())
-        except: pass
-    is_sup = any(ctx.guild.get_role(rid) in ctx.author.roles for rid in SUPPORT_ROLE_IDS)
-    if not (is_sup or ctx.author.id == creator):
+            creator_id = int(ctx.channel.topic.split("Создатель:")[1].strip().split()[0])
+        except:
+            pass
+    
+    is_support = False
+    for role_id in SUPPORT_ROLE_IDS:
+        role = ctx.guild.get_role(role_id)
+        if role and role in ctx.author.roles:
+            is_support = True
+            break
+    
+    if not (is_support or ctx.author.id == creator_id):
         await ctx.send("❌ Только создатель тикета или поддержка могут закрыть тикет!")
         return
-    await ctx.send(embed=discord.Embed(title="🔒 Закрытие тикета", description="Тикет будет закрыт через 5 секунд...", color=discord.Color.orange()))
-    await asyncio.sleep(5)
-    if ctx.channel.id in active_tickets: del active_tickets[ctx.channel.id]
+    
+    messages = []
+    async for m in ctx.channel.history(limit=200, oldest_first=True):
+        messages.append(f"[{m.created_at.strftime('%d.%m.%Y %H:%M:%S')}] {m.author.name}: {m.content[:100] if m.content else '[вложение]'}")
+    
+    if not os.path.exists("ticket_logs"):
+        os.makedirs("ticket_logs")
+    
+    now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    log_file = f"ticket_logs/ticket_{ctx.channel.name}_{now}.txt"
+    
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write(f"=== ТИКЕТ {ctx.channel.name} ===\n")
+        f.write(f"Создатель: {creator_id}\n")
+        f.write(f"Закрыл: {ctx.author.name}\n")
+        f.write(f"Дата: {now}\n")
+        f.write(f"Всего сообщений: {len(messages)}\n\n")
+        f.write("\n".join(messages))
+    
+    log_channel = bot.get_channel(LOGS_CHANNEL_ID)
+    if log_channel:
+        await log_channel.send(f"📋 **Закрыт тикет** {ctx.channel.mention}\n👤 Закрыл: {ctx.author.mention}\n📊 Сообщений: {len(messages)}")
+        await log_channel.send(file=discord.File(log_file))
+    
     await ctx.channel.delete()
+    os.remove(log_file)
 
 
 @bot.command()
@@ -2652,9 +2685,11 @@ async def tickets_list(ctx):
     if not any(ctx.guild.get_role(rid) in ctx.author.roles for rid in SUPPORT_ROLE_IDS):
         await ctx.send("❌ Только поддержка может просматривать список тикетов!")
         return
+    
     if not active_tickets:
         await ctx.send("📭 Нет активных тикетов.")
         return
+    
     embed = discord.Embed(title="📋 Активные тикеты", color=discord.Color.blue())
     for cid, data in active_tickets.items():
         ch = ctx.guild.get_channel(cid)
@@ -2675,20 +2710,55 @@ async def ticket_history(ctx, ticket: discord.TextChannel = None):
         return
     
     await ctx.send(f"⏳ Сбор истории канала {ticket.mention}...")
-    msgs = []
-    async for m in ticket.history(limit=500, oldest_first=True):
-        msgs.append(f"[{m.created_at.strftime('%d.%m.%Y %H:%M:%S')}] {m.author.name}: {m.content if m.content else '[Вложение]'}")
     
-    if not msgs:
+    messages = []
+    async for m in ticket.history(limit=500, oldest_first=True):
+        messages.append(f"[{m.created_at.strftime('%d.%m.%Y %H:%M:%S')}] {m.author.name}: {m.content[:100] if m.content else '[вложение]'}")
+    
+    if not messages:
         await ctx.send("📭 Нет сообщений в этом тикете.")
         return
     
     now = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    fname = f"ticket_history_{ticket.name}_{now}.txt"
-    with open(fname, 'w', encoding='utf-8') as f:
-        f.write(f"=== ИСТОРИЯ ТИКЕТА ===\nКанал: {ticket.name}\nТопик: {ticket.topic or 'Нет'}\nВсего сообщений: {len(msgs)}\n\n=== СООБЩЕНИЯ ===\n\n" + "\n".join(msgs))
-    await ctx.send(file=discord.File(fname))
-    os.remove(fname)
+    log_file = f"ticket_history_{ticket.name}_{now}.txt"
+    
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write(f"=== ИСТОРИЯ ТИКЕТА ===\n")
+        f.write(f"Канал: {ticket.name}\n")
+        f.write(f"Топик: {ticket.topic or 'Нет'}\n")
+        f.write(f"Всего сообщений: {len(messages)}\n\n")
+        f.write("\n".join(messages))
+    
+    await ctx.send(file=discord.File(log_file))
+    os.remove(log_file)
+
+
+async def setup_ticket_system():
+    channel = bot.get_channel(TICKET_CREATE_CHANNEL_ID)
+    if not channel:
+        print(f"❌ Канал для тикетов {TICKET_CREATE_CHANNEL_ID} не найден!")
+        return
+    
+    async for msg in channel.history(limit=50):
+        if msg.author == bot.user:
+            await msg.delete()
+    
+    rules_embed = discord.Embed(
+        title="📜 ПРАВИЛА ТИКЕТОВ",
+        color=discord.Color.gold(),
+        description="1. Не создавайте тикеты по пустякам\n2. Опишите проблему подробно\n3. Приложите доказательства\n4. Не спамьте в тикете\n5. Дождитесь ответа поддержки"
+    )
+    await channel.send(embed=rules_embed)
+    
+    embed = discord.Embed(
+        title="🎫 ТИКЕТЫ ПОДДЕРЖКИ",
+        description="Нажмите на кнопку ниже, чтобы создать тикет.\n\nПосле создания тикета вы увидите кнопку **🔒 Закрыть тикет** в самом канале.",
+        color=discord.Color.blue()
+    )
+    view = View()
+    view.add_item(TicketButton())
+    await channel.send(embed=embed, view=view)
+    print(f"✅ Система тикетов настроена в канале {channel.mention}")
 
 
 # ========== ПРИВАТНЫЕ ГОЛОСОВЫЕ ==========
@@ -2819,7 +2889,6 @@ class BanModal(Modal):
         await i.response.send_message(f"✅ {target.mention} забанен в голосовом канале", ephemeral=True)
 
 
-# ========== СОБЫТИЯ ==========
 @bot.event
 async def on_voice_state_update(m, b, a):
     if a.channel and (not b.channel or b.channel != a.channel):
@@ -2860,120 +2929,13 @@ async def on_voice_state_update(m, b, a):
             del vc_sessions[b.channel.id]
 
 
-@bot.event
-async def on_message(msg):
-    if msg.author.bot:
-        return
-    
-    # Автомодерация
-    settings = guild_settings.get(msg.guild.id, {})
-    exempt_roles = settings.get("automod_exempt_roles", [])
-    is_exempt = False
-    for role_id in exempt_roles:
-        role = msg.guild.get_role(role_id)
-        if role and role in msg.author.roles:
-            is_exempt = True
-            break
-    
-    if not is_exempt and settings.get("automod_enabled", True):
-        is_spam, reason = await check_spam(msg)
-        if is_spam:
-            try:
-                user_id = msg.author.id
-                if user_id in spam_messages_to_delete:
-                    for msg_id in spam_messages_to_delete[user_id]:
-                        try:
-                            del_msg = await msg.channel.fetch_message(msg_id)
-                            await del_msg.delete()
-                        except:
-                            pass
-                    spam_messages_to_delete[user_id] = []
-                else:
-                    await msg.delete()
-                
-                warning_count = await add_auto_warning(msg.author, reason, msg.channel)
-                try:
-                    await msg.author.send(f"⚠️ **Автомодерация**\nВаши сообщения в {msg.channel.mention} были удалены.\n📝 Причина: {reason}\n⚠️ Предупреждений: {warning_count}/{ANTISPAM_MAX_WARNINGS}")
-                except:
-                    pass
-                warn_msg = await msg.channel.send(f"⚠️ {msg.author.mention}, ваши сообщения удалены. Причина: **{reason}**")
-                await asyncio.sleep(5)
-                await warn_msg.delete()
-            except:
-                pass
-            return
-    
-    # +rep/-rep при ответе
-    if msg.reference and msg.content:
-        try:
-            referenced_msg = await msg.channel.fetch_message(msg.reference.message_id)
-            target = referenced_msg.author
-            if target != msg.author:
-                content_lower = msg.content.lower().strip()
-                if content_lower in ["+rep", "+реп", "++", "👍", "спасибо", "+"]:
-                    can, wait = check_rep_cooldown(msg.author.id, target.id)
-                    if can:
-                        set_rep_cooldown(msg.author.id, target.id)
-                        new_rep = await add_reputation(target.id, msg.guild.id, 1)
-                        await msg.reply(f"👍 +1 репутации {target.mention}! ⭐ Теперь: {new_rep}")
-                elif content_lower in ["-rep", "-реп", "--", "👎", "-"]:
-                    can, wait = check_rep_cooldown(msg.author.id, target.id)
-                    if can:
-                        set_rep_cooldown(msg.author.id, target.id)
-                        new_rep = await add_reputation(target.id, msg.guild.id, -1)
-                        await msg.reply(f"👎 -1 репутации {target.mention}! ⭐ Теперь: {new_rep}")
-        except:
-            pass
-    
-    # ИИ на упоминание
-    if bot.user in msg.mentions:
-        clean_text = msg.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
-        if clean_text:
-            async with msg.channel.typing():
-                response = await get_ai_response(msg.author.id, clean_text, with_web=True)
-            await msg.reply(response, mention_author=False)
-            return
-    
-    # Опыт и деньги
-    if random.randint(1, 3) == 1:
-        xp_gain = random.randint(10, 25)
-        level_up, new_level = await add_xp(msg.author.id, msg.guild.id, xp_gain)
-        if level_up:
-            level_ch = bot.get_channel(LEVEL_CHANNEL_ID)
-            if level_ch:
-                await level_ch.send(f"🎉 {msg.author.mention} достиг {new_level} уровня!")
-            if new_level in LEVEL_ROLES:
-                role = msg.guild.get_role(LEVEL_ROLES[new_level])
-                if role and role not in msg.author.roles:
-                    await msg.author.add_roles(role)
-    
-    earn = random.randint(MIN_EARN, MAX_EARN)
-    await add_balance(msg.author.id, msg.guild.id, earn)
-    
-    await bot.process_commands(msg)
-
-
-async def reset_activity_counters():
-    now = datetime.now()
-    async with aiosqlite.connect("justice.db") as db:
-        if now.hour == 0 and now.minute < 5:
-            await db.execute('UPDATE users SET today_messages = 0')
-            print(f"[{now.strftime('%H:%M:%S')}] ✅ Дневные счетчики сброшены")
-        if now.weekday() == 0 and now.hour == 0 and now.minute < 5:
-            await db.execute('UPDATE users SET week_messages = 0')
-            print(f"[{now.strftime('%H:%M:%S')}] ✅ Недельные счетчики сброшены")
-        if now.day == 1 and now.hour == 0 and now.minute < 5:
-            await db.execute('UPDATE users SET month_messages = 0')
-            print(f"[{now.strftime('%H:%M:%S')}] ✅ Месячные счетчики сброшены")
-        await db.commit()
-
-
-# ========== ЗАПУСК ==========
+# ========== СТО ЛОТО ==========
 async def stoloto_scheduler():
     while True:
         now = datetime.now()
         target = now.replace(hour=14, minute=0, second=0, microsecond=0)
-        if now >= target: target += timedelta(days=1)
+        if now >= target:
+            target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
         await run_stoloto()
 
@@ -3017,52 +2979,7 @@ async def loto_buy(ctx):
     await ctx.send(f"✅ {ctx.author.mention}, вы купили билет за 50 💎! Всего участников: {len(stoloto_tickets)}")
 
 
-async def start_quiz():
-    global quiz_active, quiz_question, quiz_answer, quiz_options, quiz_message_id, quiz_answered_users
-    await asyncio.sleep(QUIZ_INTERVAL_SECONDS)
-    while True:
-        if quiz_active:
-            await asyncio.sleep(60)
-            continue
-        quiz_active, quiz_answered_users = True, set()
-        quiz_question, quiz_answer = "Сколько будет 2 + 2?", "B"
-        quiz_options = {"A": "3", "B": "4", "C": "5", "D": "6"}
-        try:
-            resp = ai_client.chat.completions.create(model=AI_MODEL, messages=[{"role": "system", "content": "Ты генератор вопросов для викторины. Придумай вопрос с 4 вариантами ответа (A,B,C,D). Верни в формате: ВОПРОС: ... | A: ... | B: ... | C: ... | D: ... | ОТВЕТ: буква"}, {"role": "user", "content": "Сгенерируй вопрос."}], temperature=0.7, max_tokens=300)
-            response = resp.choices[0].message.content
-            lines = response.split("|")
-            if len(lines) >= 6:
-                quiz_question = lines[0].replace("ВОПРОС:", "").strip()
-                quiz_options = {chr(65+i): lines[i+1].replace(f"{chr(65+i)}:", "").strip() for i in range(4)}
-                quiz_answer = lines[5].replace("ОТВЕТ:", "").strip().upper()[0]
-        except: pass
-        ch = bot.get_channel(QUIZ_CHANNEL_ID)
-        if ch:
-            embed = discord.Embed(title="🧠 ВИКТОРИНА!", description=f"**{quiz_question}**\n\nA) {quiz_options['A']}\nB) {quiz_options['B']}\nC) {quiz_options['C']}\nD) {quiz_options['D']}\n\n⏰ У вас есть {QUIZ_ANSWER_TIME // 60} минут!\n💰 Награда: {QUIZ_REWARD} 💎", color=discord.Color.purple())
-            await ch.send(embed=embed)
-            await asyncio.sleep(QUIZ_ANSWER_TIME)
-            await ch.send(f"⏰ Время вышло! Правильный ответ: **{quiz_answer}) {quiz_options[quiz_answer]}**")
-        quiz_active = False
-        await asyncio.sleep(QUIZ_INTERVAL_SECONDS)
-
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def reset_db(ctx, confirm: str = None):
-    if confirm != "confirm":
-        await ctx.send("⚠️ **ВНИМАНИЕ!** Эта команда УДАЛИТ ВСЕ ДАННЫЕ!\n🔒 Чтобы подтвердить: `j.reset_db confirm`")
-        return
-    await ctx.send("⏳ Удаление базы данных...")
-    try:
-        if os.path.exists("justice.db"):
-            os.remove("justice.db")
-            await ctx.send("✅ База данных удалена! Перезапустите бота.")
-        else:
-            await ctx.send("❌ Файл базы данных не найден!")
-    except Exception as e:
-        await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
-
-
+# ========== НАСТРОЙКИ ==========
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def settings(ctx, module: str = None, value: str = None):
@@ -3093,6 +3010,7 @@ async def settings(ctx, module: str = None, value: str = None):
 
 
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def reset_user(ctx, member: discord.Member = None):
     t = member or ctx.author
     async with aiosqlite.connect("justice.db") as db:
@@ -3101,51 +3019,589 @@ async def reset_user(ctx, member: discord.Member = None):
     await ctx.send(f"🔄 Прогресс {t.mention} полностью сброшен!")
 
 
-# ========== НОВЫЙ ОБЫЧНЫЙ ХЕЛП ==========
 @bot.command()
-async def help(ctx, cmd: str = None):
-    if cmd:
-        embed = discord.Embed(title=f"📖 Помощь по команде j.{cmd}", color=discord.Color.blue())
-        embed.add_field(name="Описание", value="Используй `j.help` для списка всех команд", inline=False)
-        await ctx.send(embed)
+@commands.has_permissions(administrator=True)
+async def reset_db(ctx, confirm: str = None):
+    if confirm != "confirm":
+        await ctx.send("⚠️ **ВНИМАНИЕ!** Эта команда УДАЛИТ ВСЕ ДАННЫЕ!\n🔒 Чтобы подтвердить: `j.reset_db confirm`")
         return
+    await ctx.send("⏳ Удаление базы данных...")
+    try:
+        if os.path.exists("justice.db"):
+            os.remove("justice.db")
+            await ctx.send("✅ База данных удалена! Перезапустите бота.")
+        else:
+            await ctx.send("❌ Файл базы данных не найден!")
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def backup_db(ctx):
+    await ctx.send("⏳ Создание резервной копии...")
+    try:
+        if os.path.exists("justice.db"):
+            now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            backup_name = f"justice_db_backup_{now}.db"
+            shutil.copy2("justice.db", backup_name)
+            size = os.path.getsize(backup_name)
+            size_mb = size / (1024 * 1024)
+            embed = discord.Embed(title="💾 Резервная копия создана!", description=f"**Имя:** `{backup_name}`\n**Размер:** {size_mb:.2f} MB\n**Дата:** {now}", color=discord.Color.green())
+            await ctx.send(embed=embed)
+            os.remove(backup_name)
+        else:
+            await ctx.send("❌ База данных не найдена!")
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def download_backup(ctx):
+    if not os.path.exists("justice.db"):
+        await ctx.send("❌ База данных не найдена!")
+        return
+    await ctx.send("⏳ Подготовка файла...")
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    temp_backup = f"justice_db_{now}.db"
+    shutil.copy2("justice.db", temp_backup)
+    await ctx.send(file=discord.File(temp_backup))
+    os.remove(temp_backup)
+    await ctx.send("✅ Резервная копия отправлена!")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def upload_backup(ctx):
+    if not ctx.message.attachments:
+        await ctx.send("❌ Прикрепите файл .db к сообщению!")
+        return
+    attachment = ctx.message.attachments[0]
+    if not attachment.filename.endswith('.db'):
+        await ctx.send("❌ Нужен файл .db!")
+        return
+    embed = discord.Embed(title="⚠️ ПОДТВЕРЖДЕНИЕ", description=f"Восстановить БД из файла **{attachment.filename}**?\nТекущая БД будет заменена!", color=discord.Color.orange())
+    msg = await ctx.send(embed=embed)
+    await msg.add_reaction("✅")
+    await msg.add_reaction("❌")
     
-    embed = discord.Embed(title="🤖 JUSTICE BOT | Все команды", color=discord.Color.blue())
-    embed.add_field(name="👤 ПРОФИЛЬ", value="`j.profile`, `j.bio`, `j.balance`, `j.bank`, `j.deposit`, `j.withdraw`, `j.pay`, `j.daily`, `j.weekly`, `j.monthly`, `j.timely`, `j.work`", inline=False)
-    embed.add_field(name="🎲 ИГРЫ", value="`j.casino`, `j.slots`, `j.dice`, `j.coinflip`, `j.rps`, `j.blackjack`, `j.ttt`, `j.hod`", inline=False)
-    embed.add_field(name="⭐ РЕПУТАЦИЯ", value="`j.rep`, `j.plusrep`, `j.minusrep`\nТакже можно ответить на сообщение: `+rep` или `-rep`", inline=False)
-    embed.add_field(name="🔫 ОГРАБЛЕНИЕ", value="`j.rob` (КД 1ч, шанс 5%)", inline=False)
-    embed.add_field(name="🏆 ТОПЫ", value="`j.top messages [день/неделя/месяц/всего]`, `j.top reps`, `j.top balance`, `j.top level`", inline=False)
-    embed.add_field(name="🌾 ФЕРМА", value="`j.farm`, `j.buy_pot`, `j.buy_seed`, `j.plant`, `j.harvest`, `j.sell_crop`, `j.sell_all_crops`", inline=False)
-    embed.add_field(name="🛍️ МАГАЗИН", value="`j.shop`, `j.buy`, `j.use`, `j.inventory`", inline=False)
-    embed.add_field(name="🎭 РОЛЕВЫЕ", value="`j.hug`, `j.kiss`, `j.pat`, `j.poke`, `j.slap`, `j.punch`, `j.bite`, `j.cry`, `j.laugh`, `j.smile`, `j.blush`, `j.dance`, `j.celebrate`, `j.airkiss`, `j.handhold`, `j.tickle`, `j.run`, `j.sleep`, `j.shrug`, `j.shy`, `j.sorry`, `j.stare`, `j.wink`", inline=False)
-    embed.add_field(name="🛠️ МОДЕРАЦИЯ", value="`j.warn`, `j.warns`, `j.unwarn`, `j.awarn`, `j.mywarns`, `j.mute`, `j.unmute`, `j.timeout`, `j.ban`, `j.kick`, `j.clear`", inline=False)
-    embed.add_field(name="🤖 АВТОМОД", value="`j.automod status`, `j.automod enable/disable`, `j.automod words add/remove/list`, `j.automod invites on/off`, `j.automod phishing on/off`, `j.automod exempt add/remove/list`", inline=False)
-    embed.add_field(name="🎟️ ТИКЕТЫ", value="`j.ticket_close`, `j.tickets_list`", inline=False)
-    embed.add_field(name="🎮 STEAM", value="`j.steam set`, `j.steam profile`, `j.steam games`, `j.steam recent`", inline=False)
-    embed.add_field(name="🎰 СТО ЛОТО", value="`j.loto_buy` - купить билет", inline=False)
-    embed.add_field(name="🧠 ВИКТОРИНА", value="Каждые 2 часа", inline=False)
-    embed.add_field(name="💡 ИДЕИ", value="`j.suggest`, `j.accept`, `j.deny` (админ)", inline=False)
-    embed.add_field(name="🎁 РОЗЫГРЫШИ", value="`j.giveaway create #канал приз кол-во 1д` (админ)", inline=False)
-    embed.add_field(name="🎨 ЦВЕТНЫЕ РОЛИ", value=f"<#{COLOR_ROLE_CHANNEL_ID}>", inline=False)
-    embed.add_field(name="🤖 ИИ", value="`j.ai <вопрос>` или упомяните бота", inline=False)
-    embed.add_field(name="⚧ ГЕНДЕР", value="`j.gender male/female`", inline=False)
-    embed.add_field(name="🛒 АДМИН МАГАЗИН", value="`j.add_shop_item`, `j.remove_shop_item`", inline=False)
-    embed.add_field(name="🌤️ ПОГОДА", value="`j.weather <город>`", inline=False)
-    embed.add_field(name="📊 ИНФО", value="`j.userinfo`, `j.serverinfo`, `j.avatar`, `j.ping`, `j.about`, `j.invites`, `j.reminder`", inline=False)
-    embed.add_field(name="⚙️ НАСТРОЙКИ", value="`j.settings welcome/logs/levels #канал` (админ)", inline=False)
-    embed.set_footer(text="j.help [команда] - подробнее о команде")
+    def check(r, u):
+        return u.id == ctx.author.id and str(r.emoji) in ["✅", "❌"] and r.message.id == msg.id
+    
+    try:
+        r, u = await bot.wait_for('reaction_add', timeout=30, check=check)
+        if str(r.emoji) == "✅":
+            await ctx.send("⏳ Восстановление...")
+            if os.path.exists("justice.db"):
+                shutil.copy2("justice.db", f"justice_db_before_restore_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.db")
+            await attachment.save("justice.db")
+            await ctx.send("✅ База данных восстановлена! Перезапустите бота.")
+        else:
+            await ctx.send("❌ Отменено.")
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Время вышло.")
+    await msg.delete()
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def backup_info(ctx):
+    if not os.path.exists("justice.db"):
+        await ctx.send("❌ База данных не найдена!")
+        return
+    size = os.path.getsize("justice.db")
+    size_mb = size / (1024 * 1024)
+    modified = datetime.fromtimestamp(os.path.getmtime("justice.db"))
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT COUNT(DISTINCT user_id) FROM users')
+        user_count = (await cur.fetchone())[0]
+    
+    embed = discord.Embed(title="📊 ИНФОРМАЦИЯ О БД", color=discord.Color.blue())
+    embed.add_field(name="📁 Файл", value="`justice.db`", inline=True)
+    embed.add_field(name="📦 Размер", value=f"{size_mb:.2f} MB", inline=True)
+    embed.add_field(name="🕐 Изменён", value=modified.strftime("%d.%m.%Y %H:%M:%S"), inline=True)
+    embed.add_field(name="👥 Пользователей", value=user_count, inline=True)
     await ctx.send(embed=embed)
 
 
-# ========== ЗАПУСК БОТА ==========
+# ========== НОВЫЙ HELP С КНОПКАМИ ==========
+class HelpView(discord.ui.View):
+    def __init__(self, author_id: int):
+        super().__init__(timeout=120)
+        self.author_id = author_id
+        self.current_category = "profile"
+        
+        self.categories = {
+            "profile": {
+                "name": "👤 ПРОФИЛЬ И ЭКОНОМИКА",
+                "commands": (
+                    "`j.profile [@user]` - Показать профиль\n"
+                    "`j.bio <текст>` - Установить биографию\n"
+                    "`j.balance [@user]` - Показать баланс\n"
+                    "`j.bank` - Показать банковский счёт\n"
+                    "`j.deposit <сумма>` - Внести в банк\n"
+                    "`j.withdraw <сумма>` - Вывести из банка\n"
+                    "`j.pay @user <сумма>` - Перевести деньги\n"
+                    "`j.daily` - Ежедневный бонус (50-150💎)\n"
+                    "`j.weekly` - Еженедельный бонус (300-600💎)\n"
+                    "`j.monthly` - Ежемесячный бонус (1000-2000💎)\n"
+                    "`j.timely` - Бонус раз в 2 часа (20-50💎)\n"
+                    "`j.work` - Работа (30-80💎, КД 1 час)"
+                )
+            },
+            "games": {
+                "name": "🎲 ИГРЫ",
+                "commands": (
+                    "`j.casino <ставка>` - Казино (x2, шанс 35%)\n"
+                    "`j.slots <ставка>` - Слоты (x2/x10)\n"
+                    "`j.dice <1-6> <ставка>` - Кубик (x6)\n"
+                    "`j.coinflip <орёл/решка> <ставка>` - Монетка (x2)\n"
+                    "`j.rps <камень/ножницы/бумага> <ставка>` - КНБ с ботом (x2)\n"
+                    "`j.blackjack <ставка>` - Блэкджек (x2)\n"
+                    "`j.ttt @user <ставка>` - Крестики-нолики\n"
+                    "`j.hod <1-9>` - Ход в крестиках-ноликах\n"
+                    "`j.poker create <2-6> <ставка>` - Создать покер лобби\n"
+                    "`j.poker join` - Присоединиться к лобби\n"
+                    "`j.poker start` - Начать игру\n"
+                    "`j.poker_bet <сумма>` - Сделать ставку\n"
+                    "`j.poker_check` - Чек (пропустить ход)\n"
+                    "`j.poker_fold` - Спасовать"
+                )
+            },
+            "reputation": {
+                "name": "⭐ РЕПУТАЦИЯ И ОГРАБЛЕНИЕ",
+                "commands": (
+                    "`j.rep [@user]` - Показать репутацию\n"
+                    "`j.plusrep @user [причина]` - +1 репутации (КД 1 час)\n"
+                    "`j.minusrep @user [причина]` - -1 репутации (КД 1 час)\n"
+                    "`+rep` / `-rep` (в ответ на сообщение) - Быстрая репутация\n"
+                    "`j.rob @user` - Ограбить (шанс 5%, КД 1 час)"
+                )
+            },
+            "farming": {
+                "name": "🌾 ФЕРМА",
+                "commands": (
+                    "`j.farm` - Показать ферму\n"
+                    "`j.buy_pot` - Купить горшок (макс 5)\n"
+                    "`j.buy_seed <семя>` - Купить семена\n"
+                    "`j.plant <номер> <семя>` - Посадить семя\n"
+                    "`j.harvest <номер>` - Собрать урожай\n"
+                    "`j.sell_crop <культура> <редкость>` - Продать урожай\n"
+                    "`j.sell_all_crops` - Продать весь урожай\n\n"
+                    "**Семена:** пшеница(50), кукуруза(80), томат(100),\n"
+                    "картофель(60), морковь(70), мефедрон(500),\n"
+                    "роза(150), кактус(120), подсолнух(90), тыква(200)"
+                )
+            },
+            "shop": {
+                "name": "🛍️ МАГАЗИН И ИНВЕНТАРЬ",
+                "commands": (
+                    "`j.shop` - Показать магазин\n"
+                    "`j.buy <товар>` - Купить товар\n"
+                    "`j.use <товар>` - Использовать предмет\n"
+                    "`j.inventory [@user]` - Показать инвентарь\n\n"
+                    "**Товары:** звезда(500💎), сердечко(300💎),\n"
+                    "корона(1000💎), радуга(700💎), бриллиант(2000💎)"
+                )
+            },
+            "moderation": {
+                "name": "🛠️ МОДЕРАЦИЯ",
+                "commands": (
+                    "`j.warn @user [дни] [причина]` - Предупреждение\n"
+                    "`j.warns [@user]` - Список варнов\n"
+                    "`j.unwarn @user <номер>` - Снять варн\n"
+                    "`j.awarn @user <причина>` - Ручной варн\n"
+                    "`j.mywarns` - Свои варны\n"
+                    "`j.mute @user <10м/1ч/1д> [причина]` - Мут\n"
+                    "`j.unmute @user [причина]` - Снять мут\n"
+                    "`j.timeout @user <минуты> [причина]` - Таймаут\n"
+                    "`j.ban @user [время] [причина]` - Бан\n"
+                    "`j.kick @user [причина]` - Кик\n"
+                    "`j.clear <количество>` - Очистка чата"
+                )
+            },
+            "automod": {
+                "name": "🤖 АВТОМОДЕРАЦИЯ",
+                "commands": (
+                    "`j.automod status` - Текущие настройки\n"
+                    "`j.automod enable/disable` - Вкл/выкл автомод\n"
+                    "`j.automod words add/remove/list/clear` - Запрещённые слова\n"
+                    "`j.automod invites on/off` - Реклама серверов\n"
+                    "`j.automod phishing on/off` - Фишинг\n"
+                    "`j.automod exempt add/remove/list` - Исключённые роли"
+                )
+            },
+            "tickets": {
+                "name": "🎟️ ТИКЕТЫ",
+                "commands": (
+                    "`j.close_ticket` - Закрыть текущий тикет\n"
+                    "`j.tickets_list` - Список активных тикетов\n\n"
+                    "**Для админов:**\n"
+                    "`j.ticket_history #канал` - История тикета"
+                )
+            },
+            "steam": {
+                "name": "🎮 STEAM",
+                "commands": (
+                    "`j.steam set <steam_id>` - Привязать Steam ID\n"
+                    "`j.steam profile [@user]` - Показать профиль (с кнопками)\n"
+                    "`j.steam games [@user]` - Список игр (топ 10)\n"
+                    "`j.steam recent [@user]` - Недавние игры"
+                )
+            },
+            "stoloto": {
+                "name": "🎰 СТО ЛОТО",
+                "commands": (
+                    "`j.loto_buy` - Купить билет (50💎)\n"
+                    "Розыгрыш каждый день в **14:00 МСК**"
+                )
+            },
+            "info": {
+                "name": "📊 ИНФОРМАЦИОННЫЕ",
+                "commands": (
+                    "`j.userinfo [@user]` - Информация о пользователе\n"
+                    "`j.serverinfo` - Информация о сервере\n"
+                    "`j.avatar [@user]` - Аватар\n"
+                    "`j.ping` - Задержка бота\n"
+                    "`j.about` - О боте\n"
+                    "`j.invites [@user]` - Приглашения\n"
+                    "`j.reminder <10м/1ч/1д> <текст>` - Напоминание\n"
+                    "`j.weather <город>` - Погода\n"
+                    "`j.top messages [день/неделя/месяц/всего]` - Топ сообщений\n"
+                    "`j.top reps` - Топ репутации\n"
+                    "`j.top balance` - Топ баланса\n"
+                    "`j.top level` - Топ уровня"
+                )
+            },
+            "other": {
+                "name": "🤖 ДРУГОЕ",
+                "commands": (
+                    "`j.ai <вопрос>` - Задать вопрос ИИ\n"
+                    "`j.gender male/female` - Выбрать гендерную роль\n"
+                    "`j.suggest <идея>` - Предложить идею\n"
+                    "`j.accept <id> [вердикт]` - Принять идею (админ)\n"
+                    "`j.deny <id> [вердикт]` - Отклонить идею (админ)\n"
+                    "`j.giveaway create #канал <приз> <кол-во> <1д/1ч/10м>` - Розыгрыш (админ)\n"
+                    "`j.add_shop_item <название> <цена> <роль_id> [описание]` - Добавить товар (админ)\n"
+                    "`j.remove_shop_item <название>` - Удалить товар (админ)\n"
+                    "`j.settings welcome/logs/levels #канал` - Настройки (админ)\n"
+                    "`j.reset_user [@user]` - Сброс пользователя (админ)\n"
+                    "`j.backup_db` - Создать бэкап (админ)\n"
+                    "`j.download_backup` - Скачать БД (админ)\n"
+                    "`j.upload_backup` - Восстановить БД (админ)\n"
+                    "`j.backup_info` - Информация о БД (админ)"
+                )
+            },
+            "voice": {
+                "name": "🎤 ГОЛОСОВЫЕ КАНАЛЫ",
+                "commands": (
+                    "Зайдите в специальный канал, чтобы создать приватный голосовой канал.\n\n"
+                    "**Кнопки управления:**\n"
+                    "🔒 - Закрыть канал\n"
+                    "🔓 - Открыть канал\n"
+                    "👥 - Лимит участников (1-99)\n"
+                    "📝 - Переименовать\n"
+                    "🚫 - Забанить пользователя\n"
+                    "🗑 - Удалить канал\n\n"
+                    "🔥 **Огонёк:** Заходите в голосовой канал каждый день,\n"
+                    "чтобы увеличивать серию и получать бонусы!"
+                )
+            }
+        }
+    
+    async def send_embed(self, interaction: discord.Interaction, category: str):
+        cat = self.categories.get(category, self.categories["profile"])
+        embed = discord.Embed(title=f"{cat['name']}", description=cat["commands"], color=discord.Color.blue())
+        total = len(self.categories)
+        current = list(self.categories.keys()).index(category) + 1
+        embed.set_footer(text=f"Страница {current}/{total} | Префикс: j. | Стрелки для навигации")
+        await interaction.response.edit_message(embed=embed, view=self)
+    
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, row=0)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
+        cats = list(self.categories.keys())
+        cur_idx = cats.index(self.current_category)
+        prev_idx = (cur_idx - 1) % len(cats)
+        self.current_category = cats[prev_idx]
+        await self.send_embed(interaction, self.current_category)
+    
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=0)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
+        cats = list(self.categories.keys())
+        cur_idx = cats.index(self.current_category)
+        next_idx = (cur_idx + 1) % len(cats)
+        self.current_category = cats[next_idx]
+        await self.send_embed(interaction, self.current_category)
+    
+    @discord.ui.button(label="🏠 Главная", style=discord.ButtonStyle.success, row=1)
+    async def home_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
+        self.current_category = "profile"
+        await self.send_embed(interaction, "profile")
+    
+    @discord.ui.button(label="🎲 Игры", style=discord.ButtonStyle.primary, row=1)
+    async def games_shortcut(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
+        self.current_category = "games"
+        await self.send_embed(interaction, "games")
+    
+    @discord.ui.button(label="🛠️ Модерация", style=discord.ButtonStyle.primary, row=1)
+    async def mod_shortcut(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
+        self.current_category = "moderation"
+        await self.send_embed(interaction, "moderation")
+    
+    @discord.ui.button(label="🎟️ Тикеты", style=discord.ButtonStyle.primary, row=1)
+    async def tickets_shortcut(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
+        self.current_category = "tickets"
+        await self.send_embed(interaction, "tickets")
+    
+    @discord.ui.button(label="🔒 Закрыть", style=discord.ButtonStyle.danger, row=2)
+    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("❌ Эта панель не для вас!", ephemeral=True)
+            return
+        await interaction.response.delete_message()
+        self.stop()
+
+
+@bot.command()
+async def help(ctx, *, command: str = None):
+    if command:
+        embed = discord.Embed(title=f"📖 Помощь по команде j.{command}", description="Используйте `j.help` для полного списка команд.", color=discord.Color.blue())
+        await ctx.send(embed=embed)
+        return
+    
+    view = HelpView(ctx.author.id)
+    first_cat = view.categories["profile"]
+    embed = discord.Embed(title=f"{first_cat['name']}", description=first_cat["commands"], color=discord.Color.blue())
+    embed.set_footer(text=f"Страница 1/{len(view.categories)} | Префикс: j. | Стрелки для навигации")
+    await ctx.send(embed=embed, view=view)
+
+
+# ========== КОМАНДЫ ДЛЯ ВЛАДЕЛЬЦА ==========
+def is_owner(ctx):
+    return ctx.author.id == ctx.guild.owner_id
+
+
+@bot.command()
+@commands.check(is_owner)
+async def admin_help(ctx):
+    embed = discord.Embed(title="👑 КОМАНДЫ ВЛАДЕЛЬЦА СЕРВЕРА", description="Только создатель сервера может использовать эти команды", color=discord.Color.gold())
+    embed.add_field(name="💰 УПРАВЛЕНИЕ ЭКОНОМИКОЙ", value="`j.owner_give @user <сумма>` - выдать деньги\n`j.owner_take @user <сумма>` - забрать деньги\n`j.owner_set_balance @user <сумма>` - установить баланс\n`j.owner_reset_user @user` - полный сброс пользователя", inline=False)
+    embed.add_field(name="💾 УПРАВЛЕНИЕ БЭКАПАМИ", value="`j.backup_db` - создать резервную копию\n`j.download_backup` - скачать БД на компьютер\n`j.upload_backup` - восстановить БД из файла\n`j.backup_info` - информация о БД", inline=False)
+    embed.add_field(name="🛍️ УПРАВЛЕНИЕ МАГАЗИНОМ", value="`j.add_shop_item <название> <цена> <роль_id> [описание]` - добавить товар\n`j.remove_shop_item <название>` - удалить товар", inline=False)
+    embed.add_field(name="⚙️ НАСТРОЙКИ", value="`j.settings` - показать настройки\n`j.settings welcome/logs/levels #канал` - установить каналы", inline=False)
+    embed.add_field(name="🤖 АВТОМОДЕРАЦИЯ", value="`j.automod status` - текущие настройки\n`j.automod enable/disable` - вкл/выкл\n`j.automod words add/remove/list` - запрещённые слова\n`j.automod invites on/off` - реклама серверов\n`j.automod phishing on/off` - фишинг\n`j.automod exempt add/remove/list` - исключённые роли", inline=False)
+    embed.set_footer(text="👑 Эти команды доступны только владельцу сервера")
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_give(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        await ctx.send("❌ Сумма должна быть положительной!")
+        return
+    await add_balance(member.id, ctx.guild.id, amount)
+    embed = discord.Embed(title="👑 ВЫДАЧА СРЕДСТВ (Владелец)", description=f"{ctx.author.mention} выдал {amount} 💎 {member.mention}", color=discord.Color.gold())
+    await ctx.send(embed=embed)
+    try: await member.send(f"👑 Владелец сервера выдал вам **{amount}** 💎!")
+    except: pass
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_take(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        await ctx.send("❌ Сумма должна быть положительной!")
+        return
+    ud = await get_user(member.id, ctx.guild.id)
+    if ud[4] < amount:
+        await ctx.send(f"❌ У {member.mention} недостаточно средств! Баланс: {ud[4]} 💎")
+        return
+    await add_balance(member.id, ctx.guild.id, -amount)
+    embed = discord.Embed(title="👑 ИЗЪЯТИЕ СРЕДСТВ (Владелец)", description=f"{ctx.author.mention} забрал {amount} 💎 у {member.mention}", color=discord.Color.gold())
+    await ctx.send(embed=embed)
+    try: await member.send(f"👑 Владелец сервера забрал у вас **{amount}** 💎!")
+    except: pass
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_set_balance(ctx, member: discord.Member, amount: int):
+    if amount < 0:
+        await ctx.send("❌ Баланс не может быть отрицательным!")
+        return
+    ud = await get_user(member.id, ctx.guild.id)
+    diff = amount - ud[4]
+    if diff > 0: await add_balance(member.id, ctx.guild.id, diff)
+    elif diff < 0: await add_balance(member.id, ctx.guild.id, diff)
+    embed = discord.Embed(title="👑 УСТАНОВКА БАЛАНСА (Владелец)", description=f"{ctx.author.mention} установил баланс {member.mention} на **{amount}** 💎", color=discord.Color.gold())
+    await ctx.send(embed=embed)
+    try: await member.send(f"👑 Владелец сервера установил ваш баланс на **{amount}** 💎!")
+    except: pass
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_reset_user(ctx, member: discord.Member):
+    embed = discord.Embed(title="⚠️ ПОДТВЕРЖДЕНИЕ", description=f"Вы уверены, что хотите полностью сбросить прогресс {member.mention}?\n\nНажмите ✅ для подтверждения.", color=discord.Color.red())
+    msg = await ctx.send(embed=embed)
+    await msg.add_reaction("✅")
+    await msg.add_reaction("❌")
+    
+    def check(r, u):
+        return u.id == ctx.author.id and str(r.emoji) in ["✅", "❌"] and r.message.id == msg.id
+    
+    try:
+        r, u = await bot.wait_for('reaction_add', timeout=30, check=check)
+        if str(r.emoji) == "✅":
+            async with aiosqlite.connect("justice.db") as db:
+                await db.execute('UPDATE users SET xp=0, level=0, balance=100, bank=0, reputation=0, warning_count=0, total_messages=0, today_messages=0, week_messages=0, month_messages=0, voice_streak=0, pots=0, crops="[]", inventory="[]", awards="[]" WHERE user_id=? AND guild_id=?', (member.id, ctx.guild.id))
+                await db.commit()
+            await ctx.send(f"✅ Прогресс {member.mention} полностью сброшен!")
+            try: await member.send(f"👑 Владелец сервера полностью сбросил ваш прогресс!")
+            except: pass
+        else:
+            await ctx.send("❌ Сброс отменён.")
+    except asyncio.TimeoutError:
+        await ctx.send("⏰ Время вышло. Сброс отменён.")
+    await msg.delete()
+
+
+@bot.command()
+@commands.check(is_owner)
+async def owner_stats(ctx):
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT COUNT(DISTINCT user_id) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_users = (await cur.fetchone())[0]
+        cur = await db.execute('SELECT SUM(balance) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_balance = (await cur.fetchone())[0] or 0
+        cur = await db.execute('SELECT SUM(xp) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_xp = (await cur.fetchone())[0] or 0
+        cur = await db.execute('SELECT SUM(total_messages) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_messages = (await cur.fetchone())[0] or 0
+    embed = discord.Embed(title="📊 СТАТИСТИКА СЕРВЕРА", description=f"Статистика для **{ctx.guild.name}**", color=discord.Color.gold())
+    embed.add_field(name="👥 Пользователей в БД", value=total_users, inline=True)
+    embed.add_field(name="💰 Общий баланс", value=f"{total_balance} 💎", inline=True)
+    embed.add_field(name="✨ Общий опыт", value=f"{total_xp} XP", inline=True)
+    embed.add_field(name="💬 Всего сообщений", value=total_messages, inline=True)
+    await ctx.send(embed=embed)
+
+
+# ========== СОБЫТИЯ ==========
+@bot.event
+async def on_message(msg):
+    if msg.author.bot: return
+    
+    # Автомод
+    sett = guild_settings.get(msg.guild.id, {})
+    exempt = any(msg.guild.get_role(rid) in msg.author.roles for rid in sett.get("automod_exempt_roles", []))
+    if not exempt and sett.get("automod_enabled", True):
+        spam, reason = await check_spam(msg)
+        if spam:
+            try:
+                await msg.delete()
+                wc = await add_auto_warning(msg.author, reason, msg.channel)
+                asyncio.create_task(send_warning_dm(msg.author, reason, wc, msg.channel))
+                warn_msg = await msg.channel.send(f"⚠️ {msg.author.mention}, удалено за: **{reason}**")
+                await asyncio.sleep(3)
+                await warn_msg.delete()
+            except: pass
+            return
+    
+    # +rep/-rep
+    if msg.reference and msg.content:
+        try:
+            ref = await msg.channel.fetch_message(msg.reference.message_id)
+            target = ref.author
+            if target != msg.author:
+                cl = msg.content.lower().strip()
+                if cl in ["+rep", "+реп", "++", "👍", "спасибо", "+"]:
+                    can, w = check_rep_cooldown(msg.author.id, target.id)
+                    if can:
+                        set_rep_cooldown(msg.author.id, target.id)
+                        nr = await add_reputation(target.id, msg.guild.id, 1)
+                        await msg.reply(f"👍 +1 репутации {target.mention}! ⭐ Теперь: {nr}")
+                elif cl in ["-rep", "-реп", "--", "👎", "-"]:
+                    can, w = check_rep_cooldown(msg.author.id, target.id)
+                    if can:
+                        set_rep_cooldown(msg.author.id, target.id)
+                        nr = await add_reputation(target.id, msg.guild.id, -1)
+                        await msg.reply(f"👎 -1 репутации {target.mention}! ⭐ Теперь: {nr}")
+        except: pass
+    
+    # ИИ на упоминание
+    if bot.user in msg.mentions:
+        clean = msg.content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+        if clean:
+            async with msg.channel.typing():
+                resp = await get_ai_response(msg.author.id, clean)
+            await msg.reply(resp, mention_author=False)
+            return
+    
+    # Опыт и деньги
+    if random.randint(1,3) == 1:
+        xp_gain = random.randint(10, 25)
+        lv_up, nl = await add_xp(msg.author.id, msg.guild.id, xp_gain)
+        if lv_up:
+            lch = bot.get_channel(LEVEL_CHANNEL_ID)
+            if lch: await lch.send(f"🎉 {msg.author.mention} достиг {nl} уровня!")
+            if nl in LEVEL_ROLES:
+                role = msg.guild.get_role(LEVEL_ROLES[nl])
+                if role and role not in msg.author.roles:
+                    await msg.author.add_roles(role)
+    
+    earn = random.randint(MIN_EARN, MAX_EARN)
+    await add_balance(msg.author.id, msg.guild.id, earn)
+    await bot.process_commands(msg)
+
+
+async def send_warning_dm(user, reason, wc, channel):
+    try:
+        await user.send(f"⚠️ **Автомодерация**\nВаше сообщение в {channel.mention} удалено.\n📝 Причина: {reason}\n⚠️ Предупреждений: {wc}/{ANTISPAM_MAX_WARNINGS}")
+    except: pass
+
+
+async def reset_activity_counters():
+    now = datetime.now()
+    async with aiosqlite.connect("justice.db") as db:
+        if now.hour == 0 and now.minute < 5:
+            await db.execute('UPDATE users SET today_messages = 0')
+            print(f"[{now.strftime('%H:%M:%S')}] ✅ Дневные счетчики сброшены")
+        if now.weekday() == 0 and now.hour == 0 and now.minute < 5:
+            await db.execute('UPDATE users SET week_messages = 0')
+            print(f"[{now.strftime('%H:%M:%S')}] ✅ Недельные счетчики сброшены")
+        if now.day == 1 and now.hour == 0 and now.minute < 5:
+            await db.execute('UPDATE users SET month_messages = 0')
+            print(f"[{now.strftime('%H:%M:%S')}] ✅ Месячные счетчики сброшены")
+        await db.commit()
+
+
 @bot.event
 async def on_ready():
     await init_db()
     await create_color_message()
     await setup_ticket_system()
     
-    bot.loop.create_task(start_quiz())
     bot.loop.create_task(stoloto_scheduler())
     
     async def reset_loop():
@@ -3157,10 +3613,6 @@ async def on_ready():
     print(f'✅ Бот {bot.user} запущен!')
     print(f'📊 На серверах: {len(bot.guilds)}')
     print(f'💡 Префикс команд: j.')
-    print(f'🎨 Цветные роли отправлены')
-    print(f'🎫 Тикеты настроены')
-    print(f'🧠 Викторина запущена')
-    print(f'🎰 СТО ЛОТО запущено')
     print('=' * 50)
 
 
