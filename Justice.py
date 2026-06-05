@@ -2348,24 +2348,31 @@ async def top(ctx, category: str = "balance"):
             cur = await db.execute('SELECT user_id, level, xp FROM users WHERE guild_id=? ORDER BY level DESC, xp DESC LIMIT 10', (ctx.guild.id,))
         elif category == "messages":
             cur = await db.execute('SELECT user_id, total_messages FROM users WHERE guild_id=? ORDER BY total_messages DESC LIMIT 10', (ctx.guild.id,))
-        else: return await ctx.send("❌ balance, reputation, level, messages")
+        else:
+            return await ctx.send("❌ balance, reputation, level, messages")
         rows = await cur.fetchall()
-    if not rows: return await ctx.send("📊 Нет данных")
-msg = f"🏆 **ТОП {category.upper()}**\n"
-    for i, (uid, val, *extra) in enumerate(rows, 1):
-        u = await bot.fetch_user(uid)
-        if u:
+    
+    if not rows:
+        return await ctx.send("📊 Нет данных")
+    
+    msg = f"🏆 **ТОП {category.upper()}**\n"
+    for i, row in enumerate(rows, 1):
+        uid = row[0]
+        user = await bot.fetch_user(uid)
+        if user:
             if category == "level":
-                xp = extra[0] if extra else 0
-                msg += f"{i}. {u.name} – {val} ур. ({xp} XP)\n"
+                lvl, xp = row[1], row[2]
+                msg += f"{i}. {user.name} – {lvl} ур. ({xp} XP)\n"
             elif category == "balance":
-                msg += f"{i}. {u.name} – {val} 💎\n"
+                val = row[1]
+                msg += f"{i}. {user.name} – {val} 💎\n"
             elif category == "reputation":
-                msg += f"{i}. {u.name} – {val} ⭐\n"
+                val = row[1]
+                msg += f"{i}. {user.name} – {val} ⭐\n"
             elif category == "messages":
-                msg += f"{i}. {u.name} – {val} сообщ.\n"
+                val = row[1]
+                msg += f"{i}. {user.name} – {val} сообщ.\n"
     await ctx.send(msg[:1900])
-
 # ========== ПРИВАТНЫЕ ГОЛОСОВЫЕ КАНАЛЫ ==========
 @bot.event
 async def on_voice_state_update(member, before, after):
