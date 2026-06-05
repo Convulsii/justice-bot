@@ -41,6 +41,403 @@ AI_API_KEY = "rk_live_G15mOokgVTN8hKFBvWVda38wZGOiXkVs"
 AI_BASE_URL = "https://api.ranvik.ru/v1"
 AI_MODEL = "gpt-5-nano"
 
+# ========== ДОСТИЖЕНИЯ (150+) ==========
+ACHIEVEMENTS = {
+    # Сообщения (0-50)
+    "msg_10": {"name": "📝 Первые шаги", "desc": "Написать 10 сообщений", "reward": 100},
+    "msg_50": {"name": "📝 Говорун", "desc": "Написать 50 сообщений", "reward": 500},
+    "msg_100": {"name": "📝 Болтун", "desc": "Написать 100 сообщений", "reward": 1000},
+    "msg_500": {"name": "📝 Оратор", "desc": "Написать 500 сообщений", "reward": 5000},
+    "msg_1000": {"name": "📝 Мастер слова", "desc": "Написать 1000 сообщений", "reward": 10000},
+    "msg_5000": {"name": "📝 Легенда чата", "desc": "Написать 5000 сообщений", "reward": 50000},
+    "msg_10000": {"name": "📝 Живая легенда", "desc": "Написать 10000 сообщений", "reward": 100000},
+    
+    # Уровни (1-20)
+    "lvl_5": {"name": "🎚️ Новичок", "desc": "Достичь 5 уровня", "reward": 500},
+    "lvl_10": {"name": "🎚️ Опытный", "desc": "Достичь 10 уровня", "reward": 1000},
+    "lvl_25": {"name": "🎚️ Мастер", "desc": "Достичь 25 уровня", "reward": 5000},
+    "lvl_50": {"name": "🎚️ Эксперт", "desc": "Достичь 50 уровня", "reward": 15000},
+    "lvl_100": {"name": "🎚️ Гуру", "desc": "Достичь 100 уровня", "reward": 50000},
+    
+    # Баланс (1-10)
+    "bal_1000": {"name": "💰 Первые деньги", "desc": "Иметь 1000 💎", "reward": 100},
+    "bal_10000": {"name": "💰 Состояние", "desc": "Иметь 10000 💎", "reward": 1000},
+    "bal_100000": {"name": "💰 Богач", "desc": "Иметь 100000 💎", "reward": 10000},
+    "bal_500000": {"name": "💰 Миллионер", "desc": "Иметь 500000 💎", "reward": 50000},
+    "bal_1000000": {"name": "💰 Легенда богатства", "desc": "Иметь 1 млн 💎", "reward": 100000},
+    
+    # Репутация (1-6)
+    "rep_10": {"name": "⭐ Народный любимчик", "desc": "Иметь 10 репутации", "reward": 500},
+    "rep_50": {"name": "⭐ Уважаемый", "desc": "Иметь 50 репутации", "reward": 2500},
+    "rep_100": {"name": "⭐ Звезда", "desc": "Иметь 100 репутации", "reward": 10000},
+    "rep_500": {"name": "⭐ Кумир", "desc": "Иметь 500 репутации", "reward": 50000},
+    "rep_1000": {"name": "⭐ Живая легенда", "desc": "Иметь 1000 репутации", "reward": 100000},
+    
+    # Игры (1-12)
+    "win_casino_10": {"name": "🎰 Удачливый", "desc": "Выиграть 10 раз в казино", "reward": 1000},
+    "win_casino_50": {"name": "🎰 Азартный", "desc": "Выиграть 50 раз в казино", "reward": 5000},
+    "win_casino_100": {"name": "🎰 Король казино", "desc": "Выиграть 100 раз в казино", "reward": 20000},
+    "win_blackjack_10": {"name": "🃏 Картёжник", "desc": "Выиграть 10 раз в блэкджек", "reward": 1000},
+    "win_poker_5": {"name": "🃏 Профи покера", "desc": "Выиграть 5 раз в покер", "reward": 5000},
+    "win_ttt_10": {"name": "❌⭕ Стратег", "desc": "Выиграть 10 раз в крестики-нолики", "reward": 2000},
+    
+    # Рыбалка (1-7)
+    "fish_10": {"name": "🎣 Рыбак-любитель", "desc": "Поймать 10 рыб", "reward": 200},
+    "fish_100": {"name": "🎣 Опытный рыбак", "desc": "Поймать 100 рыб", "reward": 2000},
+    "fish_500": {"name": "🎣 Профессионал", "desc": "Поймать 500 рыб", "reward": 10000},
+    "fish_1000": {"name": "🎣 Король рыбалки", "desc": "Поймать 1000 рыб", "reward": 50000},
+    "fish_legendary": {"name": "🐉 Ловец легенд", "desc": "Поймать легендарную рыбу", "reward": 10000},
+    "fish_mythic": {"name": "✨ Ловец мифов", "desc": "Поймать мифическую рыбу", "reward": 50000},
+    
+    # Ферма (1-6)
+    "plant_10": {"name": "🌱 Садовод", "desc": "Посадить 10 культур", "reward": 200},
+    "harvest_100": {"name": "🌾 Фермер", "desc": "Собрать 100 урожаев", "reward": 2000},
+    "harvest_1000": {"name": "🌾 Аграрий", "desc": "Собрать 1000 урожаев", "reward": 20000},
+    "legendary_crop": {"name": "✨ Золотой урожай", "desc": "Вырастить легендарную культуру", "reward": 10000},
+    
+    # Голосовой онлайн (1-7)
+    "voice_1h": {"name": "🎤 Первые минуты", "desc": "Провести 1 час в голосовом канале", "reward": 100},
+    "voice_24h": {"name": "🎤 Голосовой активист", "desc": "Провести 24 часа в голосовом канале", "reward": 2000},
+    "voice_100h": {"name": "🎤 Войс-легенда", "desc": "Провести 100 часов в голосовом канале", "reward": 10000},
+    "voice_500h": {"name": "🎤 Войс-маньяк", "desc": "Провести 500 часов в голосовом канале", "reward": 50000},
+    "voice_streak_7": {"name": "🔥 Огонёк", "desc": "7 дней подряд в войсе", "reward": 1000},
+    "voice_streak_30": {"name": "🔥 Неугасимый", "desc": "30 дней подряд в войсе", "reward": 10000},
+    "voice_streak_100": {"name": "🔥 Вечный огонь", "desc": "100 дней подряд в войсе", "reward": 100000},
+    
+    # Приглашения (1-5)
+    "invite_1": {"name": "📨 Приглашатель", "desc": "Пригласить 1 друга", "reward": 500},
+    "invite_5": {"name": "📨 Популяризатор", "desc": "Пригласить 5 друзей", "reward": 2500},
+    "invite_10": {"name": "📨 Амбассадор", "desc": "Пригласить 10 друзей", "reward": 10000},
+    "invite_50": {"name": "📨 Легенда приглашений", "desc": "Пригласить 50 друзей", "reward": 100000},
+    
+    # Магазин (1-4)
+    "shop_buy_10": {"name": "🛍️ Покупатель", "desc": "Купить 10 предметов", "reward": 500},
+    "shop_spend_100k": {"name": "💎 Транжира", "desc": "Потратить 100000 💎", "reward": 10000},
+    "shop_spend_1m": {"name": "💎 Мега-транжира", "desc": "Потратить 1 млн 💎", "reward": 100000},
+    
+    # Особые достижения
+    "donate_1000": {"name": "💝 Благодетель", "desc": "Задонатить 1000 💎", "reward": 1000},
+    "daily_30": {"name": "📆 Железная воля", "desc": "30 дней подряд забирать ежедневный бонус", "reward": 50000},
+    "work_100": {"name": "💼 Трудоголик", "desc": "100 раз поработать", "reward": 5000},
+    "rob_10": {"name": "🔫 Грабитель", "desc": "10 успешных ограблений", "reward": 2000},
+    "rob_50": {"name": "🔫 Король грабежей", "desc": "50 успешных ограблений", "reward": 10000},
+    
+    # Сезонные
+    "xmas_2025": {"name": "🎄 Санта", "desc": "Новогоднее событие 2025", "reward": 15000},
+    "newyear_2026": {"name": "🎆 Новогодний", "desc": "Новогоднее событие 2026", "reward": 20000},
+    "summer_2025": {"name": "☀️ Летний", "desc": "Летнее событие 2025", "reward": 10000},
+}
+
+# ========== ЕЖЕДНЕВНЫЕ ЗАДАНИЯ (200+ ШТУК, МАЛЕНЬКИЕ НАГРАДЫ) ==========
+DAILY_QUESTS = {
+    # Сообщения (1-10)
+    "msg_5": {"name": "📝 Поболтать", "desc": "Написать 5 сообщений", "target": 5, "reward": 50, "type": "messages"},
+    "msg_10": {"name": "📝 Разговорчивый", "desc": "Написать 10 сообщений", "target": 10, "reward": 75, "type": "messages"},
+    "msg_15": {"name": "📝 Активный", "desc": "Написать 15 сообщений", "target": 15, "reward": 100, "type": "messages"},
+    "msg_20": {"name": "📝 Общительный", "desc": "Написать 20 сообщений", "target": 20, "reward": 125, "type": "messages"},
+    "msg_25": {"name": "📝 Говорун", "desc": "Написать 25 сообщений", "target": 25, "reward": 150, "type": "messages"},
+    "msg_30": {"name": "📝 Болтун", "desc": "Написать 30 сообщений", "target": 30, "reward": 175, "type": "messages"},
+    "msg_40": {"name": "📝 Энергичный", "desc": "Написать 40 сообщений", "target": 40, "reward": 200, "type": "messages"},
+    "msg_50": {"name": "📝 Мастер диалога", "desc": "Написать 50 сообщений", "target": 50, "reward": 250, "type": "messages"},
+    
+    # Казино (1-8)
+    "casino_1": {"name": "🎰 Испытать удачу", "desc": "Сыграть в казино 1 раз", "target": 1, "reward": 100, "type": "casino_play"},
+    "casino_2": {"name": "🎰 Азартный", "desc": "Сыграть в казино 2 раза", "target": 2, "reward": 150, "type": "casino_play"},
+    "casino_3": {"name": "🎰 Игрок", "desc": "Сыграть в казино 3 раза", "target": 3, "reward": 200, "type": "casino_play"},
+    "casino_win_1": {"name": "🎰 Удача", "desc": "Выиграть в казино 1 раз", "target": 1, "reward": 150, "type": "casino_win"},
+    "casino_win_2": {"name": "🎰 Фортуна", "desc": "Выиграть в казино 2 раза", "target": 2, "reward": 200, "type": "casino_win"},
+    "casino_win_3": {"name": "🎰 Везунчик", "desc": "Выиграть в казино 3 раза", "target": 3, "reward": 300, "type": "casino_win"},
+    
+    # Монетка (1-8)
+    "coin_1": {"name": "🪙 Подбросить", "desc": "Сыграть в монетку 1 раз", "target": 1, "reward": 50, "type": "coin_play"},
+    "coin_2": {"name": "🪙 Орёл или решка", "desc": "Сыграть в монетку 2 раза", "target": 2, "reward": 75, "type": "coin_play"},
+    "coin_3": {"name": "🪙 Азарт", "desc": "Сыграть в монетку 3 раза", "target": 3, "reward": 100, "type": "coin_play"},
+    "coin_win_1": {"name": "🪙 Угадал", "desc": "Выиграть в монетку 1 раз", "target": 1, "reward": 75, "type": "coin_win"},
+    "coin_win_2": {"name": "🪙 Ясновидящий", "desc": "Выиграть в монетку 2 раза", "target": 2, "reward": 100, "type": "coin_win"},
+    
+    # Кости (1-8)
+    "dice_1": {"name": "🎲 Бросок", "desc": "Сыграть в кости 1 раз", "target": 1, "reward": 50, "type": "dice_play"},
+    "dice_2": {"name": "🎲 Игрок в кости", "desc": "Сыграть в кости 2 раза", "target": 2, "reward": 75, "type": "dice_play"},
+    "dice_3": {"name": "🎲 Кубик", "desc": "Сыграть в кости 3 раза", "target": 3, "reward": 100, "type": "dice_play"},
+    "dice_win_1": {"name": "🎲 Угадал число", "desc": "Выиграть в кости 1 раз", "target": 1, "reward": 100, "type": "dice_win"},
+    "dice_win_2": {"name": "🎲 Шулер", "desc": "Выиграть в кости 2 раза", "target": 2, "reward": 150, "type": "dice_win"},
+    
+    # КНБ (1-6)
+    "rps_1": {"name": "✊ Камень", "desc": "Сыграть в КНБ 1 раз", "target": 1, "reward": 50, "type": "rps_play"},
+    "rps_2": {"name": "✊ Ножницы", "desc": "Сыграть в КНБ 2 раза", "target": 2, "reward": 75, "type": "rps_play"},
+    "rps_3": {"name": "✊ Бумага", "desc": "Сыграть в КНБ 3 раза", "target": 3, "reward": 100, "type": "rps_play"},
+    "rps_win_1": {"name": "✊ Победитель", "desc": "Выиграть в КНБ 1 раз", "target": 1, "reward": 75, "type": "rps_win"},
+    
+    # Блэкджек (1-6)
+    "bj_1": {"name": "🃏 Первая карта", "desc": "Сыграть в блэкджек 1 раз", "target": 1, "reward": 100, "type": "bj_play"},
+    "bj_2": {"name": "🃏 Картёжник", "desc": "Сыграть в блэкджек 2 раза", "target": 2, "reward": 150, "type": "bj_play"},
+    "bj_3": {"name": "🃏 Двадцать одно", "desc": "Сыграть в блэкджек 3 раза", "target": 3, "reward": 200, "type": "bj_play"},
+    "bj_win_1": {"name": "🃏 Блэкджек", "desc": "Выиграть в блэкджек 1 раз", "target": 1, "reward": 150, "type": "bj_win"},
+    
+    # Крестики-нолики (1-5)
+    "ttt_1": {"name": "❌ Крестик", "desc": "Сыграть в крестики-нолики 1 раз", "target": 1, "reward": 100, "type": "ttt_play"},
+    "ttt_2": {"name": "⭕ Нолик", "desc": "Сыграть в крестики-нолики 2 раза", "target": 2, "reward": 150, "type": "ttt_play"},
+    "ttt_win_1": {"name": "❌⭕ Стратег", "desc": "Выиграть в крестики-нолики 1 раз", "target": 1, "reward": 200, "type": "ttt_win"},
+    
+    # Покер (1-4)
+    "poker_1": {"name": "🃏 Первая раздача", "desc": "Сыграть в покер 1 раз", "target": 1, "reward": 200, "type": "poker_play"},
+    "poker_2": {"name": "🃏 Блеф", "desc": "Сыграть в покер 2 раза", "target": 2, "reward": 300, "type": "poker_play"},
+    "poker_win_1": {"name": "🃏 Покерист", "desc": "Выиграть в покер 1 раз", "target": 1, "reward": 400, "type": "poker_win"},
+    
+    # Рыбалка (1-10)
+    "fish_1": {"name": "🎣 Удочка", "desc": "Поймать 1 рыбу", "target": 1, "reward": 50, "type": "fish"},
+    "fish_2": {"name": "🎣 Клёв", "desc": "Поймать 2 рыбы", "target": 2, "reward": 75, "type": "fish"},
+    "fish_3": {"name": "🎣 Рыбак", "desc": "Поймать 3 рыбы", "target": 3, "reward": 100, "type": "fish"},
+    "fish_4": {"name": "🎣 Улов", "desc": "Поймать 4 рыбы", "target": 4, "reward": 125, "type": "fish"},
+    "fish_5": {"name": "🎣 Любитель рыбалки", "desc": "Поймать 5 рыб", "target": 5, "reward": 150, "type": "fish"},
+    "fish_7": {"name": "🎣 Опытный рыбак", "desc": "Поймать 7 рыб", "target": 7, "reward": 175, "type": "fish"},
+    "fish_10": {"name": "🎣 Профи", "desc": "Поймать 10 рыб", "target": 10, "reward": 200, "type": "fish"},
+    "legendary_fish": {"name": "🐉 Ловец легенд", "desc": "Поймать легендарную рыбу", "target": 1, "reward": 300, "type": "legendary_fish"},
+    "mythic_fish": {"name": "✨ Ловец мифов", "desc": "Поймать мифическую рыбу", "target": 1, "reward": 500, "type": "mythic_fish"},
+    
+    # Ферма (1-15)
+    "plant_1": {"name": "🌱 Первая посадка", "desc": "Посадить 1 культуру", "target": 1, "reward": 50, "type": "plant"},
+    "plant_2": {"name": "🌱 Садовод", "desc": "Посадить 2 культуры", "target": 2, "reward": 75, "type": "plant"},
+    "plant_3": {"name": "🌱 Огородник", "desc": "Посадить 3 культуры", "target": 3, "reward": 100, "type": "plant"},
+    "plant_5": {"name": "🌱 Фермер", "desc": "Посадить 5 культур", "target": 5, "reward": 150, "type": "plant"},
+    "harvest_1": {"name": "🌾 Первый урожай", "desc": "Собрать 1 урожай", "target": 1, "reward": 50, "type": "harvest"},
+    "harvest_2": {"name": "🌾 Урожай", "desc": "Собрать 2 урожая", "target": 2, "reward": 75, "type": "harvest"},
+    "harvest_3": {"name": "🌾 Сбор", "desc": "Собрать 3 урожая", "target": 3, "reward": 100, "type": "harvest"},
+    "harvest_5": {"name": "🌾 Жатва", "desc": "Собрать 5 урожаев", "target": 5, "reward": 150, "type": "harvest"},
+    "sell_crop_1": {"name": "💰 Первая продажа", "desc": "Продать 1 урожай", "target": 1, "reward": 50, "type": "sell_crops"},
+    "sell_crop_3": {"name": "💰 Торговец", "desc": "Продать 3 урожая", "target": 3, "reward": 100, "type": "sell_crops"},
+    "sell_crop_5": {"name": "💰 Барыга", "desc": "Продать 5 урожаев", "target": 5, "reward": 150, "type": "sell_crops"},
+
+        # Работа (1-7)
+    "work_1": {"name": "💼 Первый рабочий день", "desc": "Поработать 1 раз", "target": 1, "reward": 100, "type": "work"},
+    "work_2": {"name": "💼 Трудяга", "desc": "Поработать 2 раза", "target": 2, "reward": 150, "type": "work"},
+    "work_3": {"name": "💼 Работник", "desc": "Поработать 3 раза", "target": 3, "reward": 200, "type": "work"},
+    "work_4": {"name": "💼 Усердный", "desc": "Поработать 4 раза", "target": 4, "reward": 250, "type": "work"},
+    "work_5": {"name": "💼 Трудоголик", "desc": "Поработать 5 раз", "target": 5, "reward": 300, "type": "work"},
+    
+    # Ограбления (1-5)
+    "rob_1": {"name": "🔫 Первое ограбление", "desc": "Ограбить 1 раз", "target": 1, "reward": 150, "type": "rob"},
+    "rob_2": {"name": "🔫 Грабёж", "desc": "Ограбить 2 раза", "target": 2, "reward": 200, "type": "rob"},
+    "rob_3": {"name": "🔫 Вор", "desc": "Ограбить 3 раза", "target": 3, "reward": 250, "type": "rob"},
+    "rob_success_1": {"name": "🔫 Удачное ограбление", "desc": "Успешно ограбить 1 раз", "target": 1, "reward": 200, "type": "rob_success"},
+    "rob_success_2": {"name": "🔫 Профи", "desc": "Успешно ограбить 2 раза", "target": 2, "reward": 300, "type": "rob_success"},
+    
+    # Голосовой онлайн (1-10)
+    "voice_5min": {"name": "🎤 Первые минуты", "desc": "Провести 5 минут в голосовом канале", "target": 5, "reward": 50, "type": "voice_minutes"},
+    "voice_10min": {"name": "🎤 Разговор", "desc": "Провести 10 минут в голосовом канале", "target": 10, "reward": 75, "type": "voice_minutes"},
+    "voice_15min": {"name": "🎤 Болтовня", "desc": "Провести 15 минут в голосовом канале", "target": 15, "reward": 100, "type": "voice_minutes"},
+    "voice_30min": {"name": "🎤 Беседа", "desc": "Провести 30 минут в голосовом канале", "target": 30, "reward": 150, "type": "voice_minutes"},
+    "voice_1h": {"name": "🎤 Час в эфире", "desc": "Провести 1 час в голосовом канале", "target": 60, "reward": 200, "type": "voice_minutes"},
+    "voice_2h": {"name": "🎤 Два часа", "desc": "Провести 2 часа в голосовом канале", "target": 120, "reward": 300, "type": "voice_minutes"},
+    "voice_3h": {"name": "🎤 Три часа", "desc": "Провести 3 часа в голосовом канале", "target": 180, "reward": 400, "type": "voice_minutes"},
+    
+    # Репутация (1-6)
+    "give_rep_1": {"name": "❤️ Первое спасибо", "desc": "Дать репутацию 1 раз", "target": 1, "reward": 100, "type": "give_rep"},
+    "give_rep_2": {"name": "❤️ Благодарность", "desc": "Дать репутацию 2 раза", "target": 2, "reward": 150, "type": "give_rep"},
+    "give_rep_3": {"name": "❤️ Добряк", "desc": "Дать репутацию 3 раза", "target": 3, "reward": 200, "type": "give_rep"},
+    "receive_rep_1": {"name": "❤️ Первая репутация", "desc": "Получить репутацию 1 раз", "target": 1, "reward": 100, "type": "receive_rep"},
+    "receive_rep_3": {"name": "❤️ Уважаемый", "desc": "Получить репутацию 3 раза", "target": 3, "reward": 200, "type": "receive_rep"},
+    
+    # Магазин (1-7)
+    "buy_1": {"name": "🛍️ Первая покупка", "desc": "Купить 1 предмет", "target": 1, "reward": 50, "type": "buy"},
+    "buy_2": {"name": "🛍️ Шопинг", "desc": "Купить 2 предмета", "target": 2, "reward": 75, "type": "buy"},
+    "buy_3": {"name": "🛍️ Покупатель", "desc": "Купить 3 предмета", "target": 3, "reward": 100, "type": "buy"},
+    "buy_5": {"name": "🛍️ Транжира", "desc": "Купить 5 предметов", "target": 5, "reward": 150, "type": "buy"},
+    "spend_1000": {"name": "💰 Потратить", "desc": "Потратить 1000 💎", "target": 1000, "reward": 100, "type": "spend"},
+    "spend_5000": {"name": "💰 Крупная трата", "desc": "Потратить 5000 💎", "target": 5000, "reward": 200, "type": "spend"},
+    "spend_10000": {"name": "💰 Миллионер", "desc": "Потратить 10000 💎", "target": 10000, "reward": 300, "type": "spend"},
+    
+    # Прогресс (1-12)
+    "daily_1": {"name": "📅 Ежедневный ритуал", "desc": "Забрать ежедневный бонус 1 раз", "target": 1, "reward": 100, "type": "daily"},
+    "daily_3": {"name": "📅 Три дня", "desc": "Забрать ежедневный бонус 3 раза", "target": 3, "reward": 200, "type": "daily"},
+    "daily_5": {"name": "📅 Пятый день", "desc": "Забрать ежедневный бонус 5 раз", "target": 5, "reward": 300, "type": "daily"},
+    "daily_7": {"name": "📅 Неделя", "desc": "Забрать ежедневный бонус 7 раз", "target": 7, "reward": 500, "type": "daily"},
+    "daily_14": {"name": "📅 Две недели", "desc": "Забрать ежедневный бонус 14 раз", "target": 14, "reward": 700, "type": "daily"},
+    "daily_30": {"name": "📅 Месяц", "desc": "Забрать ежедневный бонус 30 раз", "target": 30, "reward": 1000, "type": "daily"},
+    "level_up_1": {"name": "📈 Первый уровень", "desc": "Повысить уровень 1 раз", "target": 1, "reward": 200, "type": "level_up"},
+    "level_up_3": {"name": "📈 Рост", "desc": "Повысить уровень 3 раза", "target": 3, "reward": 300, "type": "level_up"},
+    "level_up_5": {"name": "📈 Развитие", "desc": "Повысить уровень 5 раз", "target": 5, "reward": 500, "type": "level_up"},
+    
+    # Активность (1-8)
+    "login_1": {"name": "👋 Зашёл", "desc": "Зайти на сервер 1 раз", "target": 1, "reward": 50, "type": "login"},
+    "login_3": {"name": "👋 Постоянный", "desc": "Зайти на сервер 3 раза", "target": 3, "reward": 100, "type": "login"},
+    "login_5": {"name": "👋 Завсегдатай", "desc": "Зайти на сервер 5 раз", "target": 5, "reward": 150, "type": "login"},
+    "login_7": {"name": "👋 Активный", "desc": "Зайти на сервер 7 раз", "target": 7, "reward": 200, "type": "login"},
+    
+    # Слоты (1-6)
+    "slots_1": {"name": "🎰 Первый спин", "desc": "Сыграть в слоты 1 раз", "target": 1, "reward": 75, "type": "slots_play"},
+    "slots_3": {"name": "🎰 Джекпот охотник", "desc": "Сыграть в слоты 3 раза", "target": 3, "reward": 150, "type": "slots_play"},
+    "slots_5": {"name": "🎰 Азартный игрок", "desc": "Сыграть в слоты 5 раз", "target": 5, "reward": 200, "type": "slots_play"},
+    "slots_jackpot": {"name": "🎰 ДЖЕКПОТ", "desc": "Сорвать джекпот в слотах", "target": 1, "reward": 500, "type": "slots_jackpot"},
+    
+    # Крафт (1-5)
+    "craft_1": {"name": "🔨 Первая поделка", "desc": "Скрафтить 1 предмет", "target": 1, "reward": 100, "type": "craft"},
+    "craft_3": {"name": "🔨 Кустарное производство", "desc": "Скрафтить 3 предмета", "target": 3, "reward": 200, "type": "craft"},
+    "craft_5": {"name": "🔨 Мастер на все руки", "desc": "Скрафтить 5 предметов", "target": 5, "reward": 300, "type": "craft"},
+    
+    # Животные (1-6)
+    "buy_animal_1": {"name": "🐔 Первый питомец", "desc": "Купить 1 животное", "target": 1, "reward": 150, "type": "buy_animal"},
+    "buy_animal_3": {"name": "🐔 Фермер", "desc": "Купить 3 животных", "target": 3, "reward": 300, "type": "buy_animal"},
+    "feed_animal_1": {"name": "🌾 Покормить", "desc": "Покормить животное 1 раз", "target": 1, "reward": 50, "type": "feed_animal"},
+    "feed_animal_5": {"name": "🌾 Заботливый", "desc": "Покормить животное 5 раз", "target": 5, "reward": 150, "type": "feed_animal"},
+    "collect_animal_1": {"name": "🥚 Собрать продукцию", "desc": "Собрать продукцию с животного 1 раз", "target": 1, "reward": 75, "type": "collect_animal"},
+    "collect_animal_5": {"name": "🥚 Продуктивный", "desc": "Собрать продукцию 5 раз", "target": 5, "reward": 200, "type": "collect_animal"},
+    
+    # Инвестиции (1-4)
+    "invest_1": {"name": "📊 Первый вклад", "desc": "Сделать инвестицию 1 раз", "target": 1, "reward": 200, "type": "invest"},
+    "invest_3": {"name": "📊 Инвестор", "desc": "Сделать инвестицию 3 раза", "target": 3, "reward": 400, "type": "invest"},
+    "invest_50000": {"name": "📊 Крупный вклад", "desc": "Инвестировать 50000 💎", "target": 50000, "reward": 500, "type": "invest_amount"},
+    "invest_100000": {"name": "📊 Магнат", "desc": "Инвестировать 100000 💎", "target": 100000, "reward": 1000, "type": "invest_amount"},
+    
+    # Сложные задания (1-5)
+    "all_games": {"name": "🎮 Игроман", "desc": "Сыграть во все игры по 1 разу", "target": 1, "reward": 500, "type": "all_games"},
+    "complete_3_quests": {"name": "✅ Три задания", "desc": "Выполнить 3 ежедневных задания", "target": 3, "reward": 300, "type": "quest_complete"},
+    "complete_5_quests": {"name": "✅ Пять заданий", "desc": "Выполнить 5 ежедневных заданий", "target": 5, "reward": 500, "type": "quest_complete"},
+    "complete_all_quests": {"name": "✅ Перфекционист", "desc": "Выполнить ВСЕ ежедневные задания", "target": 1, "reward": 1000, "type": "all_quests"},
+    
+    # Секретные задания (редкие)
+    "secret_win_10_in_row": {"name": "🤫 Победная серия", "desc": "Выиграть 10 раз подряд в любой игре", "target": 10, "reward": 2000, "type": "secret"},
+    "secret_million": {"name": "🤫 Миллионер", "desc": "Накопить 1 млн 💎", "target": 1, "type": "secret"},
+    "secret_max_level": {"name": "🤫 Бог", "desc": "Достичь 100 уровня", "target": 100, "type": "secret"},
+    "secret_fish_all": {"name": "🤫 Ихтиолог", "desc": "Поймать все виды рыб", "target": 1, "type": "secret"},
+    "secret_craft_master": {"name": "🤫 Мастер крафта", "desc": "Скрафтить все предметы", "target": 1, "type": "secret"},
+}
+
+# ========== РЕЦЕПТЫ КРАФТА ==========
+RECIPES = {
+    "золотой слиток": {
+        "name": "🪙 Золотой слиток",
+        "description": "Слиток золота для продажи",
+        "ingredients": {"золотая руда": 5, "уголь": 2},
+        "result": "золотой слиток",
+        "result_count": 1,
+        "xp": 50
+    },
+    "алмаз": {
+        "name": "💎 Алмаз",
+        "description": "Драгоценный камень",
+        "ingredients": {"алмазная руда": 3, "золотой слиток": 1},
+        "result": "алмаз",
+        "result_count": 1,
+        "xp": 100
+    },
+    "суперудочка": {
+        "name": "🎣✨ Супер-удочка",
+        "description": "+50% к шансу редкой рыбы",
+        "ingredients": {"золотая удочка": 1, "алмаз": 2, "магическая нить": 3},
+        "result": "super_rod",
+        "result_count": 1,
+        "xp": 200
+    },
+    "эликсир опыта": {
+        "name": "🧪 Эликсир опыта",
+        "description": "x2 опыт на 1 час",
+        "ingredients": {"магическая пыль": 5, "золотой слиток": 2},
+        "result": "exp_potion",
+        "result_count": 1,
+        "xp": 75
+    },
+    "золотая монета": {
+        "name": "🪙 Золотая монета",
+        "description": "Можно продать за 500 💎",
+        "ingredients": {"золотой слиток": 1},
+        "result": "gold_coin",
+        "result_count": 5,
+        "xp": 30
+    },
+    "улучшенное семя": {
+        "name": "🌱✨ Улучшенное семя",
+        "description": "Повышает шанс на редкий урожай",
+        "ingredients": {"обычное семя": 3, "магическая пыль": 2},
+        "result": "upgraded_seed",
+        "result_count": 3,
+        "xp": 40
+    },
+    "корм для животных": {
+        "name": "🌾 Корм для животных",
+        "description": "Ускоряет рост животных",
+        "ingredients": {"пшеница": 5, "кукуруза": 3},
+        "result": "animal_feed",
+        "result_count": 10,
+        "xp": 20
+    },
+}
+
+# ========== ЖИВОТНЫЕ ДЛЯ ФЕРМЫ ==========
+FARM_ANIMALS = {
+    "курица": {
+        "name": "🐔 Курица",
+        "price": 1000,
+        "produce": "яйцо",
+        "produce_price": 50,
+        "produce_time": 3600,  # 1 час
+        "feed": "пшеница",
+        "feed_amount": 2
+    },
+    "корова": {
+        "name": "🐄 Корова",
+        "price": 5000,
+        "produce": "молоко",
+        "produce_price": 200,
+        "produce_time": 7200,  # 2 часа
+        "feed": "кукуруза",
+        "feed_amount": 3
+    },
+    "овца": {
+        "name": "🐑 Овца",
+        "price": 4000,
+        "produce": "шерсть",
+        "produce_price": 150,
+        "produce_time": 5400,  # 1.5 часа
+        "feed": "трава",
+        "feed_amount": 2
+    },
+    "свинья": {
+        "name": "🐷 Свинья",
+        "price": 3000,
+        "produce": "мясо",
+        "produce_price": 100,
+        "produce_time": 7200,
+        "feed": "картофель",
+        "feed_amount": 3
+    },
+    "лошадь": {
+        "name": "🐴 Лошадь",
+        "price": 10000,
+        "produce": "навоз",
+        "produce_price": 300,
+        "produce_time": 10800,  # 3 часа
+        "feed": "морковь",
+        "feed_amount": 4
+    },
+}
+
+# ========== ФЕРМЕРСКИЕ УЛУЧШЕНИЯ ==========
+FARM_UPGRADES = {
+    "grow_speed": {"name": "🌱 Скорость роста", "base_cost": 5000, "multiplier": 0.05, "max_level": 10},
+    "animal_speed": {"name": "🐄 Скорость животных", "base_cost": 5000, "multiplier": 0.05, "max_level": 10},
+    "crop_yield": {"name": "🌾 Урожайность", "base_cost": 10000, "multiplier": 0.1, "max_level": 5},
+    "animal_yield": {"name": "🥚 Продуктивность", "base_cost": 10000, "multiplier": 0.1, "max_level": 5},
+    "max_animals": {"name": "🏠 Вместимость", "base_cost": 20000, "multiplier": 2, "max_level": 5},
+}
+
+# ========== ИНВЕСТИЦИИ ==========
+INVESTMENTS = {
+    "надёжный": {"min": 10000, "max": 100000, "days": 7, "rate": 0.05, "name": "🔒 Надёжный"},
+    "средний": {"min": 50000, "max": 500000, "days": 14, "rate": 0.08, "name": "📊 Средний"},
+    "рисковый": {"min": 100000, "max": 1000000, "days": 30, "rate": 0.12, "name": "⚡ Рисковый"},
+    "премиум": {"min": 500000, "max": 5000000, "days": 60, "rate": 0.18, "name": "💎 Премиум"},
+}
+
+# ========== СЕЗОННЫЕ СОБЫТИЯ ==========
+SEASONAL_EVENTS = {
+    "newyear": {"name": "🎄 Новый год", "start": "2026-01-01", "end": "2026-01-15", "multiplier": 2.0},
+    "summer": {"name": "☀️ Лето", "start": "2026-06-01", "end": "2026-08-31", "multiplier": 1.5},
+    "halloween": {"name": "🎃 Хэллоуин", "start": "2026-10-25", "end": "2026-11-05", "multiplier": 1.5},
+}
+
+
+
 # ID каналов (ТВОИ)
 WELCOME_CHANNEL_ID = 1502637204982206686
 LOGS_CHANNEL_ID = 1502637204982206681
@@ -248,6 +645,7 @@ bot.remove_command('help')
 # ========== БАЗА ДАННЫХ ==========
 async def init_db():
     async with aiosqlite.connect("justice.db") as db:
+        # Основная таблица пользователей (ДОБАВЛЕНЫ НОВЫЕ ПОЛЯ)
         await db.execute('''CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER, guild_id INTEGER,
             xp INTEGER DEFAULT 0, level INTEGER DEFAULT 0,
@@ -271,19 +669,44 @@ async def init_db():
             pots INTEGER DEFAULT 0,
             crops TEXT DEFAULT '[]',
             profile_color INTEGER DEFAULT 0,
+            -- НОВЫЕ ПОЛЯ --
+            voice_total_seconds INTEGER DEFAULT 0,
+            voice_join_time TEXT,
+            total_invites INTEGER DEFAULT 0,
+            total_casino_wins INTEGER DEFAULT 0,
+            total_blackjack_wins INTEGER DEFAULT 0,
+            total_poker_wins INTEGER DEFAULT 0,
+            total_ttt_wins INTEGER DEFAULT 0,
+            total_fish_caught INTEGER DEFAULT 0,
+            total_legendary_fish INTEGER DEFAULT 0,
+            total_mythic_fish INTEGER DEFAULT 0,
+            total_harvests INTEGER DEFAULT 0,
+            total_plants INTEGER DEFAULT 0,
+            total_work INTEGER DEFAULT 0,
+            total_rob_success INTEGER DEFAULT 0,
+            total_daily_streak INTEGER DEFAULT 0,
+            total_shop_buys INTEGER DEFAULT 0,
+            total_shop_spent INTEGER DEFAULT 0,
+            total_donated INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, guild_id)
         )''')
+        
+        # Таблица предупреждений
         await db.execute('''CREATE TABLE IF NOT EXISTS warnings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER, guild_id INTEGER,
             moderator_id INTEGER, reason TEXT, expires_at TEXT
         )''')
+        
+        # Таблица идей
         await db.execute('''CREATE TABLE IF NOT EXISTS suggestions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER, guild_id INTEGER,
             suggestion TEXT, status TEXT DEFAULT 'pending',
             verdict TEXT, date TEXT
         )''')
+        
+        # Таблица приватных войсов
         await db.execute('''CREATE TABLE IF NOT EXISTS private_vc (
             channel_id INTEGER PRIMARY KEY,
             owner_id INTEGER, guild_id INTEGER,
@@ -292,22 +715,30 @@ async def init_db():
             banned_users TEXT DEFAULT '[]',
             created_at TEXT
         )''')
+        
+        # Таблица розыгрышей
         await db.execute('''CREATE TABLE IF NOT EXISTS giveaways (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             channel_id INTEGER, message_id INTEGER,
             prize TEXT, winners INTEGER, end_time TEXT,
             entries TEXT, ended INTEGER DEFAULT 0
         )''')
+        
+        # Таблица Столото
         await db.execute('''CREATE TABLE IF NOT EXISTS stoloto (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT, winner_id INTEGER, prize INTEGER
         )''')
+        
+        # Таблица кастомного магазина
         await db.execute('''CREATE TABLE IF NOT EXISTS custom_shop (
             name TEXT PRIMARY KEY,
             price INTEGER,
             description TEXT,
             role_id INTEGER
         )''')
+        
+        # Таблица настроек гильдии
         await db.execute('''CREATE TABLE IF NOT EXISTS guild_settings (
             guild_id INTEGER PRIMARY KEY,
             welcome_channel INTEGER,
@@ -319,8 +750,88 @@ async def init_db():
             automod_phishing_enabled INTEGER DEFAULT 1,
             automod_exempt_roles TEXT DEFAULT '[]'
         )''')
+        
+        # ========== НОВЫЕ ТАБЛИЦЫ ==========
+        
+        # Достижения
+        await db.execute('''CREATE TABLE IF NOT EXISTS achievements (
+            user_id INTEGER, guild_id INTEGER,
+            achievement_id TEXT,
+            achieved_at TEXT,
+            PRIMARY KEY (user_id, guild_id, achievement_id)
+        )''')
+        
+        # Ежедневные задания
+        await db.execute('''CREATE TABLE IF NOT EXISTS daily_quests (
+            user_id INTEGER, guild_id INTEGER,
+            quest_date TEXT,
+            quest1_id TEXT, quest1_progress INTEGER, quest1_completed INTEGER,
+            quest2_id TEXT, quest2_progress INTEGER, quest2_completed INTEGER,
+            quest3_id TEXT, quest3_progress INTEGER, quest3_completed INTEGER,
+            PRIMARY KEY (user_id, guild_id, quest_date)
+        )''')
+        
+        # Инвестиции
+        await db.execute('''CREATE TABLE IF NOT EXISTS investments (
+            user_id INTEGER, guild_id INTEGER,
+            invest_type TEXT,
+            amount INTEGER,
+            invest_date TEXT,
+            days INTEGER,
+            interest_rate REAL,
+            claimed INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, guild_id)
+        )''')
+        
+        # Фермерские улучшения
+        await db.execute('''CREATE TABLE IF NOT EXISTS farm_upgrades (
+            user_id INTEGER, guild_id INTEGER,
+            upgrade_type TEXT,
+            level INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, guild_id, upgrade_type)
+        )''')
+        
+        # Животные на ферме
+        await db.execute('''CREATE TABLE IF NOT EXISTS farm_animals (
+            user_id INTEGER, guild_id INTEGER,
+            animal_type TEXT,
+            count INTEGER DEFAULT 0,
+            last_produce TEXT,
+            last_fed TEXT,
+            PRIMARY KEY (user_id, guild_id, animal_type)
+        )''')
+        
+        # Рецепты (крафт)
+        await db.execute('''CREATE TABLE IF NOT EXISTS recipes (
+            user_id INTEGER, guild_id INTEGER,
+            recipe_id TEXT,
+            learned INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, guild_id, recipe_id)
+        )''')
+        
+        # Приглашения
+        await db.execute('''CREATE TABLE IF NOT EXISTS invites (
+            inviter_id INTEGER, invited_id INTEGER,
+            guild_id INTEGER, invite_date TEXT,
+            PRIMARY KEY (invited_id, guild_id)
+        )''')
+        
+        # Еженедельная статистика
+        await db.execute('''CREATE TABLE IF NOT EXISTS weekly_stats (
+            user_id INTEGER, guild_id INTEGER,
+            week_start TEXT,
+            messages INTEGER DEFAULT 0,
+            voice_minutes INTEGER DEFAULT 0,
+            casino_wins INTEGER DEFAULT 0,
+            work_count INTEGER DEFAULT 0,
+            fish_caught INTEGER DEFAULT 0,
+            crops_harvested INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, guild_id, week_start)
+        )''')
+        
         await db.commit()
     
+    # Загрузка кастомного магазина
     async with aiosqlite.connect("justice.db") as db:
         async with db.execute('SELECT name, price, description, role_id FROM custom_shop') as cursor:
             rows = await cursor.fetchall()
@@ -367,18 +878,30 @@ async def add_reputation(user_id, guild_id, amount):
 
 async def add_xp(user_id, guild_id, amount):
     user = await get_user(user_id, guild_id)
+    
+    # Проверка на двойной опыт по выходным
     boost_mult = 1
+    if datetime.now().weekday() in [5, 6]:  # Суббота или воскресенье
+        boost_mult = 2
+    
+    # Проверка на бустеры
     if user_id in active_boosters and "exp" in active_boosters[user_id]:
         if time.time() < active_boosters[user_id]["exp"]["end"]:
-            boost_mult = active_boosters[user_id]["exp"]["mult"]
+            boost_mult *= active_boosters[user_id]["exp"]["mult"]
+    
     amount = int(amount * boost_mult)
     new_xp = user[2] + amount
     new_level = int((new_xp / 200) ** 0.55)
     level_up = new_level > user[3]
+    
     await update_user(user_id, guild_id, xp=new_xp, level=new_level,
                      total_messages=user[9] + 1, today_messages=user[21] + 1,
                      week_messages=user[22] + 1, month_messages=user[23] + 1,
                      last_message_time=datetime.now().isoformat())
+    
+    # Проверка достижений за уровень
+    await check_achievement(user_id, guild_id, "level", new_level)
+    
     return level_up, new_level
 
 async def send_log(guild_id, embed):
@@ -410,6 +933,60 @@ def set_rep_cooldown(from_id, to_id):
     key = f"{from_id}_{to_id}"
     rep_cooldowns[key] = time.time()
 
+# ========== ФУНКЦИЯ ПРОВЕРКИ ДОСТИЖЕНИЙ ==========
+async def check_achievement(user_id, guild_id, ach_type, value):
+    """Проверка и выдача достижений"""
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT achievement_id FROM achievements WHERE user_id=? AND guild_id=?', (user_id, guild_id))
+        earned = set(row[0] for row in await cur.fetchall())
+    
+    new_achievements = []
+    
+    for ach_id, ach_data in ACHIEVEMENTS.items():
+        if ach_id in earned:
+            continue
+        
+        ach_type_check = ach_id.split("_")[0]
+        
+        if ach_type == "messages" and ach_type_check == "msg":
+            target = int(ach_id.split("_")[1])
+            if value >= target:
+                new_achievements.append(ach_id)
+        
+        elif ach_type == "level" and ach_type_check == "lvl":
+            target = int(ach_id.split("_")[1])
+            if value >= target:
+                new_achievements.append(ach_id)
+        
+        elif ach_type == "balance" and ach_type_check == "bal":
+            target = int(ach_id.split("_")[1])
+            if value >= target:
+                new_achievements.append(ach_id)
+        
+        elif ach_type == "reputation" and ach_type_check == "rep":
+            target = int(ach_id.split("_")[1])
+            if value >= target:
+                new_achievements.append(ach_id)
+    
+    for ach_id in new_achievements:
+        ach_data = ACHIEVEMENTS[ach_id]
+        await add_balance(user_id, guild_id, ach_data["reward"])
+        
+        async with aiosqlite.connect("justice.db") as db:
+            await db.execute('INSERT INTO achievements (user_id, guild_id, achievement_id, achieved_at) VALUES (?,?,?,?)',
+                            (user_id, guild_id, ach_id, datetime.now().isoformat()))
+            await db.commit()
+        
+        # Отправка уведомления
+        user = bot.get_user(user_id)
+        if user:
+            await user.send(f"🏆 **ДОСТИЖЕНИЕ ПОЛУЧЕНО!**\n📛 {ach_data['name']}\n📝 {ach_data['desc']}\n💰 Награда: {ach_data['reward']} 💎")
+        
+        guild = bot.get_guild(guild_id)
+        if guild:
+            channel = guild.get_channel(LEVEL_CHANNEL_ID)
+            if channel:
+                await channel.send(f"🏆 {user.mention if user else 'Игрок'} получил достижение **{ach_data['name']}** и {ach_data['reward']} 💎!")
 # ========== ПОГОДА (Open-Meteo) ==========
 async def get_weather_data(lat, lon, forecast_days=7):
     params = {
@@ -2554,6 +3131,655 @@ async def poker(ctx, member1: discord.Member = None, member2: discord.Member = N
     # Начинаем игру
     game.current_player_index = 0
     await update_poker_display(ctx.channel, game)    
+
+# ========== ИНВЕСТИЦИИ ==========
+@bot.command()
+async def invest(ctx, invest_type: str = None, amount: int = None):
+    """📊 Инвестировать деньги"""
+    if not invest_type or not amount:
+        types = "\n".join([f"• {k} - {v['name']}: {v['min']}-{v['max']} 💎, {v['days']} дней, +{v['rate']*100}%" for k, v in INVESTMENTS.items()])
+        await ctx.send(f"📊 **Инвестиции**\n{types}\n\nПример: `j.invest надёжный 50000`")
+        return
+    
+    invest_type = invest_type.lower()
+    if invest_type not in INVESTMENTS:
+        await ctx.send("❌ Неверный тип инвестиций! Доступно: надёжный, средний, рисковый, премиум")
+        return
+    
+    inv_data = INVESTMENTS[invest_type]
+    if amount < inv_data["min"] or amount > inv_data["max"]:
+        await ctx.send(f"❌ Сумма от {inv_data['min']} до {inv_data['max']} 💎")
+        return
+    
+    user = await get_user(ctx.author.id, ctx.guild.id)
+    if user[4] < amount:
+        await ctx.send(f"❌ Не хватает {amount} 💎")
+        return
+    
+    # Проверка, есть ли уже активная инвестиция
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT * FROM investments WHERE user_id=? AND guild_id=? AND claimed=0', (ctx.author.id, ctx.guild.id))
+        existing = await cur.fetchone()
+        if existing:
+            await ctx.send("❌ У вас уже есть активная инвестиция! Дождитесь её завершения.")
+            return
+        
+        await add_balance(ctx.author.id, ctx.guild.id, -amount)
+        await db.execute('INSERT INTO investments (user_id, guild_id, invest_type, amount, invest_date, days, interest_rate, claimed) VALUES (?,?,?,?,?,?,?,0)',
+                        (ctx.author.id, ctx.guild.id, invest_type, amount, datetime.now().isoformat(), inv_data["days"], inv_data["rate"]))
+        await db.commit()
+    
+    await ctx.send(f"✅ Вы инвестировали {amount} 💎 в **{inv_data['name']}** на {inv_data['days']} дней!\n💰 По окончании вы получите {int(amount * (1 + inv_data['rate']))} 💎")
+
+@bot.command()
+async def claim_invest(ctx):
+    """💰 Забрать инвестицию"""
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT * FROM investments WHERE user_id=? AND guild_id=? AND claimed=0', (ctx.author.id, ctx.guild.id))
+        inv = await cur.fetchone()
+        if not inv:
+            await ctx.send("❌ У вас нет активных инвестиций!")
+            return
+        
+        _, _, _, inv_type, amount, inv_date, days, rate, claimed = inv
+        inv_date_obj = datetime.fromisoformat(inv_date)
+        end_date = inv_date_obj + timedelta(days=days)
+        
+        if datetime.now() < end_date:
+            left = (end_date - datetime.now()).days
+            await ctx.send(f"⏰ Инвестиция ещё не завершена! Осталось {left} дней.")
+            return
+        
+        profit = int(amount * (1 + rate))
+        await add_balance(ctx.author.id, ctx.guild.id, profit)
+        await db.execute('UPDATE investments SET claimed=1 WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        await db.commit()
+    
+    await ctx.send(f"💰 Вы получили {profit} 💎 (вложено {amount} 💎, прибыль {profit - amount} 💎)")
+
+# ========== ЖИВОТНЫЕ НА ФЕРМЕ ==========
+@bot.command()
+async def buy_animal(ctx, animal_type: str = None):
+    """🐔 Купить животное для фермы"""
+    if not animal_type or animal_type.lower() not in FARM_ANIMALS:
+        animals = "\n".join([f"• {a} - {data['price']} 💎 | Даёт: {data['produce']} ({data['produce_price']} 💎)" for a, data in FARM_ANIMALS.items()])
+        await ctx.send(f"🐔 **Животные для фермы**\n{animals}\n\nПример: `j.buy_animal курица`")
+        return
+    
+    animal = animal_type.lower()
+    animal_data = FARM_ANIMALS[animal]
+    
+    # Проверка на максимальное количество (улучшения)
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT level FROM farm_upgrades WHERE user_id=? AND guild_id=? AND upgrade_type="max_animals"', (ctx.author.id, ctx.guild.id))
+        upgrade = await cur.fetchone()
+        max_animals = 5 + (upgrade[0] * 2 if upgrade else 0)
+        
+        cur = await db.execute('SELECT count FROM farm_animals WHERE user_id=? AND guild_id=? AND animal_type=?', (ctx.author.id, ctx.guild.id, animal))
+        current = await cur.fetchone()
+        current_count = current[0] if current else 0
+        
+        if current_count >= max_animals:
+            await ctx.send(f"❌ У вас уже максимальное количество {animal} ({max_animals})! Улучшите вместимость.")
+            return
+    
+    user = await get_user(ctx.author.id, ctx.guild.id)
+    if user[4] < animal_data["price"]:
+        await ctx.send(f"❌ Не хватает {animal_data['price']} 💎")
+        return
+    
+    await add_balance(ctx.author.id, ctx.guild.id, -animal_data["price"])
+    
+    async with aiosqlite.connect("justice.db") as db:
+        if current:
+            await db.execute('UPDATE farm_animals SET count=? WHERE user_id=? AND guild_id=? AND animal_type=?', (current_count + 1, ctx.author.id, ctx.guild.id, animal))
+        else:
+            await db.execute('INSERT INTO farm_animals (user_id, guild_id, animal_type, count, last_produce, last_fed) VALUES (?,?,?,1,?,?)',
+                            (ctx.author.id, ctx.guild.id, animal, datetime.now().isoformat(), datetime.now().isoformat()))
+        await db.commit()
+    
+    await ctx.send(f"✅ Вы купили {animal_data['name']} за {animal_data['price']} 💎!")
+
+@bot.command()
+async def feed_animals(ctx):
+    """🌾 Покормить всех животных"""
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT animal_type, count FROM farm_animals WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        animals = await cur.fetchall()
+        
+        if not animals:
+            await ctx.send("❌ У вас нет животных!")
+            return
+        
+        # Проверка улучшения скорости
+        cur2 = await db.execute('SELECT level FROM farm_upgrades WHERE user_id=? AND guild_id=? AND upgrade_type="animal_speed"', (ctx.author.id, ctx.guild.id))
+        speed_upgrade = await cur2.fetchone()
+        speed_mult = 1 - (speed_upgrade[0] * 0.05 if speed_upgrade else 0)
+        
+        total_feed = 0
+        for animal, count in animals:
+            animal_data = FARM_ANIMALS[animal]
+            feed_needed = animal_data["feed_amount"] * count
+            
+            # Проверяем наличие корма в инвентаре
+            cur3 = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+            inv = json.loads((await cur3.fetchone())[0] or "[]")
+            feed_count = inv.count(f"crop_{animal_data['feed']}")
+            
+            if feed_count >= feed_needed:
+                for _ in range(feed_needed):
+                    inv.remove(f"crop_{animal_data['feed']}")
+                total_feed += feed_needed
+                
+                # Обновляем время последнего кормления
+                new_time = datetime.now().isoformat()
+                await db.execute('UPDATE farm_animals SET last_fed=? WHERE user_id=? AND guild_id=? AND animal_type=?', (new_time, ctx.author.id, ctx.guild.id, animal))
+            else:
+                await ctx.send(f"⚠️ Не хватает {animal_data['feed']} для {animal} (нужно {feed_needed}, есть {feed_count})")
+        
+        if total_feed > 0:
+            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+            await db.commit()
+            await ctx.send(f"✅ Вы покормили животных! Потрачено {total_feed} еды.")
+            await check_achievement(ctx.author.id, ctx.guild.id, "feed_animal", total_feed)
+        else:
+            await ctx.send("❌ Нет еды для кормления!")
+
+@bot.command()
+async def collect_products(ctx):
+    """🥚 Собрать продукцию с животных"""
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT animal_type, count, last_produce FROM farm_animals WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        animals = await cur.fetchall()
+        
+        if not animals:
+            await ctx.send("❌ У вас нет животных!")
+            return
+        
+        # Проверка улучшения продуктивности
+        cur2 = await db.execute('SELECT level FROM farm_upgrades WHERE user_id=? AND guild_id=? AND upgrade_type="animal_yield"', (ctx.author.id, ctx.guild.id))
+        yield_upgrade = await cur2.fetchone()
+        yield_mult = 1 + (yield_upgrade[0] * 0.1 if yield_upgrade else 0)
+        
+        total_earn = 0
+        collected = []
+        
+        for animal, count, last_produce in animals:
+            animal_data = FARM_ANIMALS[animal]
+            last_time = datetime.fromisoformat(last_produce)
+            time_passed = (datetime.now() - last_time).total_seconds()
+            
+            # Улучшение скорости
+            cur3 = await db.execute('SELECT level FROM farm_upgrades WHERE user_id=? AND guild_id=? AND upgrade_type="animal_speed"', (ctx.author.id, ctx.guild.id))
+            speed_upgrade = await cur3.fetchone()
+            speed_mult = 1 - (speed_upgrade[0] * 0.05 if speed_upgrade else 0)
+            produce_time = animal_data["produce_time"] * speed_mult
+            
+            if time_passed >= produce_time:
+                cycles = int(time_passed // produce_time)
+                if cycles > 0:
+                    produced = int(count * cycles * yield_mult)
+                    earn = produced * animal_data["produce_price"]
+                    total_earn += earn
+                    collected.append(f"{animal_data['name']} x{produced} (+{earn} 💎)")
+                    
+                    new_time = last_time + timedelta(seconds=produce_time * cycles)
+                    await db.execute('UPDATE farm_animals SET last_produce=? WHERE user_id=? AND guild_id=? AND animal_type=?', (new_time.isoformat(), ctx.author.id, ctx.guild.id, animal))
+        
+        if total_earn > 0:
+            # Добавляем продукцию в инвентарь
+            cur4 = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+            inv = json.loads((await cur4.fetchone())[0] or "[]")
+            for item in collected:
+                product = item.split(" x")[0]
+                inv.append(f"product_{product}")
+            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+            await add_balance(ctx.author.id, ctx.guild.id, total_earn)
+            await db.commit()
+            
+            await ctx.send(f"✅ Собрано:\n" + "\n".join(collected[:10]) + f"\n💰 Всего: {total_earn} 💎")
+            await check_achievement(ctx.author.id, ctx.guild.id, "collect_animal", len(collected))
+        else:
+            await ctx.send("❌ Продукция ещё не готова! Подождите.")
+
+@bot.command()
+async def my_animals(ctx):
+    """🐔 Показать всех животных"""
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT animal_type, count, last_fed FROM farm_animals WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        animals = await cur.fetchall()
+        
+        if not animals:
+            await ctx.send("🐔 У вас нет животных! Купите: `j.buy_animal курица`")
+            return
+        
+        embed = discord.Embed(title=f"🐔 ЖИВОТНЫЕ | {ctx.author.display_name}", color=discord.Color.green())
+        for animal, count, last_fed in animals:
+            animal_data = FARM_ANIMALS[animal]
+            last_fed_time = datetime.fromisoformat(last_fed)
+            hungry = (datetime.now() - last_fed_time).total_seconds() > 43200  # 12 часов
+            status = "😋 Сытые" if not hungry else "🍽️ Голодные!"
+            embed.add_field(name=f"{animal_data['name']} x{count}", value=f"📦 Даёт: {animal_data['produce']}\n💎 Цена: {animal_data['produce_price']}\n{status}", inline=True)
+        
+        await ctx.send(embed=embed)
+
+# ========== КРАФТ ==========
+@bot.command()
+async def craft(ctx, recipe_id: str = None):
+    """🔨 Скрафтить предмет"""
+    if not recipe_id or recipe_id.lower() not in RECIPES:
+        recipes = "\n".join([f"• {rid} - {data['name']} | {data['description']}" for rid, data in RECIPES.items()])
+        await ctx.send(f"🔨 **Доступные рецепты**\n{recipes}\n\nПример: `j.craft золотой слиток`")
+        return
+    
+    recipe = RECIPES[recipe_id.lower()]
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        inv = json.loads((await cur.fetchone())[0] or "[]")
+        
+        # Проверка ингредиентов
+        missing = []
+        for ing, amount in recipe["ingredients"].items():
+            count = inv.count(f"crop_{ing}") + inv.count(f"product_{ing}") + inv.count(ing)
+            if count < amount:
+                missing.append(f"{ing} ({count}/{amount})")
+        
+        if missing:
+            await ctx.send(f"❌ Не хватает ингредиентов:\n" + "\n".join(missing))
+            return
+        
+        # Удаление ингредиентов
+        for ing, amount in recipe["ingredients"].items():
+            for _ in range(amount):
+                if f"crop_{ing}" in inv:
+                    inv.remove(f"crop_{ing}")
+                elif f"product_{ing}" in inv:
+                    inv.remove(f"product_{ing}")
+                else:
+                    inv.remove(ing)
+        
+        # Добавление результата
+        for _ in range(recipe["result_count"]):
+            inv.append(recipe["result"])
+        
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+        await add_xp(ctx.author.id, ctx.guild.id, recipe["xp"])
+        await db.commit()
+    
+    await ctx.send(f"✅ Вы скрафтили {recipe['name']} x{recipe['result_count']}!\n✨ +{recipe['xp']} XP")
+    await check_achievement(ctx.author.id, ctx.guild.id, "craft", 1)
+
+@bot.command()
+async def recipes(ctx):
+    """📖 Показать выученные рецепты"""
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT recipe_id FROM recipes WHERE user_id=? AND guild_id=? AND learned=1', (ctx.author.id, ctx.guild.id))
+        learned = [row[0] for row in await cur.fetchall()]
+    
+    embed = discord.Embed(title=f"🔨 РЕЦЕПТЫ | {ctx.author.display_name}", color=discord.Color.blue())
+    learned_text = "\n".join([f"• {rid} - {RECIPES[rid]['name']}" for rid in learned if rid in RECIPES]) or "Нет выученных рецептов"
+    all_text = "\n".join([f"• {rid} - {data['name']} | Нужно: {', '.join([f'{k} x{v}' for k,v in data['ingredients'].items()])}" for rid, data in RECIPES.items()])
+    
+    embed.add_field(name="📚 Выученные", value=learned_text[:1024], inline=False)
+    embed.add_field(name="🔓 Все рецепты", value=all_text[:1024], inline=False)
+    await ctx.send(embed=embed)
+
+# ========== ФЕРМЕРСКИЕ УЛУЧШЕНИЯ ==========
+@bot.command()
+async def upgrade_farm(ctx, upgrade_type: str = None):
+    """📈 Улучшить ферму"""
+    if not upgrade_type or upgrade_type.lower() not in FARM_UPGRADES:
+        upgrades = "\n".join([f"• {ut} - {data['name']} | Уровень {data['max_level']} | Старт: {data['base_cost']} 💎" for ut, data in FARM_UPGRADES.items()])
+        await ctx.send(f"📈 **Улучшения фермы**\n{upgrades}\n\nПример: `j.upgrade_farm grow_speed`")
+        return
+    
+    upgrade = upgrade_type.lower()
+    upgrade_data = FARM_UPGRADES[upgrade]
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT level FROM farm_upgrades WHERE user_id=? AND guild_id=? AND upgrade_type=?', (ctx.author.id, ctx.guild.id, upgrade))
+        current = await cur.fetchone()
+        current_level = current[0] if current else 0
+        
+        if current_level >= upgrade_data["max_level"]:
+            await ctx.send(f"❌ Максимальный уровень {upgrade_data['max_level']} достигнут!")
+            return
+        
+        cost = upgrade_data["base_cost"] * (current_level + 1)
+        user = await get_user(ctx.author.id, ctx.guild.id)
+        
+        if user[4] < cost:
+            await ctx.send(f"❌ Не хватает {cost} 💎")
+            return
+        
+        await add_balance(ctx.author.id, ctx.guild.id, -cost)
+        
+        if current:
+            await db.execute('UPDATE farm_upgrades SET level=? WHERE user_id=? AND guild_id=? AND upgrade_type=?', (current_level + 1, ctx.author.id, ctx.guild.id, upgrade))
+        else:
+            await db.execute('INSERT INTO farm_upgrades (user_id, guild_id, upgrade_type, level) VALUES (?,?,?,1)', (ctx.author.id, ctx.guild.id, upgrade))
+        await db.commit()
+    
+    await ctx.send(f"✅ {upgrade_data['name']} улучшен до {current_level + 1} уровня за {cost} 💎!")
+
+# ========== БОНУС ЗА ПРИГЛАШЕНИЯ ==========
+@bot.command()
+async def bonus_invite(ctx):
+    """📨 Получить бонус за приглашения"""
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT COUNT(*) FROM invites WHERE inviter_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        count = (await cur.fetchone())[0]
+        
+        if count == 0:
+            await ctx.send("❌ Вы никого не пригласили!")
+            return
+        
+        # 500 💎 за каждого приглашённого
+        bonus = count * 500
+        await add_balance(ctx.author.id, ctx.guild.id, bonus)
+        await ctx.send(f"📨 Вы пригласили {count} человек!\n💰 Бонус: {bonus} 💎")
+        await check_achievement(ctx.author.id, ctx.guild.id, "invite", count)
+
+@bot.event
+async def on_member_join(member):
+    # Отслеживание приглашений
+    invites = await member.guild.invites()
+    for inv in invites:
+        if inv.uses > 0:
+            async with aiosqlite.connect("justice.db") as db:
+                await db.execute('INSERT OR IGNORE INTO invites (inviter_id, invited_id, guild_id, invite_date) VALUES (?,?,?,?)',
+                                (inv.inviter.id, member.id, member.guild.id, datetime.now().isoformat()))
+                await db.commit()
+            break
+    
+    # Остальной код приветствия
+    role = member.guild.get_role(DEFAULT_ROLE_ID)
+    if role:
+        try: await member.add_roles(role)
+        except: pass
+    
+    sett = guild_settings.get(member.guild.id, {})
+    wch = sett.get("welcome_channel", WELCOME_CHANNEL_ID)
+    ch = bot.get_channel(wch)
+    if ch:
+        embed = discord.Embed(title="🎉 ДОБРО ПОЖАЛОВАТЬ!", description=f"{member.mention} присоединился!", color=discord.Color.green())
+        embed.set_thumbnail(url=member.display_avatar.url)
+        await ch.send(embed=embed)
+
+# ========== ТОП ПО ГОЛОСОВОМУ ОНЛАЙНУ ==========
+@bot.command()
+async def top_voice(ctx):
+    """🎤 Топ по голосовому онлайну"""
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT user_id, voice_total_seconds FROM users WHERE guild_id=? AND voice_total_seconds>0 ORDER BY voice_total_seconds DESC LIMIT 10', (ctx.guild.id,))
+        rows = await cur.fetchall()
+    
+    if not rows:
+        await ctx.send("📊 Нет данных по голосовому онлайну")
+        return
+    
+    msg = "**🏆 ТОП ПО ГОЛОСОВОМУ ОНЛАЙНУ**\n"
+    for i, (uid, seconds) in enumerate(rows, 1):
+        user = ctx.guild.get_member(uid)
+        name = user.display_name if user else f"ID:{uid}"
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🔹"
+        msg += f"{medal} {i}. {name} – {hours}ч {minutes}мин\n"
+    await ctx.send(msg)
+
+# ========== ВИСЕЛИЦА ==========
+class HangmanGame:
+    def __init__(self, word):
+        self.word = word.upper()
+        self.guessed = set()
+        self.wrong = []
+        self.max_wrong = 6
+        self.hangman_pics = [
+            "```\n   +---+\n       |\n       |\n       |\n      ===",
+            "```\n   +---+\n   O   |\n       |\n       |\n      ===",
+            "```\n   +---+\n   O   |\n   |   |\n       |\n      ===",
+            "```\n   +---+\n   O   |\n  /|   |\n       |\n      ===",
+            "```\n   +---+\n   O   |\n  /|\\  |\n       |\n      ===",
+            "```\n   +---+\n   O   |\n  /|\\  |\n  /    |\n      ===",
+            "```\n   +---+\n   O   |\n  /|\\  |\n  / \\  |\n      ==="
+        ]
+    
+    def get_display(self):
+        return " ".join([c if c in self.guessed else "_" for c in self.word])
+    
+    def guess(self, letter):
+        letter = letter.upper()
+        if letter in self.guessed or letter in self.wrong:
+            return False, "already"
+        if letter in self.word:
+            self.guessed.add(letter)
+            return True, "correct"
+        else:
+            self.wrong.append(letter)
+            return False, "wrong"
+    
+    def is_won(self):
+        return all(c in self.guessed for c in self.word)
+    
+    def is_lost(self):
+        return len(self.wrong) >= self.max_wrong
+
+hangman_words = ["ПИТОН", "ДИСКОРД", "БОТ", "СЕРВЕР", "ПРОГРАММИРОВАНИЕ", "РАЗРАБОТЧИК", "КОМАНДА", "ИГРА", "ПОБЕДА", "УДАЧА"]
+hangman_games = {}
+
+@bot.command()
+async def hangman(ctx):
+    """🔤 Виселица (угадай слово)"""
+    if ctx.channel.id in hangman_games:
+        await ctx.send("❌ Игра уже идёт в этом канале!")
+        return
+    
+    word = random.choice(hangman_words)
+    game = HangmanGame(word)
+    hangman_games[ctx.channel.id] = game
+    
+    embed = discord.Embed(title="🔤 ВИСЕЛИЦА", description=f"{game.hangman_pics[0]}\n\nСлово: {game.get_display()}\n\nОшибок: 0/{game.max_wrong}\nУгадайте букву!", color=discord.Color.blue())
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def guess(ctx, letter: str = None):
+    """🔤 Угадать букву"""
+    if ctx.channel.id not in hangman_games:
+        await ctx.send("❌ Нет активной игры! Начните: `j.hangman`")
+        return
+    
+    if not letter or len(letter) != 1:
+        await ctx.send("❌ Введите одну букву!")
+        return
+    
+    game = hangman_games[ctx.channel.id]
+    result, status = game.guess(letter)
+    
+    if status == "already":
+        await ctx.send(f"❌ Буква '{letter.upper()}' уже была!")
+        return
+    
+    embed = discord.Embed(title="🔤 ВИСЕЛИЦА", color=discord.Color.blue())
+    
+    if game.is_won():
+        embed.description = f"{game.hangman_pics[len(game.wrong)]}\n\nСлово: {game.get_display()}\n\n🎉 **ПОБЕДА!** Вы угадали слово {game.word}!"
+        embed.color = discord.Color.green()
+        await ctx.send(embed=embed)
+        del hangman_games[ctx.channel.id]
+        return
+    
+    if game.is_lost():
+        embed.description = f"{game.hangman_pics[game.max_wrong]}\n\n💀 **ПОРАЖЕНИЕ!** Было загадано слово: {game.word}"
+        embed.color = discord.Color.red()
+        await ctx.send(embed=embed)
+        del hangman_games[ctx.channel.id]
+        return
+    
+    embed.description = f"{game.hangman_pics[len(game.wrong)]}\n\nСлово: {game.get_display()}\n\nОшибок: {len(game.wrong)}/{game.max_wrong}\nНеправильные буквы: {', '.join(game.wrong) if game.wrong else 'нет'}"
+    await ctx.send(embed=embed)
+
+# ========== КОРОТКИЕ ССЫЛКИ ==========
+short_urls = {}
+
+@bot.command()
+async def short(ctx, *, url: str = None):
+    """🔗 Сократить ссылку"""
+    if not url:
+        await ctx.send("❌ Введите ссылку: `j.short https://example.com`")
+        return
+    
+    if not url.startswith("http"):
+        url = "https://" + url
+    
+    short_code = str(hash(url))[:6]
+    short_urls[short_code] = url
+    
+    await ctx.send(f"🔗 Короткая ссылка: `j.get {short_code}`")
+
+@bot.command()
+async def get(ctx, code: str = None):
+    """🔗 Перейти по короткой ссылке"""
+    if not code or code not in short_urls:
+        await ctx.send("❌ Ссылка не найдена!")
+        return
+    
+    await ctx.send(f"🔗 Ссылка: {short_urls[code]}")
+
+# ========== КУРСЫ ВАЛЮТ ==========
+@bot.command()
+async def currency(ctx):
+    """💱 Курсы валют (доллар, евро, юань)"""
+    async with aiohttp.ClientSession() as session:
+        try:
+            # Центробанк РФ
+            url = "https://www.cbr-xml-daily.ru/daily_json.js"
+            async with session.get(url) as resp:
+                data = await resp.json()
+                
+                usd = data["Valute"]["USD"]["Value"]
+                eur = data["Valute"]["EUR"]["Value"]
+                cny = data["Valute"]["CNY"]["Value"]
+                
+                embed = discord.Embed(title="💱 КУРСЫ ВАЛЮТ", color=discord.Color.gold())
+                embed.add_field(name="🇺🇸 Доллар (USD)", value=f"{usd:.2f} ₽", inline=True)
+                embed.add_field(name="🇪🇺 Евро (EUR)", value=f"{eur:.2f} ₽", inline=True)
+                embed.add_field(name="🇨🇳 Юань (CNY)", value=f"{cny:.2f} ₽", inline=True)
+                embed.set_footer(text="По данным ЦБ РФ")
+                await ctx.send(embed=embed)
+        except Exception as e:
+            await ctx.send(f"❌ Ошибка получения курсов: {str(e)[:100]}")
+
+# ========== ЕЖЕНЕДЕЛЬНЫЙ ОТЧЁТ ==========
+@tasks.loop(hours=168)  # Каждые 7 дней
+async def weekly_report():
+    """Еженедельный отчёт по активности"""
+    for guild in bot.guilds:
+        channel = guild.get_channel(LOGS_CHANNEL_ID)
+        if not channel:
+            continue
+        
+        week_start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        
+        async with aiosqlite.connect("justice.db") as db:
+            cur = await db.execute('SELECT user_id, messages, voice_minutes, casino_wins, work_count, fish_caught, crops_harvested FROM weekly_stats WHERE guild_id=? AND week_start=? ORDER BY messages DESC LIMIT 10', (guild.id, week_start))
+            stats = await cur.fetchall()
+        
+        if not stats:
+            continue
+        
+        embed = discord.Embed(title="📊 ЕЖЕНЕДЕЛЬНЫЙ ОТЧЁТ", description=f"Статистика за неделю (с {week_start})", color=discord.Color.blue())
+        
+        msg_text = ""
+        for i, (uid, msgs, voice, casino, work, fish, crops) in enumerate(stats[:5], 1):
+            user = guild.get_member(uid)
+            name = user.display_name if user else f"ID:{uid}"
+            msg_text += f"{i}. {name} – {msgs} сообщ., {voice} мин в войсе, {casino} побед в казино\n"
+        
+        embed.add_field(name="🏆 ТОП АКТИВНОСТИ", value=msg_text or "Нет данных", inline=False)
+        await channel.send(embed=embed)
+
+# ========== ЕЖЕДНЕВНЫЕ ЗАДАНИЯ (СИСТЕМА) ==========
+async def check_daily_quest(user_id, guild_id, quest_type, progress_add=1):
+    """Проверка и обновление ежедневных заданий"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT quest1_id, quest1_progress, quest1_completed, quest2_id, quest2_progress, quest2_completed, quest3_id, quest3_progress, quest3_completed FROM daily_quests WHERE user_id=? AND guild_id=? AND quest_date=?', (user_id, guild_id, today))
+        quests = await cur.fetchone()
+        
+        if not quests:
+            # Выдаём 3 случайных задания
+            available = list(DAILY_QUESTS.keys())
+            selected = random.sample(available, min(3, len(available)))
+            await db.execute('INSERT INTO daily_quests (user_id, guild_id, quest_date, quest1_id, quest2_id, quest3_id) VALUES (?,?,?,?,?,?)',
+                            (user_id, guild_id, today, selected[0], selected[1], selected[2]))
+            quests = (selected[0], 0, 0, selected[1], 0, 0, selected[2], 0, 0)
+        
+        quest_ids = [quests[0], quests[3], quests[6]]
+        progresses = [quests[1], quests[4], quests[7]]
+        completed = [quests[2], quests[5], quests[8]]
+        
+        rewards = 0
+        for i, qid in enumerate(quest_ids):
+            if completed[i]:
+                continue
+            
+            qdata = DAILY_QUESTS.get(qid)
+            if not qdata or qdata["type"] != quest_type:
+                continue
+            
+            new_progress = progresses[i] + progress_add
+            if new_progress >= qdata["target"]:
+                new_progress = qdata["target"]
+                completed[i] = 1
+                rewards += qdata["reward"]
+                
+                # Уведомление
+                user = bot.get_user(user_id)
+                if user:
+                    await user.send(f"✅ **Задание выполнено!**\n{qdata['name']}\n💰 Награда: {qdata['reward']} 💎")
+            
+            # Обновляем прогресс
+            await db.execute(f'UPDATE daily_quests SET quest{i+1}_progress=?, quest{i+1}_completed=? WHERE user_id=? AND guild_id=? AND quest_date=?',
+                            (new_progress, completed[i], user_id, guild_id, today))
+        
+        if rewards > 0:
+            await add_balance(user_id, guild_id, rewards)
+        
+        # Проверка на выполнение всех заданий
+        if all(completed):
+            user = bot.get_user(user_id)
+            if user:
+                await user.send("🏆 **ВЫ ВЫПОЛНИЛИ ВСЕ ЕЖЕДНЕВНЫЕ ЗАДАНИЯ!** 🏆")
+
+@bot.command()
+async def daily_quests(ctx):
+    """📋 Показать ежедневные задания"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT quest1_id, quest1_progress, quest1_completed, quest2_id, quest2_progress, quest2_completed, quest3_id, quest3_progress, quest3_completed FROM daily_quests WHERE user_id=? AND guild_id=? AND quest_date=?', (ctx.author.id, ctx.guild.id, today))
+        quests = await cur.fetchone()
+        
+        if not quests:
+            await ctx.send("📋 Сегодняшние задания ещё не сгенерированы! Напишите что-нибудь в чат, и они появятся.")
+            return
+        
+        embed = discord.Embed(title="📋 ЕЖЕДНЕВНЫЕ ЗАДАНИЯ", description=f"Задания на {today}", color=discord.Color.blue())
+        
+        for i in range(3):
+            qid = quests[i*3]
+            progress = quests[i*3+1]
+            completed = quests[i*3+2]
+            qdata = DAILY_QUESTS.get(qid, {})
+            
+            status = "✅" if completed else "⏳"
+            embed.add_field(name=f"{status} {qdata.get('name', '???')}", value=f"Прогресс: {progress}/{qdata.get('target', 0)} | Награда: {qdata.get('reward', 0)} 💎", inline=False)
+        
+        await ctx.send(embed=embed)
+
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
