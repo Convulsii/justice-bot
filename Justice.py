@@ -17,6 +17,7 @@ from collections import defaultdict
 import openmeteo_requests
 import requests_cache
 from retry_requests import retry
+import hashlib  # ДЛЯ КОРОТКИХ ССЫЛОК
 
 # ========== ЛОГИРОВАНИЕ ==========
 LOG_ACTION_CHANNEL_ID = 1502637204982206681  # ВСТАВЬ ID КАНАЛА ДЛЯ ЛОГОВ
