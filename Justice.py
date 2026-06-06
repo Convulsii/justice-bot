@@ -25,7 +25,7 @@ retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
 openmeteo = openmeteo_requests.Client(session=retry_session)
 
 # ========== ЛОГИРОВАНИЕ ==========
-LOG_ACTION_CHANNEL_ID = 0
+LOG_ACTION_CHANNEL_ID = 1502637204982206681
 
 async def log_action(guild_id, title, description, color=discord.Color.blue()):
     embed = discord.Embed(title=title, description=description, color=color, timestamp=datetime.now())
@@ -480,11 +480,21 @@ async def get_user(user_id, guild_id):
         row = await cur.fetchone()
         if not row:
             now = datetime.now().isoformat()
-            await db.execute('INSERT INTO users (user_id, guild_id, join_date, balance, today_messages, week_messages, month_messages, total_messages, last_message_time, pots) VALUES (?,?,?,?,?,?,?,?,?,0)', 
-                           (user_id, guild_id, now, START_BALANCE, 0, 0, 0, 0, now))
+            # Вставляем все поля с DEFAULT значениями
+            await db.execute('''INSERT INTO users (
+                user_id, guild_id, join_date, balance, today_messages, week_messages, 
+                month_messages, total_messages, last_message_time, pots, voice_total_seconds
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)''', 
+            (user_id, guild_id, now, START_BALANCE, 0, 0, 0, 0, now, 0, 0))
             await db.commit()
-            return await get_user(user_id, guild_id)
-        return row
+            cur = await db.execute('SELECT * FROM users WHERE user_id=? AND guild_id=?', (user_id, guild_id))
+            row = await cur.fetchone()
+        # Преобразуем None в 0 для числовых полей
+        row = list(row)
+        for i in range(len(row)):
+            if row[i] is None:
+                row[i] = 0
+        return tuple(row)
 
 async def update_user(user_id, guild_id, **kwargs):
     async with aiosqlite.connect("justice.db") as db:
@@ -500,13 +510,15 @@ async def add_balance(user_id, guild_id, amount):
 
 async def add_bank(user_id, guild_id, amount):
     user = await get_user(user_id, guild_id)
-    new_bank = (user[5] if len(user) > 5 else 0) + amount
+    current_bank = user[5] if len(user) > 5 and user[5] is not None else 0
+    new_bank = current_bank + amount
     await update_user(user_id, guild_id, bank=new_bank)
     return new_bank
 
 async def add_reputation(user_id, guild_id, amount):
     user = await get_user(user_id, guild_id)
-    new_rep = (user[6] if len(user) > 6 else 0) + amount
+    current_rep = user[6] if len(user) > 6 and user[6] is not None else 0
+    new_rep = current_rep + amount
     await update_user(user_id, guild_id, reputation=new_rep)
     return new_rep
 
@@ -518,18 +530,18 @@ async def add_xp(user_id, guild_id, amount):
         if time.time() < active_boosters[user_id]["exp"]["end"]:
             boost_mult *= active_boosters[user_id]["exp"]["mult"]
     amount = int(amount * boost_mult)
-    new_xp = user[2] + amount
+    new_xp = (user[2] or 0) + amount
     new_level = int((new_xp / 200) ** 0.55)
-    level_up = new_level > user[3]
+    level_up = new_level > (user[3] or 0)
     
     async with aiosqlite.connect("justice.db") as db:
         await db.execute('''UPDATE users SET 
             xp=?, level=?, total_messages=?, today_messages=?, week_messages=?, month_messages=?, last_message_time=? 
             WHERE user_id=? AND guild_id=?''',
-            (new_xp, new_level, (user[9] if len(user) > 9 else 0) + 1, 
-             (user[21] if len(user) > 21 else 0) + 1, 
-             (user[22] if len(user) > 22 else 0) + 1, 
-             (user[23] if len(user) > 23 else 0) + 1, 
+            (new_xp, new_level, (user[9] or 0) + 1, 
+             (user[21] or 0) + 1, 
+             (user[22] or 0) + 1, 
+             (user[23] or 0) + 1, 
              datetime.now().isoformat(), user_id, guild_id))
         await db.commit()
     
@@ -1644,77 +1656,75 @@ async def inventory(ctx, member: discord.Member = None):
 async def profile(ctx, member: discord.Member = None):
     target = member or ctx.author
     data = await get_user(target.id, ctx.guild.id)
-    level, xp, bal = data[3], data[2], data[4]
-    bank = data[5] if len(data) > 5 else 0
-    rep = data[6] if len(data) > 6 else 0
-    total_msgs = data[9] if len(data) > 9 else 0
-    today_msgs = data[21] if len(data) > 21 else 0
-    week_msgs = data[22] if len(data) > 22 else 0
-    month_msgs = data[23] if len(data) > 23 else 0
-    voice_streak = data[26] if len(data) > 26 else 0
-    voice_seconds = data[32] if len(data) > 32 else 0
+    
+    # Безопасное получение всех значений с проверкой на None
+    level = data[3] if data[3] is not None else 0
+    xp = data[2] if data[2] is not None else 0
+    bal = data[4] if data[4] is not None else 0
+    bank = data[5] if len(data) > 5 and data[5] is not None else 0
+    rep = data[6] if len(data) > 6 and data[6] is not None else 0
+    total_msgs = data[9] if len(data) > 9 and data[9] is not None else 0
+    today_msgs = data[21] if len(data) > 21 and data[21] is not None else 0
+    week_msgs = data[22] if len(data) > 22 and data[22] is not None else 0
+    month_msgs = data[23] if len(data) > 23 and data[23] is not None else 0
+    
+    # ВАЖНО: проверка voice_seconds на None
+    voice_seconds = data[32] if len(data) > 32 and data[32] is not None else 0
+    
     bio = data[17] if len(data) > 17 and data[17] else "Нет биографии"
-    gender = data[20] if len(data) > 20 else ""
-    awards = json.loads(data[18] if len(data) > 18 else "[]")
-    profile_color = data[31] if len(data) > 31 else 0x5865F2
-    total_plants = data[40] if len(data) > 40 else 0
-    total_harvests = data[39] if len(data) > 39 else 0
-    total_fish = data[36] if len(data) > 36 else 0
-    total_legendary_fish = data[37] if len(data) > 37 else 0
-    total_mythic_fish = data[38] if len(data) > 38 else 0
-    total_casino_wins = data[33] if len(data) > 33 else 0
-    total_blackjack_wins = data[34] if len(data) > 34 else 0
-    total_work = data[41] if len(data) > 41 else 0
-    total_rob = data[42] if len(data) > 42 else 0
-    voice_hours = voice_seconds // 3600
-    voice_minutes = (voice_seconds % 3600) // 60
-    xp_for_next = 200 * ((level + 1) ** 2)
-    xp_for_current = 200 * (level ** 2)
-    percent = min(100, int((xp - xp_for_current) / (xp_for_next - xp_for_current) * 100)) if xp_for_next > xp_for_current else 0
+    gender = data[20] if len(data) > 20 and data[20] else ""
+    profile_color = data[31] if len(data) > 31 and data[31] is not None else 0x5865F2
+    total_plants = data[40] if len(data) > 40 and data[40] is not None else 0
+    total_harvests = data[39] if len(data) > 39 and data[39] is not None else 0
+    total_fish = data[36] if len(data) > 36 and data[36] is not None else 0
+    total_legendary_fish = data[37] if len(data) > 37 and data[37] is not None else 0
+    total_mythic_fish = data[38] if len(data) > 38 and data[38] is not None else 0
+    total_casino_wins = data[33] if len(data) > 33 and data[33] is not None else 0
+    total_blackjack_wins = data[34] if len(data) > 34 and data[34] is not None else 0
+    total_work = data[41] if len(data) > 41 and data[41] is not None else 0
+    total_rob = data[42] if len(data) > 42 and data[42] is not None else 0
+    
+    # Голосовой онлайн - БЕЗОПАСНОЕ деление
+    if voice_seconds is not None and voice_seconds > 0:
+        voice_hours = voice_seconds // 3600
+        voice_minutes = (voice_seconds % 3600) // 60
+        voice_text = f"{voice_hours}ч {voice_minutes}мин"
+    else:
+        voice_text = "0ч 0мин"
+    
+    # XP для следующего уровня
+    if level == 0:
+        xp_for_next = 200
+        xp_for_current = 0
+    else:
+        xp_for_next = 200 * ((level + 1) ** 2)
+        xp_for_current = 200 * (level ** 2)
+    
+    if xp_for_next > xp_for_current and xp_for_current > 0:
+        percent = min(100, int((xp - xp_for_current) / (xp_for_next - xp_for_current) * 100))
+    elif xp > 0 and level == 0:
+        percent = min(100, int((xp / 200) * 100))
+    else:
+        percent = 0
+    
     bar = "█" * (percent // 5) + "░" * (20 - (percent // 5))
     gender_text = "👨 Мужчина" if gender == "male" else "👩 Женщина" if gender == "female" else "❓ Не указан"
-    boosters_text = "Нет"
-    if target.id in active_boosters:
-        boosters = []
-        if "exp" in active_boosters[target.id]:
-            left = int(active_boosters[target.id]["exp"]["end"] - time.time())
-            if left > 0:
-                boosters.append(f"🔥 x{active_boosters[target.id]['exp']['mult']} ОПЫТ - {left//60}мин")
-        if "money" in active_boosters[target.id]:
-            left = int(active_boosters[target.id]["money"]["end"] - time.time())
-            if left > 0:
-                boosters.append(f"💰 x{active_boosters[target.id]['money']['mult']} ДЕНЬГИ - {left//60}мин")
-        if boosters:
-            boosters_text = "\n".join(boosters)
-    invest_text = "Нет"
+    
+    # Получаем количество достижений
     async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT amount, invest_date, days, interest_rate FROM investments WHERE user_id=? AND guild_id=? AND claimed=0', (target.id, ctx.guild.id))
-        invest = await cur.fetchone()
-        if invest:
-            amount, inv_date, days, rate = invest
-            end = datetime.fromisoformat(inv_date) + timedelta(days=days)
-            left = (end - datetime.now()).days
-            if left > 0:
-                invest_text = f"{amount} 💎 | доход: {int(amount * (1 + rate))} 💎 | через {left} дн"
-            else:
-                invest_text = f"{amount} 💎 | ГОТОВО К ЗАБОРУ!"
+        cur = await db.execute('SELECT COUNT(*) FROM achievements WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
+        ach_count = (await cur.fetchone())[0] or 0
+    
     embed = discord.Embed(title=f"📊 ПРОФИЛЬ | {target.display_name}", color=profile_color)
     embed.set_thumbnail(url=target.display_avatar.url)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🎚️ УРОВЕНЬ", value=f"**{level}** уровень\n`{bar}` {percent}%\n✨ {xp} XP", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n💰 ЭКОНОМИКА", value=f"💎 {bal} 💎\n🏦 {bank} 💎\n⭐ {rep}\n📈 Инвестиции: {invest_text}", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📊 СТАТИСТИКА", value=f"💬 Сообщений: {total_msgs}\n🎤 Голосовой онлайн: {voice_hours}ч {voice_minutes}мин\n🌱 Посажено: {total_plants}\n🌾 Собрано: {total_harvests}\n🎣 Рыбы: {total_fish} (легенд: {total_legendary_fish}, миф: {total_mythic_fish})\n🎰 Побед в казино: {total_casino_wins}\n🃏 Побед в блэкджек: {total_blackjack_wins}\n💼 Работ: {total_work}\n🔫 Ограблений: {total_rob}\n📅 Сегодня: {today_msgs} | Неделя: {week_msgs} | Месяц: {month_msgs}", inline=False)
-    
-    async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT COUNT(*) FROM achievements WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
-        ach_count = (await cur.fetchone())[0]
-    
+    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n💰 ЭКОНОМИКА", value=f"💎 {bal} 💎\n🏦 {bank} 💎\n⭐ {rep}", inline=False)
+    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📊 СТАТИСТИКА", value=f"💬 Сообщений: {total_msgs}\n🎤 Голосовой онлайн: {voice_text}\n🌱 Посажено: {total_plants}\n🌾 Собрано: {total_harvests}\n🎣 Рыбы: {total_fish} (легенд: {total_legendary_fish}, миф: {total_mythic_fish})\n🎰 Побед в казино: {total_casino_wins}\n🃏 Побед в блэкджек: {total_blackjack_wins}\n💼 Работ: {total_work}\n🔫 Ограблений: {total_rob}\n📅 Сегодня: {today_msgs} | Неделя: {week_msgs} | Месяц: {month_msgs}", inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🏆 ДОСТИЖЕНИЯ", value=f"{ach_count}/{len(ACHIEVEMENTS)} получено", inline=True)
-    embed.add_field(name="⚡ БУСТЕРЫ", value=boosters_text, inline=True)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n⚧ ПОЛ", value=gender_text, inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📝 БИОГРАФИЯ", value=bio[:500], inline=False)
     embed.set_footer(text=f"🎨 Цвет профиля | 🆔 ID: {target.id}")
     await ctx.send(embed=embed)
-
 @bot.command()
 async def bio(ctx, *, text: str = None):
     if not text: return await ctx.send("❌ j.bio <текст>")
