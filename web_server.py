@@ -167,8 +167,11 @@ def api_stats():
     })
 
 # ========== ЗАПУСК ==========
+# web_server.py (в самом конце)
+
 if __name__ == '__main__':
-    init_web_db()
+    import os
+    # Railway сам передает порт через переменную PORT
     port = int(os.environ.get('PORT', 5000))
-    print(f"🚀 Веб-сервер запущен на порту {port}")
+    # Важно: host='0.0.0.0' — без этого контейнер не примет внешние запросы
     app.run(host='0.0.0.0', port=port, debug=False)
