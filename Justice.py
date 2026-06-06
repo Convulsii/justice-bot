@@ -25,7 +25,7 @@ retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
 openmeteo = openmeteo_requests.Client(session=retry_session)
 
 # ========== ЛОГИРОВАНИЕ ==========
-LOG_ACTION_CHANNEL_ID = 1502637204982206681
+LOG_ACTION_CHANNEL_ID = 0
 
 async def log_action(guild_id, title, description, color=discord.Color.blue()):
     embed = discord.Embed(title=title, description=description, color=color, timestamp=datetime.now())
@@ -508,9 +508,7 @@ async def add_reputation(user_id, guild_id, amount):
     return new_rep
 
 async def add_xp(user_id, guild_id, amount):
-    async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT * FROM users WHERE user_id=? AND guild_id=?', (user_id, guild_id))
-        user = await cur.fetchone()
+    user = await get_user(user_id, guild_id)
     
     boost_mult = 2 if datetime.now().weekday() in [5, 6] else 1
     if user_id in active_boosters and "exp" in active_boosters[user_id]:
@@ -523,7 +521,11 @@ async def add_xp(user_id, guild_id, amount):
     
     async with aiosqlite.connect("justice.db") as db:
         await db.execute('UPDATE users SET xp=?, level=?, total_messages=?, today_messages=?, week_messages=?, month_messages=?, last_message_time=? WHERE user_id=? AND guild_id=?',
-                        (new_xp, new_level, user[9]+1, user[21]+1, user[22]+1, user[23]+1, datetime.now().isoformat(), user_id, guild_id))
+                        (new_xp, new_level, (user[9] if len(user) > 9 else 0) + 1, 
+                         (user[21] if len(user) > 21 else 0) + 1, 
+                         (user[22] if len(user) > 22 else 0) + 1, 
+                         (user[23] if len(user) > 23 else 0) + 1, 
+                         datetime.now().isoformat(), user_id, guild_id))
         await db.commit()
     
     if level_up:
@@ -551,10 +553,12 @@ async def check_achievement(user_id, guild_id, ach_type, value):
         
         should_unlock = False
         if ach_type == "messages" and ach_id.startswith("msg_"):
-            if value >= int(ach_id.split("_")[1]):
+            target = int(ach_id.split("_")[1])
+            if value >= target:
                 should_unlock = True
         elif ach_type == "level" and ach_id.startswith("lvl_"):
-            if value >= int(ach_id.split("_")[1]):
+            target = int(ach_id.split("_")[1])
+            if value >= target:
                 should_unlock = True
         
         if should_unlock:
@@ -1033,7 +1037,10 @@ async def monthly(ctx):
 @bot.command()
 async def work(ctx):
     can, w = check_cooldown(ctx.author.id, "work")
-    if not can: return await ctx.send(f"❌ КД {w//60}мин")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"❌ КД {w//60}мин")
+        return await ctx.send("❌ Подождите немного")
     earn = random.randint(300, 800)
     await add_balance(ctx.author.id, ctx.guild.id, earn)
     set_cooldown(ctx.author.id, "work")
@@ -1045,7 +1052,10 @@ async def work(ctx):
 async def rob(ctx, member: discord.Member):
     if member==ctx.author: return await ctx.send("❌ Себя нельзя")
     can, w = check_cooldown(ctx.author.id, "rob")
-    if not can: return await ctx.send(f"❌ КД {w//60}мин")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"❌ КД {w//60}мин")
+        return await ctx.send("❌ Подождите немного")
     td = await get_user(member.id, ctx.guild.id)
     if td[4] < 500: return await ctx.send(f"❌ У {member.mention} мало денег")
     success = random.random() < WIN_CHANCE["rob"]
@@ -1070,7 +1080,10 @@ async def rep(ctx, member: discord.Member = None):
 async def plusrep(ctx, member: discord.Member):
     if member==ctx.author: return await ctx.send("❌ Себе нельзя")
     can, w = check_rep_cooldown(ctx.author.id, member.id)
-    if not can: return await ctx.send(f"❌ КД {w//60}мин")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"❌ КД {w//60}мин")
+        return await ctx.send("❌ Подождите немного")
     set_rep_cooldown(ctx.author.id, member.id)
     nr = await add_reputation(member.id, ctx.guild.id, 1)
     await ctx.send(f"👍 +1 репутации {member.mention}! Теперь {nr}")
@@ -1080,7 +1093,10 @@ async def plusrep(ctx, member: discord.Member):
 async def minusrep(ctx, member: discord.Member):
     if member==ctx.author: return await ctx.send("❌ Себе нельзя")
     can, w = check_rep_cooldown(ctx.author.id, member.id)
-    if not can: return await ctx.send(f"❌ КД {w//60}мин")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"❌ КД {w//60}мин")
+        return await ctx.send("❌ Подождите немного")
     set_rep_cooldown(ctx.author.id, member.id)
     nr = await add_reputation(member.id, ctx.guild.id, -1)
     await ctx.send(f"👎 -1 репутации {member.mention}! Теперь {nr}")
@@ -1090,7 +1106,10 @@ async def minusrep(ctx, member: discord.Member):
 async def casino(ctx, amount: int = None):
     if not amount: return await ctx.send("🎰 j.casino 100")
     can, w = check_cooldown(ctx.author.id, "casino")
-    if not can: return await ctx.send(f"⏰ {w}сек")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"⏰ {w}сек")
+        return await ctx.send("⏰ Подождите немного")
     if amount<100: return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
     if bal<amount: return await ctx.send(f"❌ Не хватает")
@@ -1114,7 +1133,10 @@ async def casino(ctx, amount: int = None):
 async def slots(ctx, bet: int = None):
     if not bet: return await ctx.send("🎰 j.slots 100")
     can, w = check_cooldown(ctx.author.id, "casino")
-    if not can: return await ctx.send(f"⏰ {w}сек")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"⏰ {w}сек")
+        return await ctx.send("⏰ Подождите немного")
     if bet<100: return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
     if bal<bet: return await ctx.send(f"❌ Не хватает")
@@ -1137,7 +1159,10 @@ async def slots(ctx, bet: int = None):
 async def dice(ctx, num: int = None, bet: int = None):
     if not num or not bet: return await ctx.send("🎲 j.dice 3 100")
     can, w = check_cooldown(ctx.author.id, "dice")
-    if not can: return await ctx.send(f"⏰ {w}сек")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"⏰ {w}сек")
+        return await ctx.send("⏰ Подождите немного")
     if num<1 or num>6: return await ctx.send("❌ 1-6")
     if bet<100: return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
@@ -1161,7 +1186,10 @@ async def dice(ctx, num: int = None, bet: int = None):
 async def coinflip(ctx, side: str = None, bet: int = None):
     if not side or not bet: return await ctx.send("🪙 j.coinflip орёл 100")
     can, w = check_cooldown(ctx.author.id, "coin")
-    if not can: return await ctx.send(f"⏰ {w}сек")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"⏰ {w}сек")
+        return await ctx.send("⏰ Подождите немного")
     side=side.lower()
     if side not in ["орёл","орел","решка"]: return await ctx.send("❌ орёл/решка")
     if bet<100: return await ctx.send("❌ Мин. 100 💎")
@@ -1185,7 +1213,10 @@ async def coinflip(ctx, side: str = None, bet: int = None):
 async def rps(ctx, choice: str = None, bet: int = None):
     if not choice or not bet: return await ctx.send("✊ j.rps камень 100")
     can, w = check_cooldown(ctx.author.id, "rps")
-    if not can: return await ctx.send(f"⏰ {w}сек")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"⏰ {w}сек")
+        return await ctx.send("⏰ Подождите немного")
     choice=choice.lower()
     if choice not in ["камень","ножницы","бумага"]: return await ctx.send("❌ камень/ножницы/бумага")
     if bet<100: return await ctx.send("❌ Мин. 100 💎")
@@ -1222,7 +1253,10 @@ async def rps(ctx, choice: str = None, bet: int = None):
 async def blackjack(ctx, bet: int = None):
     if not bet: return await ctx.send("🃏 j.blackjack 100")
     can, w = check_cooldown(ctx.author.id, "blackjack")
-    if not can: return await ctx.send(f"⏰ {w}сек")
+    if not can: 
+        if w is not None:
+            return await ctx.send(f"⏰ {w}сек")
+        return await ctx.send("⏰ Подождите немного")
     if bet<100: return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
     if bal<bet: return await ctx.send(f"❌ Не хватает")
@@ -1664,7 +1698,13 @@ async def profile(ctx, member: discord.Member = None):
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🎚️ УРОВЕНЬ", value=f"**{level}** уровень\n`{bar}` {percent}%\n✨ {xp} XP", inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n💰 ЭКОНОМИКА", value=f"💎 {bal} 💎\n🏦 {bank} 💎\n⭐ {rep}\n📈 Инвестиции: {invest_text}", inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📊 СТАТИСТИКА", value=f"💬 Сообщений: {total_msgs}\n🎤 Голосовой онлайн: {voice_hours}ч {voice_minutes}мин\n🌱 Посажено: {total_plants}\n🌾 Собрано: {total_harvests}\n🎣 Рыбы: {total_fish} (легенд: {total_legendary_fish}, миф: {total_mythic_fish})\n🎰 Побед в казино: {total_casino_wins}\n🃏 Побед в блэкджек: {total_blackjack_wins}\n💼 Работ: {total_work}\n🔫 Ограблений: {total_rob}\n📅 Сегодня: {today_msgs} | Неделя: {week_msgs} | Месяц: {month_msgs}", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🏆 ДОСТИЖЕНИЯ", value=f"{len([a for a in ACHIEVEMENTS if a in await db.execute('SELECT achievement_id FROM achievements WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id)).fetchall()])}/150 получено", inline=True)
+    
+    # Получаем количество достижений
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT COUNT(*) FROM achievements WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
+        ach_count = (await cur.fetchone())[0]
+    
+    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🏆 ДОСТИЖЕНИЯ", value=f"{ach_count}/{len(ACHIEVEMENTS)} получено", inline=True)
     embed.add_field(name="⚡ БУСТЕРЫ", value=boosters_text, inline=True)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n⚧ ПОЛ", value=gender_text, inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📝 БИОГРАФИЯ", value=bio[:500], inline=False)
@@ -2879,7 +2919,9 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot: return
     if message.guild:
-        await get_user(message.author.id, message.guild.id)
+        user_data = await get_user(message.author.id, message.guild.id)
+        
+        # Автомодерация
         sett = guild_settings.get(message.guild.id, {})
         exempt = any(message.guild.get_role(rid) in message.author.roles for rid in sett.get("automod_exempt_roles",[]))
         if not exempt and sett.get("automod_enabled", True):
@@ -2897,12 +2939,20 @@ async def on_message(message):
                     asyncio.create_task(send_warning_dm(message.author, reason, wc, message.channel))
                 except: pass
                 return
+        
+        # Опыт
         level_up, new_level = await add_xp(message.author.id, message.guild.id, random.randint(5,15))
         if level_up:
             ch = bot.get_channel(LEVEL_CHANNEL_ID)
             if ch: await ch.send(f"🎉 {message.author.mention} достиг {new_level} уровня!")
-        await check_achievement(message.author.id, message.guild.id, "messages", message.author.id)
+        
+        # Достижения за сообщения - ПЕРЕДАЁМ КОЛИЧЕСТВО СООБЩЕНИЙ
+        total_msgs = user_data[9] if len(user_data) > 9 else 0
+        await check_achievement(message.author.id, message.guild.id, "messages", total_msgs)
+        
+        # Ежедневные задания
         await check_daily_quest(message.author.id, message.guild.id, "messages", 1)
+    
     if bot.user in message.mentions and not message.mention_everyone:
         await message.channel.send(f"👋 Привет, {message.author.mention}! Используй `j.help`")
     await bot.process_commands(message)
