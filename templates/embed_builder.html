@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Embed Builder — Justice Bot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #0f0f2a 100%);
+            color: #fff;
+        }
+        
+        .header {
+            background: rgba(10, 10, 26, 0.9);
+            backdrop-filter: blur(10px);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .logo {
+            font-size: 20px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .logout-btn {
+            background: rgba(255,255,255,0.1);
+            padding: 8px 20px;
+            border-radius: 20px;
+            text-decoration: none;
+            color: #fff;
+        }
+        
+        .container {
+            display: flex;
+            max-width: 1400px;
+            margin: 30px auto;
+            gap: 30px;
+            padding: 0 20px;
+        }
+        
+        .editor-panel, .preview-panel {
+            flex: 1;
+            background: rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .section-title {
+            font-size: 20px;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+            font-size: 14px;
+        }
+        
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            color: #fff;
+        }
+        
+        .preview-embed {
+            background: #2f3136;
+            border-radius: 10px;
+            overflow: hidden;
+            border-left: 5px solid #5865f2;
+        }
+        
+        .preview-author {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 15px 15px 0 15px;
+        }
+        
+        .preview-author-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #5865f2;
+        }
+        
+        .preview-author-name {
+            color: #fff;
+            font-weight: bold;
+        }
+        
+        .preview-title {
+            padding: 10px 15px 0 15px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #fff;
+        }
+        
+        .preview-description {
+            padding: 10px 15px;
+            color: #dcddde;
+        }
+        
+        .preview-fields {
+            padding: 0 15px;
+        }
+        
+        .preview-field {
+            margin-bottom: 15px;
+        }
+        
+        .preview-field-name {
+            color: #fff;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .preview-field-value {
+            color: #dcddde;
+        }
+        
+        .preview-footer {
+            padding: 10px 15px 15px 15px;
+            color: #72767d;
+            font-size: 12px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            margin-top: 10px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 15px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
+        
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+        
+        .field-item {
+            background: rgba(255,255,255,0.05);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        .remove-field {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #ff4757;
+            border: none;
+            color: #fff;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">📝 Embed Builder | Justice Bot</div>
+        <a href="/dashboard" class="logout-btn">← Назад</a>
+    </header>
+    
+    <div class="container">
+        <div class="editor-panel">
+            <h2 class="section-title">✏️ Редактор</h2>
+            
+            <div class="form-group">
+                <label>Заголовок</label>
+                <input type="text" id="title" placeholder="Заголовок embed">
+            </div>
+            
+            <div class="form-group">
+                <label>Описание</label>
+                <textarea id="description" rows="3" placeholder="Описание embed"></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label>Цвет</label>
+                <input type="color" id="color" value="#5865f2">
+            </div>
+            
+            <div class="form-group">
+                <label>URL (для заголовка)</label>
+                <input type="text" id="url" placeholder="https://...">
+            </div>
+            
+            <hr style="margin: 20px 0; border-color: rgba(255,255,255,0.1);">
+            
+            <h3>Автор</h3>
+            <div class="form-group">
+                <label>Имя автора</label>
+                <input type="text" id="author_name" placeholder="Имя">
+            </div>
+            <div class="form-group">
+                <label>URL автора</label>
+                <input type="text" id="author_url" placeholder="https://...">
+            </div>
+            <div class="form-group">
+                <label>Иконка автора</label>
+                <input type="text" id="author_icon" placeholder="URL иконки">
+            </div>
+            
+            <hr style="margin: 20px 0; border-color: rgba(255,255,255,0.1);">
+            
+            <h3>Футер</h3>
+            <div class="form-group">
+                <label>Текст футера</label>
+                <input type="text" id="footer_text" placeholder="Текст">
+            </div>
+            <div class="form-group">
+                <label>Иконка футера</label>
+                <input type="text" id="footer_icon" placeholder="URL иконки">
+            </div>
+            
+            <hr style="margin: 20px 0; border-color: rgba(255,255,255,0.1);">
+            
+            <h3>Изображения</h3>
+            <div class="form-group">
+                <label>Тамбнейл (маленькая иконка справа)</label>
+                <input type="text" id="thumbnail" placeholder="URL изображения">
+            </div>
+            <div class="form-group">
+                <label>Картинка (большое изображение снизу)</label>
+                <input type="text" id="image" placeholder="URL изображения">
+            </div>
+            
+            <hr style="margin: 20px 0; border-color: rgba(255,255,255,0.1);">
+            
+            <h3>Поля</h3>
+            <div id="fields-container"></div>
+            <button class="btn btn-secondary" onclick="addField()">+ Добавить поле</button>
+        </div>
+        
+        <div class="preview-panel">
+            <h2 class="section-title">👁️ Предпросмотр</h2>
+            <div id="preview" class="preview-embed"></div>
+            
+            <button class="btn btn-primary" onclick="sendEmbed()" style="width: 100%;">📤 Отправить в канал</button>
+            <div id="sendResult" style="margin-top: 15px; text-align: center;"></div>
+        </div>
+    </div>
+    
+    <script>
+        let fields = [];
+        
+        function updatePreview() {
+            const preview = document.getElementById('preview');
+            const title = document.getElementById('title').value;
+            const description = document.getElementById('description').value;
+            const color = document.getElementById('color').value;
+            const url = document.getElementById('url').value;
+            const author_name = document.getElementById('author_name').value;
+            const author_url = document.getElementById('author_url').value;
+            const author_icon = document.getElementById('author_icon').value;
+            const footer_text = document.getElementById('footer_text').value;
+            const footer_icon = document.getElementById('footer_icon').value;
+            const thumbnail = document.getElementById('thumbnail').value;
+            const image = document.getElementById('image').value;
+            
+            let html = '';
+            
+            if (author_name) {
+                html += `<div class="preview-author">
+                    <div class="preview-author-icon" style="background-image: url('${author_icon}'); background-size: cover; background-position: center;"></div>
+                    <div class="preview-author-name">${author_name}</div>
+                </div>`;
+            }
+            
+            if (title) {
+                if (url) {
+                    html += `<div class="preview-title"><a href="${url}" style="color: #fff; text-decoration: none;">${title}</a></div>`;
+                } else {
+                    html += `<div class="preview-title">${title}</div>`;
+                }
+            }
+            
+            if (description) {
+                html += `<div class="preview-description">${description}</div>`;
+            }
+            
+            if (fields.length > 0) {
+                html += `<div class="preview-fields">`;
+                for (const field of fields) {
+                    html += `<div class="preview-field">
+                        <div class="preview-field-name">${field.name}</div>
+                        <div class="preview-field-value">${field.value}</div>
+                    </div>`;
+                }
+                html += `</div>`;
+            }
+            
+            if (footer_text) {
+                html += `<div class="preview-footer">${footer_text}</div>`;
+            }
+            
+            preview.innerHTML = html;
+            preview.style.borderLeftColor = color;
+        }
+        
+        function addField() {
+            const name = prompt('Название поля:');
+            if (!name) return;
+            const value = prompt('Значение поля:');
+            if (!value) return;
+            const inline = confirm('Показывать в строке?') ? true : false;
+            
+            fields.push({ name, value, inline });
+            renderFields();
+            updatePreview();
+        }
+        
+        function removeField(index) {
+            fields.splice(index, 1);
+            renderFields();
+            updatePreview();
+        }
+        
+        function renderFields() {
+            const container = document.getElementById('fields-container');
+            container.innerHTML = '';
+            fields.forEach((field, index) => {
+                const div = document.createElement('div');
+                div.className = 'field-item';
+                div.innerHTML = `
+                    <strong>${field.name}</strong>
+                    <p style="color: #aaa; font-size: 12px; margin-top: 5px;">${field.value}</p>
+                    <button class="remove-field" onclick="removeField(${index})">×</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        async function sendEmbed() {
+            const embed = {
+                title: document.getElementById('title').value,
+                description: document.getElementById('description').value,
+               
