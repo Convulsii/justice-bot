@@ -3639,7 +3639,7 @@ async def stats(ctx, member: discord.Member = None):
 # ========== КОМАНДА ДЛЯ ПРОВЕРКИ ВРЕМЕНИ ==========
 
 @bot.command()
-async fn farm_time(ctx):
+async def farm_time(ctx):
     """🌙 Показать текущее время и бонусы фермы"""
     now = datetime.now()
     hour = now.hour
