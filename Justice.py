@@ -704,153 +704,327 @@ async def get_weather_data(lat, lon, forecast_days=7):
 
 @bot.command()
 async def weather(ctx, *, city: str = None):
-    if not city: return await ctx.send("🌤️ `j.weather Москва`\n`j.weather_today` `j.weather_3days` `j.weather_7days` `j.weather_hourly`")
+    if not city:
+        return await ctx.send("🌤️ `j.weather Москва`")
+    
     async with aiohttp.ClientSession() as session:
+        # Поиск координат города
         geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
         headers = {'User-Agent': 'JusticeBot/1.0'}
         try:
             async with session.get(geo_url, headers=headers) as resp:
                 data = await resp.json()
-                if not data: return await ctx.send(f"❌ Город {city} не найден")
-                lat, lon = float(data[0]['lat']), float(data[0]['lon'])
+                if not data:
+                    return await ctx.send(f"❌ Город {city} не найден")
+                lat = data[0]['lat']
+                lon = data[0]['lon']
                 city_name = data[0].get('display_name', city).split(',')[0]
-        except: return await ctx.send("❌ Ошибка поиска")
-    response = await get_weather_data(lat, lon, 7)
-    if not response: return await ctx.send("❌ Ошибка погоды")
-    current = response.Current()
-    weather_code = int(current.Variables(4).Value())
-    weather_text, weather_color = WEATHER_CODES.get(weather_code, ("🌡️", 0x808080))
-    daily = response.Daily()
-    daily_times = daily.Time()
-    daily_weather = daily.Variables(0).ValuesAsNumpy()
-    daily_temp_max = daily.Variables(1).ValuesAsNumpy()
-    daily_temp_min = daily.Variables(2).ValuesAsNumpy()
-    daily_precip = daily.Variables(3).ValuesAsNumpy()
-    embed = discord.Embed(title=f"🌤️ ПОГОДА | {city_name}", description=weather_text, color=weather_color)
-    forecast_text = ""
-    for i in range(min(7, len(daily_times))):
-        date = datetime.fromtimestamp(daily_times[i]).strftime("%d.%m")
-        icon, _ = WEATHER_CODES.get(int(daily_weather[i]), ("🌡️", 0))
-        forecast_text += f"**{date}** {icon} {daily_temp_min[i]:.0f}°…{daily_temp_max[i]:.0f}° | 💧{daily_precip[i]:.1f}мм\n"
-    embed.add_field(name="📅 ПРОГНОЗ НА 7 ДНЕЙ", value=forecast_text[:1024], inline=False)
-    await ctx.send(embed=embed)
+        except Exception as e:
+            return await ctx.send(f"❌ Ошибка поиска: {str(e)[:100]}")
+    
+    try:
+        # Запрос погоды
+        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto"
+        async with session.get(weather_url) as resp:
+            data = await resp.json()
+            
+            if "current_weather" not in data:
+                return await ctx.send("❌ Ошибка получения данных")
+            
+            current = data["current_weather"]
+            temperature = current.get("temperature", "N/A")
+            windspeed = current.get("windspeed", "N/A")
+            weather_code = current.get("weathercode", 0)
+            
+            # Коды погоды
+            weather_icons = {
+                0: "☀️ Ясно",
+                1: "🌤️ Преимущественно ясно",
+                2: "⛅ Переменная облачность",
+                3: "☁️ Пасмурно",
+                45: "🌫️ Туман",
+                48: "🌫️ Туман",
+                51: "🌧️ Морось",
+                53: "🌧️ Морось",
+                55: "🌧️ Сильная морось",
+                56: "🌧️ Ледяная морось",
+                57: "🌧️ Ледяная морось",
+                61: "🌧️ Дождь",
+                63: "🌧️ Дождь",
+                65: "🌧️ Сильный дождь",
+                66: "🌧️ Ледяной дождь",
+                67: "🌧️ Ледяной дождь",
+                71: "❄️ Снег",
+                73: "❄️ Снег",
+                75: "❄️ Сильный снег",
+                77: "❄️ Снежные зерна",
+                80: "🌧️ Ливень",
+                81: "🌧️ Ливень",
+                82: "🌧️ Сильный ливень",
+                85: "❄️ Снегопад",
+                86: "❄️ Сильный снегопад",
+                95: "⛈️ Гроза",
+                96: "⛈️ Гроза с градом",
+                99: "⛈️ Гроза с градом"
+            }
+            
+            weather_text = weather_icons.get(weather_code, "🌡️ Неизвестно")
+            
+            embed = discord.Embed(title=f"🌤️ ПОГОДА | {city_name}", color=discord.Color.blue())
+            embed.add_field(name="🌡️ Температура", value=f"{temperature}°C", inline=True)
+            embed.add_field(name="💨 Ветер", value=f"{windspeed} км/ч", inline=True)
+            embed.add_field(name="🔆 Состояние", value=weather_text, inline=True)
+            
+            # Прогноз на сегодня
+            if "daily" in data:
+                daily = data["daily"]
+                if daily.get("temperature_2m_max") and daily.get("temperature_2m_min"):
+                    temp_max = daily["temperature_2m_max"][0]
+                    temp_min = daily["temperature_2m_min"][0]
+                    embed.add_field(name="📅 Прогноз на сегодня", value=f"🌡️ {temp_min}°…{temp_max}°C", inline=False)
+            
+            await ctx.send(embed=embed)
+            
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка получения погоды: {str(e)[:100]}")
 
 @bot.command()
 async def weather_today(ctx, *, city: str = None):
-    if not city: return await ctx.send("❌ Укажите город")
+    if not city:
+        return await ctx.send("❌ Укажите город")
+    
     async with aiohttp.ClientSession() as session:
         geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
         headers = {'User-Agent': 'JusticeBot/1.0'}
         try:
             async with session.get(geo_url, headers=headers) as resp:
                 data = await resp.json()
-                if not data: return await ctx.send(f"❌ Город {city} не найден")
-                lat, lon = float(data[0]['lat']), float(data[0]['lon'])
+                if not data:
+                    return await ctx.send(f"❌ Город {city} не найден")
+                lat = data[0]['lat']
+                lon = data[0]['lon']
                 city_name = data[0].get('display_name', city).split(',')[0]
-        except: return await ctx.send("❌ Ошибка поиска")
-    response = await get_weather_data(lat, lon, 1)
-    if not response: return await ctx.send("❌ Ошибка данных")
-    daily = response.Daily()
-    icon, _ = WEATHER_CODES.get(int(daily.Variables(0).ValuesAsNumpy()[0]), ("🌡️", 0))
-    temp_max = daily.Variables(1).ValuesAsNumpy()[0]
-    temp_min = daily.Variables(2).ValuesAsNumpy()[0]
-    precip = daily.Variables(3).ValuesAsNumpy()[0]
-    embed = discord.Embed(title=f"🌤️ ПОГОДА НА СЕГОДНЯ | {city_name}", description=icon, color=discord.Color.blue())
-    embed.add_field(name="🌡️ Температура", value=f"{temp_min:.0f}°…{temp_max:.0f}°C", inline=True)
-    embed.add_field(name="🌧️ Осадки", value=f"{precip:.1f} мм", inline=True)
-    await ctx.send(embed=embed)
+        except:
+            return await ctx.send("❌ Ошибка поиска")
+    
+    try:
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto"
+        async with session.get(url) as resp:
+            data = await resp.json()
+            
+            current = data["current_weather"]
+            temperature = current.get("temperature", "N/A")
+            weather_code = current.get("weathercode", 0)
+            
+            weather_icons = {0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️", 45: "🌫️", 51: "🌧️", 61: "🌧️", 71: "❄️", 80: "🌧️", 95: "⛈️"}
+            weather_icon = weather_icons.get(weather_code, "🌡️")
+            
+            daily = data["daily"]
+            temp_max = daily["temperature_2m_max"][0]
+            temp_min = daily["temperature_2m_min"][0]
+            
+            embed = discord.Embed(title=f"{weather_icon} ПОГОДА НА СЕГОДНЯ | {city_name}", color=discord.Color.blue())
+            embed.add_field(name="🌡️ Температура", value=f"{temp_min}°…{temp_max}°C", inline=True)
+            embed.add_field(name="🌡️ Сейчас", value=f"{temperature}°C", inline=True)
+            await ctx.send(embed=embed)
+            
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
 
 @bot.command()
 async def weather_3days(ctx, *, city: str = None):
-    if not city: return await ctx.send("❌ Укажите город")
+    if not city:
+        return await ctx.send("❌ Укажите город")
+    
     async with aiohttp.ClientSession() as session:
+        # Поиск координат
         geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
         headers = {'User-Agent': 'JusticeBot/1.0'}
         try:
             async with session.get(geo_url, headers=headers) as resp:
                 data = await resp.json()
-                if not data: return await ctx.send(f"❌ Город {city} не найден")
-                lat, lon = float(data[0]['lat']), float(data[0]['lon'])
+                if not data:
+                    return await ctx.send(f"❌ Город {city} не найден")
+                lat = data[0]['lat']
+                lon = data[0]['lon']
                 city_name = data[0].get('display_name', city).split(',')[0]
-        except: return await ctx.send("❌ Ошибка поиска")
-    response = await get_weather_data(lat, lon, 3)
-    if not response: return await ctx.send("❌ Ошибка данных")
-    daily = response.Daily()
-    times = daily.Time()
-    codes = daily.Variables(0).ValuesAsNumpy()
-    temp_max = daily.Variables(1).ValuesAsNumpy()
-    temp_min = daily.Variables(2).ValuesAsNumpy()
-    precip = daily.Variables(3).ValuesAsNumpy()
-    embed = discord.Embed(title=f"🌤️ ПРОГНОЗ НА 3 ДНЯ | {city_name}", color=discord.Color.blue())
-    for i in range(3):
-        date = datetime.fromtimestamp(times[i]).strftime("%d.%m")
-        icon, _ = WEATHER_CODES.get(int(codes[i]), ("🌡️", 0))
-        embed.add_field(name=f"{date} {icon}", value=f"{temp_min[i]:.0f}°…{temp_max[i]:.0f}° | 💧{precip[i]:.1f}мм", inline=True)
-    await ctx.send(embed=embed)
+        except:
+            return await ctx.send("❌ Ошибка поиска")
+        
+        # Получение погоды на 3 дня
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&forecast_days=3"
+        
+        try:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                
+                if "daily" not in data:
+                    return await ctx.send("❌ Ошибка получения данных")
+                
+                daily = data["daily"]
+                
+                # Коды погоды
+                weather_icons = {
+                    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
+                    45: "🌫️", 48: "🌫️",
+                    51: "🌧️", 53: "🌧️", 55: "🌧️",
+                    61: "🌧️", 63: "🌧️", 65: "🌧️",
+                    71: "❄️", 73: "❄️", 75: "❄️",
+                    80: "🌧️", 81: "🌧️", 82: "🌧️",
+                    95: "⛈️", 96: "⛈️", 99: "⛈️"
+                }
+                
+                embed = discord.Embed(title=f"🌤️ ПРОГНОЗ НА 3 ДНЯ | {city_name}", color=discord.Color.blue())
+                
+                for i in range(3):
+                    date = datetime.now().strftime("%d.%m")
+                    if i == 1:
+                        date = (datetime.now() + timedelta(days=1)).strftime("%d.%m")
+                    elif i == 2:
+                        date = (datetime.now() + timedelta(days=2)).strftime("%d.%m")
+                    
+                    code = daily["weathercode"][i]
+                    icon = weather_icons.get(code, "🌡️")
+                    temp_max = daily["temperature_2m_max"][i]
+                    temp_min = daily["temperature_2m_min"][i]
+                    precip = daily["precipitation_sum"][i]
+                    
+                    embed.add_field(
+                        name=f"{date} {icon}",
+                        value=f"{temp_min:.0f}°…{temp_max:.0f}° | 💧{precip:.1f}мм",
+                        inline=True
+                    )
+                
+                await ctx.send(embed=embed)
+                
+        except Exception as e:
+            await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
+
 
 @bot.command()
 async def weather_7days(ctx, *, city: str = None):
-    if not city: return await ctx.send("❌ Укажите город")
+    if not city:
+        return await ctx.send("❌ Укажите город")
+    
     async with aiohttp.ClientSession() as session:
+        # Поиск координат
         geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
         headers = {'User-Agent': 'JusticeBot/1.0'}
         try:
             async with session.get(geo_url, headers=headers) as resp:
                 data = await resp.json()
-                if not data: return await ctx.send(f"❌ Город {city} не найден")
-                lat, lon = float(data[0]['lat']), float(data[0]['lon'])
+                if not data:
+                    return await ctx.send(f"❌ Город {city} не найден")
+                lat = data[0]['lat']
+                lon = data[0]['lon']
                 city_name = data[0].get('display_name', city).split(',')[0]
-        except: return await ctx.send("❌ Ошибка поиска")
-    response = await get_weather_data(lat, lon, 7)
-    if not response: return await ctx.send("❌ Ошибка данных")
-    daily = response.Daily()
-    times = daily.Time()
-    codes = daily.Variables(0).ValuesAsNumpy()
-    temp_max = daily.Variables(1).ValuesAsNumpy()
-    temp_min = daily.Variables(2).ValuesAsNumpy()
-    precip = daily.Variables(3).ValuesAsNumpy()
-    embed = discord.Embed(title=f"🌤️ ПРОГНОЗ НА 7 ДНЕЙ | {city_name}", color=discord.Color.blue())
-    text = ""
-    for i in range(len(times)):
-        date = datetime.fromtimestamp(times[i]).strftime("%d.%m")
-        icon, _ = WEATHER_CODES.get(int(codes[i]), ("🌡️", 0))
-        text += f"**{date}** {icon} {temp_min[i]:.0f}°…{temp_max[i]:.0f}° | 💧{precip[i]:.1f}мм\n"
-    embed.description = text[:2000]
-    await ctx.send(embed=embed)
+        except:
+            return await ctx.send("❌ Ошибка поиска")
+        
+        # Получение погоды на 7 дней
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&forecast_days=7"
+        
+        try:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                
+                if "daily" not in data:
+                    return await ctx.send("❌ Ошибка получения данных")
+                
+                daily = data["daily"]
+                
+                # Коды погоды
+                weather_icons = {
+                    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
+                    45: "🌫️", 48: "🌫️",
+                    51: "🌧️", 53: "🌧️", 55: "🌧️",
+                    61: "🌧️", 63: "🌧️", 65: "🌧️",
+                    71: "❄️", 73: "❄️", 75: "❄️",
+                    80: "🌧️", 81: "🌧️", 82: "🌧️",
+                    95: "⛈️", 96: "⛈️", 99: "⛈️"
+                }
+                
+                embed = discord.Embed(title=f"🌤️ ПРОГНОЗ НА 7 ДНЕЙ | {city_name}", color=discord.Color.blue())
+                text = ""
+                
+                for i in range(len(daily["time"])):
+                    date = datetime.fromisoformat(daily["time"][i]).strftime("%d.%m")
+                    code = daily["weathercode"][i]
+                    icon = weather_icons.get(code, "🌡️")
+                    temp_max = daily["temperature_2m_max"][i]
+                    temp_min = daily["temperature_2m_min"][i]
+                    precip = daily["precipitation_sum"][i]
+                    
+                    text += f"**{date}** {icon} {temp_min:.0f}°…{temp_max:.0f}° | 💧{precip:.1f}мм\n"
+                
+                embed.description = text[:2000]
+                await ctx.send(embed=embed)
+                
+        except Exception as e:
+            await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
+
 
 @bot.command()
 async def weather_hourly(ctx, *, city: str = None):
-    if not city: return await ctx.send("❌ Укажите город")
+    if not city:
+        return await ctx.send("❌ Укажите город")
+    
     async with aiohttp.ClientSession() as session:
+        # Поиск координат
         geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
         headers = {'User-Agent': 'JusticeBot/1.0'}
         try:
             async with session.get(geo_url, headers=headers) as resp:
                 data = await resp.json()
-                if not data: return await ctx.send(f"❌ Город {city} не найден")
-                lat, lon = float(data[0]['lat']), float(data[0]['lon'])
+                if not data:
+                    return await ctx.send(f"❌ Город {city} не найден")
+                lat = data[0]['lat']
+                lon = data[0]['lon']
                 city_name = data[0].get('display_name', city).split(',')[0]
-        except: return await ctx.send("❌ Ошибка поиска")
-    params = {"latitude": lat, "longitude": lon, "hourly": ["temperature_2m", "precipitation_probability", "weather_code"], "timezone": "auto", "forecast_days": 1}
-    try:
-        responses = openmeteo.weather_api("https://api.open-meteo.com/v1/forecast", params=params)
-        response = responses[0]
-        hourly = response.Hourly()
-        times = hourly.Time()
-        temps = hourly.Variables(0).ValuesAsNumpy()
-        probs = hourly.Variables(1).ValuesAsNumpy()
-        codes = hourly.Variables(2).ValuesAsNumpy()
-        embed = discord.Embed(title=f"🌤️ ПОЧАСОВОЙ ПРОГНОЗ | {city_name}", color=discord.Color.blue())
-        text = ""
-        for i in range(24):
-            if i >= len(times): break
-            hour = datetime.fromtimestamp(times[i]).hour
-            icon, _ = WEATHER_CODES.get(int(codes[i]), ("🌡️", 0))
-            text += f"**{hour}:00** {icon} {temps[i]:.0f}°C ☔{probs[i]:.0f}%\n"
-        embed.description = text[:2000]
-        await ctx.send(embed=embed)
-    except Exception as e:
-        await ctx.send(f"❌ Ошибка: {str(e)[:200]}")
+        except:
+            return await ctx.send("❌ Ошибка поиска")
+        
+        # Получение почасовой погоды
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,precipitation_probability,weathercode&timezone=auto&forecast_days=1"
+        
+        try:
+            async with session.get(url) as resp:
+                data = await resp.json()
+                
+                if "hourly" not in data:
+                    return await ctx.send("❌ Ошибка получения данных")
+                
+                hourly = data["hourly"]
+                
+                # Коды погоды
+                weather_icons = {
+                    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
+                    45: "🌫️", 48: "🌫️",
+                    51: "🌧️", 53: "🌧️", 55: "🌧️",
+                    61: "🌧️", 63: "🌧️", 65: "🌧️",
+                    71: "❄️", 73: "❄️", 75: "❄️",
+                    80: "🌧️", 81: "🌧️", 82: "🌧️",
+                    95: "⛈️", 96: "⛈️", 99: "⛈️"
+                }
+                
+                embed = discord.Embed(title=f"🌤️ ПОЧАСОВОЙ ПРОГНОЗ | {city_name}", color=discord.Color.blue())
+                text = ""
+                
+                # Показываем только ближайшие 12 часов
+                for i in range(min(12, len(hourly["time"]))):
+                    time_str = datetime.fromisoformat(hourly["time"][i]).strftime("%H:%M")
+                    temp = hourly["temperature_2m"][i]
+                    prob = hourly["precipitation_probability"][i]
+                    code = hourly["weathercode"][i]
+                    icon = weather_icons.get(code, "🌡️")
+                    
+                    text += f"**{time_str}** {icon} {temp:.0f}°C ☔{prob:.0f}%\n"
+                
+                embed.description = text[:2000]
+                await ctx.send(embed=embed)
+                
+        except Exception as e:
+            await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
 
 # ========== ИИ ==========
 async def get_ai_response(user_id, user_message):
