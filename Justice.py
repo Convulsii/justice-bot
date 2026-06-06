@@ -327,7 +327,8 @@ def check_cooldown(user_id, command):
     last = cooldowns[user_id].get(command, 0)
     now = time.time()
     if now - last < GAME_COOLDOWN[command]:
-        return False, int(GAME_COOLDOWN[command] - (now - last))
+        remaining = GAME_COOLDOWN[command] - (now - last)
+        return False, int(remaining)
     return True, 0
 
 def set_cooldown(user_id, command):
@@ -338,7 +339,8 @@ def check_rep_cooldown(user_id, target_id):
     last = rep_cooldowns[key].get("last", 0)
     now = time.time()
     if now - last < GAME_COOLDOWN["rep"]:
-        return False, int(GAME_COOLDOWN["rep"] - (now - last))
+        remaining = GAME_COOLDOWN["rep"] - (now - last)
+        return False, int(remaining)
     return True, 0
 
 def set_rep_cooldown(user_id, target_id):
