@@ -117,6 +117,9 @@ SEEDS = {
     "морковь": {"price": 60, "grow_time": 4500, "base_price": 120, "rarity_weights": {"обычное": 68, "редкое": 20, "эпическое": 9, "легендарное": 3}},
     "картофель": {"price": 70, "grow_time": 4800, "base_price": 130, "rarity_weights": {"обычное": 67, "редкое": 21, "эпическое": 9, "легендарное": 3}},
     "трава": {"price": 40, "grow_time": 3000, "base_price": 80, "rarity_weights": {"обычное": 75, "редкое": 18, "эпическое": 6, "легендарное": 1}},
+    "звёздная пшеница": {"price": 500, "grow_time": 28800, "base_price": 1000, "rarity_weights": {"обычное": 40, "редкое": 35, "эпическое": 20, "легендарное": 5}, "star": True},
+    "лунный цветок": {"price": 800, "grow_time": 43200, "base_price": 2000, "rarity_weights": {"обычное": 30, "редкое": 30, "эпическое": 25, "легендарное": 15}, "star": True},
+    "ночная роза": {"price": 1000, "grow_time": 57600, "base_price": 5000, "rarity_weights": {"обычное": 20, "редкое": 25, "эпическое": 30, "легендарное": 25}, "star": True},
 }
 RARITY_MULTIPLIERS = {"обычное": 1.0, "редкое": 2.0, "эпическое": 5.0, "легендарное": 15.0}
 
@@ -350,6 +353,16 @@ def set_rep_cooldown(user_id, target_id):
     key = f"{user_id}_{target_id}"
     rep_cooldowns[key]["last"] = time.time()
 
+def is_night_time():
+    """Проверка, сейчас ночь (23:00 - 06:00)"""
+    hour = datetime.now().hour
+    return hour >= 23 or hour < 6
+
+def is_star_hour():
+    """Звёздный час (02:00 - 04:00) - лучший шанс на редкие культуры"""
+    hour = datetime.now().hour
+    return 2 <= hour < 4
+    
 # ========== БАЗА ДАННЫХ ==========
 async def init_db():
     async with aiosqlite.connect("justice.db") as db:
@@ -1387,55 +1400,120 @@ async def buy_seed(ctx, seed: str = None):
 
 @bot.command()
 async def plant(ctx, pot: int = None, seed: str = None):
-    if not pot or not seed: return await ctx.send("❌ j.plant <номер> <семя>")
+    if not pot or not seed:
+        return await ctx.send("❌ j.plant <номер> <семя>\n🌙 Ночью звёздные культуры растут быстрее!")
+    
     data = await get_user(ctx.author.id, ctx.guild.id)
     pots = data[28] if len(data) > 28 else 0
-    if pot < 1 or pot > pots: return await ctx.send(f"❌ Нет горшка №{pot}")
+    if pot < 1 or pot > pots:
+        return await ctx.send(f"❌ Нет горшка №{pot}")
+    
     crops = json.loads(data[29] if len(data) > 29 else "[]")
     if pot-1 < len(crops) and crops[pot-1] and crops[pot-1].get("planted_at"):
         return await ctx.send(f"❌ Горшок №{pot} занят!")
+    
     seed = seed.lower()
-    if seed not in SEEDS: return await ctx.send("❌ Нет такого семени")
+    if seed not in SEEDS:
+        return await ctx.send("❌ Нет такого семени")
+    
+    seed_data = SEEDS[seed]
+    is_star_seed = seed_data.get("star", False)
+    
+    # Проверка: звёздные семена можно сажать только ночью
+    if is_star_seed and not is_night_time():
+        return await ctx.send("🌙 **Звёздные семена можно сажать только ночью!** (23:00 - 06:00)")
+    
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
         inv = json.loads((await cur.fetchone())[0] or "[]")
-        if f"seed_{seed}" not in inv: return await ctx.send(f"❌ Нет семян {seed}")
+        if f"seed_{seed}" not in inv:
+            return await ctx.send(f"❌ Нет семян {seed}")
         inv.remove(f"seed_{seed}")
         await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
-    weights = SEEDS[seed]["rarity_weights"]
+    
+    # Расчёт времени роста с учётом ночного режима
+    grow_time = seed_data["grow_time"]
+    if is_star_seed and is_night_time():
+        # Звёздные культуры ночью растут в 2 раза быстрее
+        grow_time = grow_time // 2
+    
+    # Шанс на редкую редкость выше в звёздный час
+    weights = seed_data["rarity_weights"].copy()
+    if is_star_hour():
+        # В звёздный час повышаем шанс на эпические и легендарные
+        weights["эпическое"] = weights.get("эпическое", 10) * 2
+        weights["легендарное"] = weights.get("легендарное", 2) * 3
+    
     rarity = random.choices(list(weights.keys()), weights=list(weights.values()))[0]
-    while len(crops) < pot: crops.append(None)
-    crops[pot-1] = {"seed": seed, "planted_at": datetime.now().isoformat(), "rarity": rarity}
+    
+    while len(crops) < pot:
+        crops.append(None)
+    
+    crops[pot-1] = {
+        "seed": seed, 
+        "planted_at": datetime.now().isoformat(), 
+        "rarity": rarity,
+        "grow_time": grow_time  # Сохраняем реальное время роста
+    }
+    
     await update_user(ctx.author.id, ctx.guild.id, crops=json.dumps(crops))
-    await ctx.send(f"✅ Посажен {seed} ({rarity}) в горшок №{pot}!")
+    
+    # Сообщение о посадке
+    night_emoji = "🌙" if is_night_time() else "☀️"
+    star_emoji = "✨" if is_star_seed else ""
+    
+    await ctx.send(f"{night_emoji} Посажен {star_emoji}**{seed}** ({rarity}) в горшок №{pot}!\n"
+                   f"⏰ Время роста: {grow_time // 3600}ч {(grow_time % 3600) // 60}мин")
+    
     await check_daily_quest(ctx.author.id, ctx.guild.id, "plant", 1)
     await update_user_stats(ctx.author.id, ctx.guild.id, "plant", 1)
 
 @bot.command()
 async def harvest(ctx, pot: int = None):
-    if not pot: return await ctx.send("❌ j.harvest <номер>")
+    if not pot:
+        return await ctx.send("❌ j.harvest <номер>")
+    
     data = await get_user(ctx.author.id, ctx.guild.id)
     if pot < 1 or pot > (data[28] if len(data) > 28 else 0):
         return await ctx.send(f"❌ Нет горшка №{pot}")
+    
     crops = json.loads(data[29] if len(data) > 29 else "[]")
     if pot-1 >= len(crops) or not crops[pot-1]:
         return await ctx.send(f"❌ Горшок №{pot} пуст")
+    
     crop = crops[pot-1]
     planted = datetime.fromisoformat(crop["planted_at"])
-    ready = planted + timedelta(seconds=SEEDS[crop["seed"]]["grow_time"])
+    grow_time = crop.get("grow_time", SEEDS[crop["seed"]]["grow_time"])
+    ready = planted + timedelta(seconds=grow_time)
+    
     if datetime.now() < ready:
         left = ready - datetime.now()
         return await ctx.send(f"❌ Осталось {int(left.total_seconds()//3600)}ч {int((left.total_seconds()%3600)//60)}мин")
-    price = int(SEEDS[crop["seed"]]["base_price"] * RARITY_MULTIPLIERS.get(crop["rarity"], 1.0))
+    
+    seed_data = SEEDS[crop["seed"]]
+    is_star_seed = seed_data.get("star", False)
+    
+    # Бонус за сбор ночью для звёздных культур
+    price = int(seed_data["base_price"] * RARITY_MULTIPLIERS.get(crop["rarity"], 1.0))
+    if is_star_seed and is_night_time():
+        price = int(price * 1.5)
+        bonus_text = " 🌙 +50% ночной бонус!"
+    else:
+        bonus_text = ""
+    
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
         inv = json.loads((await cur.fetchone())[0] or "[]")
         inv.append(f"crop_{crop['seed']}_{crop['rarity']}")
         await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+    
     crops[pot-1] = None
     await update_user(ctx.author.id, ctx.guild.id, crops=json.dumps(crops))
     await add_balance(ctx.author.id, ctx.guild.id, price)
-    await ctx.send(f"✅ Собран {crop['seed']} ({crop['rarity']}) с горшка №{pot}!\n💰 +{price} 💎")
+    
+    star_emoji = "✨" if is_star_seed else ""
+    await ctx.send(f"✅ Собран {star_emoji}{crop['seed']} ({crop['rarity']}) с горшка №{pot}!\n💰 +{price} 💎{bonus_text}")
+    
     await check_daily_quest(ctx.author.id, ctx.guild.id, "harvest", 1)
     await update_user_stats(ctx.author.id, ctx.guild.id, "harvest", 1)
 
@@ -2948,9 +3026,11 @@ async def on_ready():
     print(f"✅ {bot.user} запущен!")
     print(f"📊 На {len(bot.guilds)} серверах")
     bot.loop.create_task(stoloto_scheduler())
+    bot.loop.create_task(update_market_prices())
     weekly_report.start()
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name="j.help | Justice Bot"))
     print("✅ Бот готов!")
+    
 
 @bot.event
 async def on_message(message):
@@ -3555,6 +3635,245 @@ async def stats(ctx, member: discord.Member = None):
     
     embed.set_footer(text=f"🆔 ID: {target.id}")
     await ctx.send(embed=embed)
+
+# ========== КОМАНДА ДЛЯ ПРОВЕРКИ ВРЕМЕНИ ==========
+
+@bot.command()
+async fn farm_time(ctx):
+    """🌙 Показать текущее время и бонусы фермы"""
+    now = datetime.now()
+    hour = now.hour
+    
+    if is_night_time():
+        status = "🌙 **НОЧНОЙ РЕЖИМ** 🌙\n⭐ Звёздные культуры можно сажать!\n⚡ Звёздные культуры растут в 2 раза быстрее"
+    else:
+        status = "☀️ **ДНЕВНОЙ РЕЖИМ** ☀️\n⭐ Звёздные культуры нельзя сажать до ночи"
+    
+    if is_star_hour():
+        status += "\n✨ **ЗВЁЗДНЫЙ ЧАС!** ✨\n🎲 Повышен шанс на эпические и легендарные культуры!"
+    
+    embed = discord.Embed(title="🌙 ФЕРМА | ВРЕМЯ", description=status, color=discord.Color.blue())
+    embed.add_field(name="🕐 Текущее время", value=f"{now.strftime('%H:%M:%S')}", inline=True)
+    embed.add_field(name="🌙 Ночь наступает", value=f"Через {((23 - hour) % 24)}ч" if hour < 23 else "Сейчас ночь!", inline=True)
+    embed.add_field(name="✨ Звёздный час", value="02:00 - 04:00" if not is_star_hour() else "⭐ АКТИВЕН!", inline=True)
+    
+    await ctx.send(embed=embed)
+
+# ========== БИРЖА (ДИНАМИЧЕСКИЕ ЦЕНЫ) ==========
+
+# Хранилище цен (обновляются каждый час)
+market_prices = {}
+
+async def update_market_prices():
+    """Обновление цен на бирже каждый час"""
+    global market_prices
+    while True:
+        for crop in SEEDS.keys():
+            base_price = SEEDS[crop]["base_price"]
+            # Цена меняется случайно от -30% до +50%
+            multiplier = random.uniform(0.7, 1.5)
+            market_prices[crop] = int(base_price * multiplier)
+        await asyncio.sleep(3600)  # каждый час
+
+@bot.command()
+async def market(ctx, crop: str = None):
+    """📈 Биржа - текущие цены на культуры"""
+    if not crop:
+        embed = discord.Embed(title="📈 БИРЖА", description="Текущие цены на культуры", color=discord.Color.gold())
+        for crop_name, price in market_prices.items():
+            base_price = SEEDS[crop_name]["base_price"]
+            change = ((price - base_price) / base_price) * 100
+            emoji = "📈" if change > 0 else "📉" if change < 0 else "➖"
+            embed.add_field(name=f"{crop_name}", value=f"{emoji} {price} 💎 ({change:+.0f}%)", inline=True)
+        await ctx.send(embed=embed)
+    else:
+        crop = crop.lower()
+        if crop not in market_prices:
+            return await ctx.send("❌ Нет такой культуры")
+        price = market_prices[crop]
+        base_price = SEEDS[crop]["base_price"]
+        change = ((price - base_price) / base_price) * 100
+        emoji = "📈" if change > 0 else "📉" if change < 0 else "➖"
+        await ctx.send(f"📊 **{crop}**: {emoji} {price} 💎 (изменение: {change:+.0f}%)")
+
+
+@bot.command()
+async def sell_market(ctx, crop: str = None, amount: int = 1):
+    """💰 Продать культуру по текущей биржевой цене"""
+    if not crop:
+        return await ctx.send("❌ j.sell_market <культура> <количество>")
+    
+    crop = crop.lower()
+    if crop not in market_prices:
+        return await ctx.send("❌ Нет такой культуры")
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        inv = json.loads((await cur.fetchone())[0] or "[]")
+        
+        items_to_sell = [i for i in inv if i.startswith(f"crop_{crop}_")]
+        if len(items_to_sell) < amount:
+            return await ctx.send(f"❌ У вас только {len(items_to_sell)} {crop}")
+        
+        total = 0
+        for i in range(amount):
+            item = items_to_sell[i]
+            inv.remove(item)
+            total += market_prices[crop]
+        
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+        await add_balance(ctx.author.id, ctx.guild.id, total)
+        
+        await ctx.send(f"💰 Продано {amount} {crop} за {total} 💎 (цена: {market_prices[crop]} 💎)")
+
+
+# ========== ДОСТАВКА (ЗАКАЗЫ) ==========
+
+delivery_orders = {}
+
+@bot.command()
+async def delivery(ctx):
+    """🚚 Получить новый заказ на доставку"""
+    if ctx.author.id in delivery_orders and delivery_orders[ctx.author.id]["expires"] > time.time():
+        remaining = int(delivery_orders[ctx.author.id]["expires"] - time.time())
+        return await ctx.send(f"⏰ У вас уже есть активный заказ! Следующий через {remaining//60}мин")
+    
+    # Случайный заказ
+    crops = list(SEEDS.keys())
+    required_crop = random.choice(crops)
+    required_amount = random.randint(3, 15)
+    reward = int(market_prices.get(required_crop, SEEDS[required_crop]["base_price"]) * required_amount * 1.5)
+    
+    delivery_orders[ctx.author.id] = {
+        "crop": required_crop,
+        "amount": required_amount,
+        "reward": reward,
+        "expires": time.time() + 3600  # 1 час на выполнение
+    }
+    
+    embed = discord.Embed(title="🚚 НОВЫЙ ЗАКАЗ НА ДОСТАВКУ", color=discord.Color.blue())
+    embed.add_field(name="🌾 Требуется", value=f"{required_crop} x{required_amount}", inline=True)
+    embed.add_field(name="💰 Награда", value=f"{reward} 💎", inline=True)
+    embed.add_field(name="⏰ Время", value="1 час", inline=True)
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+async def complete_delivery(ctx):
+    """✅ Выполнить заказ на доставку"""
+    if ctx.author.id not in delivery_orders:
+        return await ctx.send("❌ У вас нет активного заказа! Используйте `j.delivery`")
+    
+    order = delivery_orders[ctx.author.id]
+    if order["expires"] < time.time():
+        del delivery_orders[ctx.author.id]
+        return await ctx.send("❌ Время заказа истекло! Создайте новый `j.delivery`")
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        inv = json.loads((await cur.fetchone())[0] or "[]")
+        
+        needed = f"crop_{order['crop']}_"
+        items = [i for i in inv if i.startswith(needed)]
+        
+        if len(items) < order["amount"]:
+            return await ctx.send(f"❌ Не хватает {order['crop']}! Нужно {order['amount']}, у вас {len(items)}")
+        
+        for i in range(order["amount"]):
+            inv.remove(items[i])
+        
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+        await add_balance(ctx.author.id, ctx.guild.id, order["reward"])
+        
+        del delivery_orders[ctx.author.id]
+        await ctx.send(f"✅ Заказ выполнен! Получено {order['reward']} 💎")
+
+
+# ========== ЗАВОД (ПЕРЕРАБОТКА) ==========
+
+factory_recipes = {
+    "мука": {"ingredients": {"пшеница": 3}, "time": 600, "reward": 200},
+    "хлеб": {"ingredients": {"мука": 2, "вода": 1}, "time": 1200, "reward": 500},
+    "масло": {"ingredients": {"подсолнух": 5}, "time": 900, "reward": 400},
+    "сок": {"ingredients": {"яблоко": 4, "сахар": 2}, "time": 1800, "reward": 800},
+}
+
+factory_queue = defaultdict(list)
+
+@bot.command()
+async def factory(ctx):
+    """🏭 Завод - переработка урожая в продукцию"""
+    embed = discord.Embed(title="🏭 ЗАВОД", description="Рецепты переработки", color=discord.Color.blue())
+    for product, recipe in factory_recipes.items():
+        ingredients = ", ".join([f"{k} x{v}" for k, v in recipe["ingredients"].items()])
+        embed.add_field(name=f"🔧 {product}", value=f"{ingredients}\n⏰ {recipe['time']//60}мин | 💰 {recipe['reward']} 💎", inline=False)
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+async def craft_product(ctx, product: str = None):
+    """🔧 Переработать продукт на заводе"""
+    if not product or product.lower() not in factory_recipes:
+        return await ctx.send("❌ j.craft_product <мука/хлеб/масло/сок>")
+    
+    product = product.lower()
+    recipe = factory_recipes[product]
+    
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        inv = json.loads((await cur.fetchone())[0] or "[]")
+        
+        missing = []
+        for ing, amount in recipe["ingredients"].items():
+            count = inv.count(f"crop_{ing}") + inv.count(f"product_{ing}")
+            if count < amount:
+                missing.append(f"{ing} ({count}/{amount})")
+        
+        if missing:
+            return await ctx.send(f"❌ Не хватает:\n" + "\n".join(missing))
+        
+        for ing, amount in recipe["ingredients"].items():
+            for _ in range(amount):
+                if f"crop_{ing}" in inv:
+                    inv.remove(f"crop_{ing}")
+                else:
+                    inv.remove(f"product_{ing}")
+        
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+        
+        # Добавляем в очередь производства
+        queue = factory_queue[ctx.author.id]
+        end_time = time.time() + recipe["time"]
+        queue.append({"product": product, "end_time": end_time, "reward": recipe["reward"]})
+        
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+    
+    await ctx.send(f"🏭 Производство **{product}** начато! Готово через {recipe['time']//60} минут")
+
+
+@bot.command()
+async def factory_status(ctx):
+    """📊 Статус завода - готовые продукты"""
+    queue = factory_queue.get(ctx.author.id, [])
+    if not queue:
+        return await ctx.send("🏭 Нет активных производств")
+    
+    embed = discord.Embed(title="🏭 СТАТУС ЗАВОДА", color=discord.Color.blue())
+    now = time.time()
+    ready = []
+    for item in queue:
+        if item["end_time"] <= now:
+            ready.append(item)
+    
+    if ready:
+        total_reward = sum(r["reward"] for r in ready)
+        await add_balance(ctx.author.id, ctx.guild.id, total_reward)
+        factory_queue[ctx.author.id] = [q for q in queue if q["end_time"] > now]
+        await ctx.send(f"✅ Готово! Получено {total_reward} 💎")
+    else:
+        next_ready = min(q["end_time"] for q in queue)
+        remaining = int(next_ready - now)
+        await ctx.send(f"⏳ Производство идёт... Готово через {remaining//60} минут")
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
