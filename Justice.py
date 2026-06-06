@@ -189,26 +189,26 @@ PROFILE_COLORS = {
 
 # Украшения для профиля
 PROFILE_DECORATIONS = {
-    "корона": {"price": 15000, "desc": "👑 Корона в профиль", "emoji": "👑"},
-    "звезда": {"price": 5000, "desc": "⭐ Звезда в профиль", "emoji": "⭐"},
-    "радуга": {"price": 8000, "desc": "🌈 Радуга в профиль", "emoji": "🌈"},
-    "огонь": {"price": 7000, "desc": "🔥 Огонь в профиль", "emoji": "🔥"},
-    "алмаз": {"price": 10000, "desc": "💎 Алмаз в профиль", "emoji": "💎"},
-    "цветок": {"price": 3000, "desc": "🌸 Цветок в профиль", "emoji": "🌸"},
-    "клевер": {"price": 4000, "desc": "🍀 Клевер в профиль", "emoji": "🍀"},
-    "бабочка": {"price": 5000, "desc": "🦋 Бабочка в профиль", "emoji": "🦋"},
-    "луна": {"price": 6000, "desc": "🌙 Луна в профиль", "emoji": "🌙"},
-    "солнце": {"price": 6000, "desc": "☀️ Солнце в профиль", "emoji": "☀️"},
-    "сердце": {"price": 4000, "desc": "💖 Сердце в профиль", "emoji": "💖"},
-    "молния": {"price": 5000, "desc": "⚡ Молния в профиль", "emoji": "⚡"},
-    "снежинка": {"price": 3000, "desc": "❄️ Снежинка в профиль", "emoji": "❄️"},
-    "музыка": {"price": 4000, "desc": "🎵 Ноты в профиль", "emoji": "🎵"},
-    "джойстик": {"price": 5000, "desc": "🎮 Джойстик в профиль", "emoji": "🎮"},
-    "кубок": {"price": 8000, "desc": "🏆 Кубок в профиль", "emoji": "🏆"},
-    "театр": {"price": 4000, "desc": "🎭 Маски в профиль", "emoji": "🎭"},
-    "голубь": {"price": 5000, "desc": "🕊️ Голубь в профиль", "emoji": "🕊️"},
-    "дракон": {"price": 15000, "desc": "🐉 Дракон в профиль", "emoji": "🐉"},
-    "единорог": {"price": 12000, "desc": "🦄 Единорог в профиль", "emoji": "🦄"},
+    "корона": {"price": 15000, "desc": "👑 Корона", "emoji": "👑"},
+    "звезда": {"price": 5000, "desc": "⭐ Звезда", "emoji": "⭐"},
+    "радуга": {"price": 8000, "desc": "🌈 Радуга", "emoji": "🌈"},
+    "огонь": {"price": 7000, "desc": "🔥 Огонь", "emoji": "🔥"},
+    "алмаз": {"price": 10000, "desc": "💎 Алмаз", "emoji": "💎"},
+    "цветок": {"price": 3000, "desc": "🌸 Цветок", "emoji": "🌸"},
+    "клевер": {"price": 4000, "desc": "🍀 Клевер", "emoji": "🍀"},
+    "бабочка": {"price": 5000, "desc": "🦋 Бабочка", "emoji": "🦋"},
+    "луна": {"price": 6000, "desc": "🌙 Луна", "emoji": "🌙"},
+    "солнце": {"price": 6000, "desc": "☀️ Солнце", "emoji": "☀️"},
+    "сердце": {"price": 4000, "desc": "💖 Сердце", "emoji": "💖"},
+    "молния": {"price": 5000, "desc": "⚡ Молния", "emoji": "⚡"},
+    "снежинка": {"price": 3000, "desc": "❄️ Снежинка", "emoji": "❄️"},
+    "музыка": {"price": 4000, "desc": "🎵 Музыка", "emoji": "🎵"},
+    "джойстик": {"price": 5000, "desc": "🎮 Джойстик", "emoji": "🎮"},
+    "кубок": {"price": 8000, "desc": "🏆 Кубок", "emoji": "🏆"},
+    "театр": {"price": 4000, "desc": "🎭 Театр", "emoji": "🎭"},
+    "голубь": {"price": 5000, "desc": "🕊️ Голубь", "emoji": "🕊️"},
+    "дракон": {"price": 15000, "desc": "🐉 Дракон", "emoji": "🐉"},
+    "единорог": {"price": 12000, "desc": "🦄 Единорог", "emoji": "🦄"},
 }
 
 # Бустеры
@@ -241,7 +241,7 @@ for color_name, color_data in PROFILE_COLORS.items():
 for deco_name, deco_data in PROFILE_DECORATIONS.items():
     SHOP_ITEMS[deco_name] = {
         "price": deco_data["price"],
-        "desc": deco_data["desc"],
+        "desc": f"✨ {deco_data['desc']} в профиль",
         "type": "decoration",
         "emoji": deco_data["emoji"],
         "category": "decorations"
@@ -1946,21 +1946,26 @@ async def buy(ctx, *, item: str = None):
     await add_balance(ctx.author.id, ctx.guild.id, -found_item["price"])
     
     async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT inventory, awards FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        cur = await db.execute('SELECT inventory, awards, profile_color FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
         row = await cur.fetchone()
         inv = json.loads(row[0] or "[]")
         awards = json.loads(row[1] or "[]")
+        current_color = row[2] if row[2] is not None else 0x5865F2
         inv.append(found_name)
         
         if found_item["type"] == "color":
+            # Обновляем цвет профиля в БД
+            new_color = found_item["color_code"]
             await db.execute('UPDATE users SET profile_color=? WHERE user_id=? AND guild_id=?', 
-                           (found_item["color_code"], ctx.author.id, ctx.guild.id))
-            await ctx.send(f"✅ {ctx.author.mention} купил **{found_name}** за {found_item['price']} 💎!\n🎨 Цвет профиля изменён!")
+                           (new_color, ctx.author.id, ctx.guild.id))
+            await ctx.send(f"✅ {ctx.author.mention} купил **{found_name}** за {found_item['price']} 💎!\n🎨 Цвет профиля изменён на {found_name}!")
             
         elif found_item["type"] == "decoration":
+            # Добавляем в awards (украшения), а не в inventory
+            awards.append(found_name)
             await db.execute('UPDATE users SET awards=? WHERE user_id=? AND guild_id=?', 
-                           (json.dumps(awards + [found_name]), ctx.author.id, ctx.guild.id))
-            await ctx.send(f"✅ {ctx.author.mention} купил **{found_name}** за {found_item['price']} 💎!\n✨ Украшение добавлено в инвентарь!")
+                           (json.dumps(awards), ctx.author.id, ctx.guild.id))
+            await ctx.send(f"✅ {ctx.author.mention} купил **{found_name}** за {found_item['price']} 💎!\n✨ Украшение добавлено! (Чтобы активировать, используйте `j.use_decoration {found_name}`)")
             
         elif found_item["type"] == "booster":
             boost_type = found_item["booster_type"]
@@ -1991,6 +1996,7 @@ async def buy(ctx, *, item: str = None):
 
 @bot.command()
 async def use_decoration(ctx, *, decoration: str = None):
+    """✨ Использовать украшение из инвентаря"""
     if not decoration:
         return await ctx.send("❌ j.use_decoration <украшение>\nНапример: `j.use_decoration корона`")
     
@@ -1999,9 +2005,14 @@ async def use_decoration(ctx, *, decoration: str = None):
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT inventory, awards FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
         row = await cur.fetchone()
-        inv = json.loads(row[0] or "[]")
-        awards = json.loads(row[1] or "[]")
         
+        if not row:
+            return await ctx.send("❌ Пользователь не найден")
+        
+        inv = json.loads(row[0] if row[0] else "[]")
+        awards = json.loads(row[1] if row[1] else "[]")
+        
+        # Ищем украшение в инвентаре
         found = None
         for item in inv:
             if decoration in item.lower():
@@ -2011,6 +2022,7 @@ async def use_decoration(ctx, *, decoration: str = None):
         if not found:
             return await ctx.send(f"❌ У вас нет украшения **{decoration}**! Купите в магазине `j.shop decorations`")
         
+        # Перемещаем из inventory в awards
         inv.remove(found)
         awards.append(found)
         
@@ -2022,37 +2034,52 @@ async def use_decoration(ctx, *, decoration: str = None):
 
 @bot.command()
 async def inventory(ctx, member: discord.Member = None):
+    """📦 Показать инвентарь"""
     target = member or ctx.author
+    
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT inventory, awards FROM users WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
         row = await cur.fetchone()
-        inv = json.loads(row[0] or "[]")
-        awards = json.loads(row[1] or "[]")
+        
+        if not row:
+            return await ctx.send(f"📦 У {target.mention} пусто")
+        
+        inv = json.loads(row[0] if row[0] else "[]")
+        awards = json.loads(row[1] if row[1] else "[]")
     
     if not inv and not awards:
         return await ctx.send(f"📦 У {target.mention} пусто")
     
-    items = {}
+    # Считаем количество предметов
+    items_count = {}
     for i in inv:
-        items[i] = items.get(i, 0) + 1
+        items_count[i] = items_count.get(i, 0) + 1
     
     embed = discord.Embed(title=f"📦 ИНВЕНТАРЬ | {target.display_name}", color=discord.Color.blue())
     
-    if items:
-        embed.add_field(name="🎒 ПРЕДМЕТЫ", value="\n".join([f"🔹 {i} x{c}" for i, c in list(items.items())[:15]]), inline=False)
+    if items_count:
+        items_text = "\n".join([f"🔹 **{name}** x{count}" for name, count in list(items_count.items())[:15]])
+        embed.add_field(name="🎒 ПРЕДМЕТЫ", value=items_text, inline=False)
+    
     if awards:
-        embed.add_field(name="✨ УКРАШЕНИЯ В ПРОФИЛЕ", value=" ".join(awards[:10]), inline=False)
+        awards_text = " ".join([f"✨ {a}" for a in awards[:10]])
+        embed.add_field(name="✨ УКРАШЕНИЯ (в профиле)", value=awards_text, inline=False)
+        embed.add_field(name="ℹ️ ИСПОЛЬЗОВАНИЕ", value="Украшения автоматически отображаются в профиле!", inline=False)
     
     await ctx.send(embed=embed)
 
-# ========== ПРОФИЛЬ ==========
+# ========== ПРОФИЛЬ (КРАСИВЫЙ) ==========
 @bot.command()
 async def profile(ctx, member: discord.Member = None):
     target = member or ctx.author
     data = await get_user(target.id, ctx.guild.id)
     
-    awards = json.loads(data[18] if len(data) > 18 else "[]")
-    decorations_text = " ".join(awards[:5]) if awards else "Нет украшений"
+    # Получаем украшения из awards
+    awards = json.loads(data[18] if len(data) > 18 and data[18] else "[]")
+    decorations_prefix = " ".join([f"{d}" for d in awards[:5]]) if awards else ""
+    
+    # Получаем цвет профиля
+    profile_color = data[31] if len(data) > 31 and data[31] is not None else 0x5865F2
     
     level = data[3] if data[3] is not None else 0
     xp = data[2] if data[2] is not None else 0
@@ -2060,10 +2087,19 @@ async def profile(ctx, member: discord.Member = None):
     bank = data[5] if len(data) > 5 and data[5] is not None else 0
     rep = data[6] if len(data) > 6 and data[6] is not None else 0
     total_msgs = data[9] if len(data) > 9 and data[9] is not None else 0
+    today_msgs = data[21] if len(data) > 21 and data[21] is not None else 0
+    week_msgs = data[22] if len(data) > 22 and data[22] is not None else 0
+    month_msgs = data[23] if len(data) > 23 and data[23] is not None else 0
+    voice_seconds = data[32] if len(data) > 32 and data[32] is not None else 0
     bio = data[17] if len(data) > 17 and data[17] else "Нет биографии"
     gender = data[20] if len(data) > 20 and data[20] else ""
-    profile_color = data[31] if len(data) > 31 and data[31] is not None else 0x5865F2
+    total_fish = data[36] if len(data) > 36 and data[36] is not None else 0
+    total_casino_wins = data[33] if len(data) > 33 and data[33] is not None else 0
     
+    voice_hours = voice_seconds // 3600
+    voice_minutes = (voice_seconds % 3600) // 60
+    
+    # XP для следующего уровня
     if level == 0:
         xp_for_next = 200
         xp_for_current = 0
@@ -2078,23 +2114,84 @@ async def profile(ctx, member: discord.Member = None):
     else:
         percent = 0
     
-    bar = "█" * (percent // 5) + "░" * (20 - (percent // 5))
-    gender_text = "👨 Мужчина" if gender == "male" else "👩 Женщина" if gender == "female" else "❓ Не указан"
+    # Красивая полоса прогресса
+    bar_length = 20
+    filled = int(bar_length * percent / 100)
+    bar = "▓" * filled + "░" * (bar_length - filled)
+    
+    # Ранг в зависимости от уровня
+    if level < 5:
+        rank = "🌱 Новичок"
+    elif level < 10:
+        rank = "📝 Говорун"
+    elif level < 25:
+        rank = "⭐ Активный"
+    elif level < 50:
+        rank = "🔥 Эксперт"
+    elif level < 100:
+        rank = "💎 Ветеран"
+    else:
+        rank = "👑 Легенда"
+    
+    # Иконки для статистики
+    gender_icon = "👨" if gender == "male" else "👩" if gender == "female" else "❓"
+    voice_icon = "🎙️" if voice_hours > 0 else "🔇"
     
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT COUNT(*) FROM achievements WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
         ach_count = (await cur.fetchone())[0] or 0
     
-    embed = discord.Embed(title=f"📊 ПРОФИЛЬ | {target.display_name}", color=profile_color)
+    # КРАСИВЫЙ ЭМБЕД
+    embed = discord.Embed(
+        title=f"{decorations_prefix}✦ ПРОФИЛЬ ✦",
+        description=f"**{target.display_name}**\n└ {rank}",
+        color=profile_color,
+        timestamp=datetime.now()
+    )
     embed.set_thumbnail(url=target.display_avatar.url)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🎚️ УРОВЕНЬ", value=f"**{level}** уровень\n`{bar}` {percent}%\n✨ {xp} XP", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n💰 ЭКОНОМИКА", value=f"💎 {bal} 💎\n🏦 {bank} 💎\n⭐ {rep}", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n💬 СТАТИСТИКА", value=f"Сообщений: {total_msgs}", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n✨ УКРАШЕНИЯ", value=decorations_text[:100], inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🏆 ДОСТИЖЕНИЯ", value=f"{ach_count}/{len(ACHIEVEMENTS)} получено", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n⚧ ПОЛ", value=gender_text, inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📝 БИОГРАФИЯ", value=bio[:500], inline=False)
-    embed.set_footer(text=f"🎨 Цвет профиля | 🆔 ID: {target.id}")
+    
+    # УРОВЕНЬ И ОПЫТ
+    embed.add_field(
+        name="━━━━━━━━━━━━━━━━━━━━━━━",
+        value=f"```\nУРОВЕНЬ {level} ››››››››››››››› {percent}%\n{bar}```\n✨ Опыт: **{xp:,}** / **{xp_for_next:,}** XP",
+        inline=False
+    )
+    
+    # ЭКОНОМИКА
+    embed.add_field(
+        name="💎 ЭКОНОМИКА",
+        value=f"💰 Баланс: **{bal:,}** 💎\n🏦 Банк: **{bank:,}** 💎\n⭐ Репутация: **{rep}**",
+        inline=True
+    )
+    
+    # АКТИВНОСТЬ
+    embed.add_field(
+        name="📊 АКТИВНОСТЬ",
+        value=f"💬 **{total_msgs:,}** сообщ.\n📅 Сегодня: **{today_msgs}**\n📆 Неделя: **{week_msgs}**\n📅 Месяц: **{month_msgs}**",
+        inline=True
+    )
+    
+    # ГОЛОСОВОЙ ОНЛАЙН
+    embed.add_field(
+        name=f"{voice_icon} ГОЛОСОВОЙ",
+        value=f"⏱️ **{voice_hours}ч {voice_minutes}мин**\n🎣 Рыбы: **{total_fish}**\n🎰 Побед: **{total_casino_wins}**",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="🏆 ДОСТИЖЕНИЯ",
+        value=f"**{ach_count}** / **{len(ACHIEVEMENTS)}** получено\n└ `j.achievements`",
+        inline=True
+    )
+    
+    embed.add_field(
+        name=f"{gender_icon} ИНФО",
+        value=f"📝 {bio[:60] if bio else 'Нет биографии'}\n└ `j.bio <текст>`",
+        inline=True
+    )
+    
+    embed.set_footer(text=f"🆔 ID: {target.id} | 💎 Цвет профиля")
+    
     await ctx.send(embed=embed)
 
 @bot.command()
@@ -3448,7 +3545,7 @@ async def loto_buy(ctx):
         return await ctx.send("❌ У вас уже есть билет!")
     user = await get_user(ctx.author.id, ctx.guild.id)
     if user[4] < STOLOTO_TICKET_PRICE:
-        return await ctx.send(f"❌ Нужно {STOLOTO_TICKET_PRICE} 💎")
+        return await ctx.send(f"❌ Не хватает {STOLOTO_TICKET_PRICE} 💎")
     await add_balance(ctx.author.id, ctx.guild.id, -STOLOTO_TICKET_PRICE)
     stoloto_tickets.append(ctx.author.id)
     await ctx.send(f"✅ Билет куплен! Участников: {len(stoloto_tickets)}")
