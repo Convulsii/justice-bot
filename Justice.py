@@ -2653,6 +2653,61 @@ async def help(ctx):
     embed.set_footer(text="Justice Bot | Стрелки для навигации")
     await ctx.send(embed=embed, view=view)
 
+# ========== СТОЛОТО (ПЛАНИРОВЩИК) ==========
+async def stoloto_scheduler():
+    """Запускает розыгрыш каждый день в 14:00 по МСК"""
+    while True:
+        now = datetime.now()
+        # Следующий запуск сегодня в 14:00
+        target = now.replace(hour=14, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        wait = (target - now).total_seconds()
+        await asyncio.sleep(wait)
+        await run_stoloto()
+
+async def run_stoloto():
+    global stoloto_active, stoloto_tickets, stoloto_end_time
+    ch = bot.get_channel(STOLOTO_CHANNEL_ID)
+    if not ch:
+        return
+    stoloto_active = True
+    stoloto_tickets = []
+    stoloto_end_time = datetime.now() + timedelta(days=1)
+    embed = discord.Embed(
+        title="🎰 СТО ЛОТО",
+        description=f"**Новый розыгрыш!**\n⏰ До: <t:{int(stoloto_end_time.timestamp())}:R>\n💰 Джекпот: **{STOLOTO_TICKET_PRICE * 10}** 💎\n🎫 `j.loto_buy` - купить билет ({STOLOTO_TICKET_PRICE}💎)",
+        color=discord.Color.gold()
+    )
+    await ch.send(embed=embed)
+    await asyncio.sleep(86400)  # 24 часа
+    if not stoloto_tickets:
+        await ch.send("😔 Никто не купил билеты")
+    else:
+        winner = random.choice(stoloto_tickets)
+        prize = len(stoloto_tickets) * STOLOTO_TICKET_PRICE
+        await add_balance(winner, ch.guild.id, prize)
+        w = await bot.fetch_user(winner)
+        await ch.send(f"🎉 **ПОБЕДИТЕЛЬ:** {w.mention}\n💰 **ПРИЗ:** {prize} 💎")
+    stoloto_active = False
+
+@bot.command()
+async def loto_buy(ctx):
+    """🎫 Купить билет Столото"""
+    global stoloto_tickets, stoloto_active, stoloto_end_time
+    if not stoloto_active:
+        return await ctx.send("❌ Розыгрыш не активен! Новый каждый день в 14:00 МСК")
+    if datetime.now() >= stoloto_end_time:
+        return await ctx.send("❌ Продажа билетов закончена!")
+    if ctx.author.id in stoloto_tickets:
+        return await ctx.send("❌ У вас уже есть билет!")
+    user = await get_user(ctx.author.id, ctx.guild.id)
+    if user[4] < STOLOTO_TICKET_PRICE:
+        return await ctx.send(f"❌ Не хватает {STOLOTO_TICKET_PRICE} 💎")
+    await add_balance(ctx.author.id, ctx.guild.id, -STOLOTO_TICKET_PRICE)
+    stoloto_tickets.append(ctx.author.id)
+    await ctx.send(f"✅ Билет куплен! Участников: {len(stoloto_tickets)}")
+
 # ========== ЗАПУСК ==========
 @bot.event
 async def on_ready():
