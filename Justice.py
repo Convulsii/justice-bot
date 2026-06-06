@@ -27,10 +27,13 @@ openmeteo = openmeteo_requests.Client(session=retry_session)
 # ========== ЛОГИРОВАНИЕ ==========
 LOG_ACTION_CHANNEL_ID = 1502637204982206681
 
-async def log_action(guild_id, title, description, color=discord.Color.blue()):
+async def log_action(title, description, color=discord.Color.blue(), guild=None):
+    """Универсальная функция для отправки логов"""
     embed = discord.Embed(title=title, description=description, color=color, timestamp=datetime.now())
-    if LOG_ACTION_CHANNEL_ID:
-        ch = bot.get_channel(LOG_ACTION_CHANNEL_ID)
+    if guild and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+    if LOGS_CHANNEL_ID:
+        ch = bot.get_channel(LOGS_CHANNEL_ID)
         if ch:
             await ch.send(embed=embed)
 
@@ -3092,6 +3095,276 @@ async def smile(ctx):
     embed = discord.Embed(description=f"{ctx.author.mention} улыбается! 😊", color=discord.Color.yellow())
     embed.set_image(url=REACTION_GIFS.get("smile", ""))
     await ctx.send(embed=embed)
+
+# ========== ЛОГИ СООБЩЕНИЙ И РЕАКЦИЙ ==========
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    
+    # Логирование отправленного сообщения
+    if message.guild:
+        await log_action("💬 СООБЩЕНИЕ", 
+                        f"**Автор:** {message.author.mention}\n"
+                        f"**Канал:** {message.channel.mention}\n"
+                        f"**Содержание:** {message.content[:500]}", 
+                        discord.Color.blue(), message.guild)
+    
+    # Остальная обработка сообщения (опыт, достижения и т.д.)
+    if message.guild:
+        await get_user(message.author.id, message.guild.id)
+        level_up, new_level = await add_xp(message.author.id, message.guild.id, random.randint(5,15))
+        if level_up:
+            ch = bot.get_channel(LEVEL_CHANNEL_ID)
+            if ch:
+                await ch.send(f"🎉 {message.author.mention} достиг {new_level} уровня!")
+        total_msgs = (await get_user(message.author.id, message.guild.id))[9] or 0
+        await check_achievement(message.author.id, message.guild.id, "messages", total_msgs)
+        await check_daily_quest(message.author.id, message.guild.id, "messages", 1)
+    
+    if bot.user in message.mentions and not message.mention_everyone:
+        await message.channel.send(f"👋 Привет, {message.author.mention}! Используй `j.help`")
+    await bot.process_commands(message)
+
+
+@bot.event
+async def on_message_delete(message):
+    """Логирование удаления сообщения"""
+    if message.author and not message.author.bot and message.guild:
+        await log_action("🗑️ УДАЛЕНО СООБЩЕНИЕ", 
+                        f"**Автор:** {message.author.mention}\n"
+                        f"**Канал:** {message.channel.mention}\n"
+                        f"**Содержание:** {message.content[:500] if message.content else '[Пусто/Медиа]'}", 
+                        discord.Color.orange(), message.guild)
+
+
+@bot.event
+async def on_message_edit(before, after):
+    """Логирование изменения сообщения"""
+    if before.author and not before.author.bot and before.guild and before.content != after.content:
+        await log_action("✏️ ИЗМЕНЕНО СООБЩЕНИЕ", 
+                        f"**Автор:** {before.author.mention}\n"
+                        f"**Канал:** {before.channel.mention}\n"
+                        f"**Было:** {before.content[:200]}\n"
+                        f"**Стало:** {after.content[:200]}", 
+                        discord.Color.blue(), before.guild)
+
+
+@bot.event
+async def on_reaction_add(reaction, user):
+    """Логирование добавления реакции"""
+    if user.bot:
+        return
+    if reaction.message.guild:
+        await log_action("➕ РЕАКЦИЯ ДОБАВЛЕНА", 
+                        f"**Пользователь:** {user.mention}\n"
+                        f"**Реакция:** {reaction.emoji}\n"
+                        f"**Сообщение от:** {reaction.message.author.mention}\n"
+                        f"**Канал:** {reaction.message.channel.mention}\n"
+                        f"**Ссылка:** [Перейти]({reaction.message.jump_url})", 
+                        discord.Color.green(), reaction.message.guild)
+
+
+@bot.event
+async def on_reaction_remove(reaction, user):
+    """Логирование удаления реакции"""
+    if user.bot:
+        return
+    if reaction.message.guild:
+        await log_action("➖ РЕАКЦИЯ УДАЛЕНА", 
+                        f"**Пользователь:** {user.mention}\n"
+                        f"**Реакция:** {reaction.emoji}\n"
+                        f"**Сообщение от:** {reaction.message.author.mention}\n"
+                        f"**Канал:** {reaction.message.channel.mention}", 
+                        discord.Color.red(), reaction.message.guild)
+
+
+@bot.event
+async def on_bulk_message_delete(messages):
+    """Логирование массового удаления сообщений"""
+    if messages:
+        msg_list = list(messages)
+        if msg_list[0].guild:
+            await log_action("🗑️ МАССОВОЕ УДАЛЕНИЕ", 
+                            f"**Канал:** {msg_list[0].channel.mention}\n"
+                            f"**Количество сообщений:** {len(messages)}", 
+                            discord.Color.dark_red(), msg_list[0].guild)
+
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    """Логирование изменений в голосовых каналах"""
+    # Заход в голосовой канал
+    if after.channel and (not before.channel or before.channel != after.channel):
+        await log_action("🔊 ЗАШЁЛ В ГОЛОСОВОЙ", 
+                        f"**Участник:** {member.mention}\n"
+                        f"**Канал:** {after.channel.mention}", 
+                        discord.Color.green(), member.guild)
+    
+    # Выход из голосового канала
+    elif before.channel and (not after.channel or before.channel != after.channel):
+        await log_action("🔇 ВЫШЕЛ ИЗ ГОЛОСОВОГО", 
+                        f"**Участник:** {member.mention}\n"
+                        f"**Канал:** {before.channel.mention}", 
+                        discord.Color.red(), member.guild)
+    
+    # Перемещение между каналами
+    elif before.channel and after.channel and before.channel != after.channel:
+        await log_action("🔄 ПЕРЕМЕЩЁН", 
+                        f"**Участник:** {member.mention}\n"
+                        f"**Из:** {before.channel.mention}\n"
+                        f"**В:** {after.channel.mention}", 
+                        discord.Color.orange(), member.guild)
+    
+    # Приватные голосовые каналы (создание)
+    if after.channel and after.channel.id == VC_TRIGGER_CHANNEL_ID:
+        cat = member.guild.get_channel(VC_CREATE_CATEGORY_ID)
+        if cat:
+            existing = [c for c in cat.voice_channels if c.name.startswith("Приватный")]
+            num = len(existing) + 1
+            overwrites = {
+                member.guild.default_role: discord.PermissionOverwrite(connect=False),
+                member: discord.PermissionOverwrite(connect=True, manage_channels=True),
+                member.guild.me: discord.PermissionOverwrite(connect=True, manage_channels=True)
+            }
+            for rid in SUPPORT_ROLE_IDS:
+                role = member.guild.get_role(rid)
+                if role:
+                    overwrites[role] = discord.PermissionOverwrite(connect=True)
+            channel = await cat.create_voice_channel(name=f"Приватный #{num}", overwrites=overwrites)
+            await member.move_to(channel)
+            panel = VCControlPanel(channel.id, member.id)
+            await channel.send(f"{member.mention}, панель управления:", view=panel)
+            vc_sessions[channel.id] = {"owner": member.id}
+            await log_action("🎤 СОЗДАН ПРИВАТНЫЙ КАНАЛ", 
+                            f"**Владелец:** {member.mention}\n"
+                            f"**Канал:** {channel.mention}", 
+                            discord.Color.blue(), member.guild)
+    
+    # Удаление пустого приватного канала
+    if before.channel and before.channel.id in vc_sessions and len(before.channel.members) == 0:
+        await asyncio.sleep(10)
+        if len(before.channel.members) == 0:
+            await before.channel.delete()
+            del vc_sessions[before.channel.id]
+            await log_action("🗑️ УДАЛЁН ПРИВАТНЫЙ КАНАЛ", 
+                            f"Канал {before.channel.name} удалён за неиспользованием", 
+                            discord.Color.dark_red(), member.guild)
+
+
+@bot.event
+async def on_member_join(member):
+    """Логирование присоединения участника"""
+    role = member.guild.get_role(DEFAULT_ROLE_ID)
+    if role:
+        try:
+            await member.add_roles(role)
+        except:
+            pass
+    
+    await log_action("👋 НОВЫЙ УЧАСТНИК", 
+                    f"**Участник:** {member.mention}\n"
+                    f"**ID:** {member.id}\n"
+                    f"**Аккаунт создан:** {member.created_at.strftime('%d.%m.%Y %H:%M')}", 
+                    discord.Color.green(), member.guild)
+    
+    ch = bot.get_channel(WELCOME_CHANNEL_ID)
+    if ch:
+        embed = discord.Embed(title="🎉 ДОБРО ПОЖАЛОВАТЬ!", 
+                              description=f"{member.mention} присоединился!", 
+                              color=discord.Color.green())
+        embed.set_thumbnail(url=member.display_avatar.url)
+        await ch.send(embed=embed)
+
+
+@bot.event
+async def on_member_remove(member):
+    """Логирование выхода участника"""
+    await log_action("👋 УЧАСТНИК ПОКИНУЛ СЕРВЕР", 
+                    f"**Участник:** {member.mention}\n"
+                    f"**ID:** {member.id}\n"
+                    f"**Ник:** {member.display_name}", 
+                    discord.Color.red(), member.guild)
+
+
+@bot.event
+async def on_member_update(before, after):
+    """Логирование изменения участника (ник, роли)"""
+    if before.guild:
+        # Смена ника
+        if before.display_name != after.display_name:
+            await log_action("✏️ СМЕНА НИКА", 
+                            f"**Участник:** {after.mention}\n"
+                            f"**Было:** {before.display_name}\n"
+                            f"**Стало:** {after.display_name}", 
+                            discord.Color.blue(), before.guild)
+        
+        # Выдача роли
+        added_roles = [r for r in after.roles if r not in before.roles]
+        for role in added_roles:
+            if role.name != "@everyone":
+                await log_action("➕ ВЫДАНА РОЛЬ", 
+                                f"**Участник:** {after.mention}\n"
+                                f"**Роль:** {role.mention}", 
+                                discord.Color.green(), before.guild)
+        
+        # Снятие роли
+        removed_roles = [r for r in before.roles if r not in after.roles]
+        for role in removed_roles:
+            if role.name != "@everyone":
+                await log_action("➖ СНЯТА РОЛЬ", 
+                                f"**Участник:** {after.mention}\n"
+                                f"**Роль:** {role.mention}", 
+                                discord.Color.red(), before.guild)
+
+
+@bot.event
+async def on_guild_channel_create(channel):
+    """Логирование создания канала"""
+    await log_action("➕ СОЗДАН КАНАЛ", 
+                    f"**Название:** {channel.mention}\n"
+                    f"**Тип:** {channel.type}", 
+                    discord.Color.green(), channel.guild)
+
+
+@bot.event
+async def on_guild_channel_delete(channel):
+    """Логирование удаления канала"""
+    await log_action("➖ УДАЛЁН КАНАЛ", 
+                    f"**Название:** {channel.name}\n"
+                    f"**Тип:** {channel.type}", 
+                    discord.Color.red(), channel.guild)
+
+
+@bot.event
+async def on_guild_channel_update(before, after):
+    """Логирование изменения канала"""
+    if before.name != after.name:
+        await log_action("✏️ ПЕРЕИМЕНОВАН КАНАЛ", 
+                        f"**Было:** {before.name}\n"
+                        f"**Стало:** {after.mention}", 
+                        discord.Color.blue(), before.guild)
+
+
+@bot.event
+async def on_invite_create(invite):
+    """Логирование создания приглашения"""
+    await log_action("📨 СОЗДАНО ПРИГЛАШЕНИЕ", 
+                    f"**Создатель:** {invite.inviter.mention}\n"
+                    f"**Канал:** {invite.channel.mention}\n"
+                    f"**Код:** {invite.code}\n"
+                    f"**Макс. использований:** {invite.max_uses if invite.max_uses else '∞'}", 
+                    discord.Color.blue(), invite.guild)
+
+
+@bot.event
+async def on_invite_delete(invite):
+    """Логирование удаления приглашения"""
+    await log_action("📨 УДАЛЕНО ПРИГЛАШЕНИЕ", 
+                    f"**Код:** {invite.code}\n"
+                    f"**Канал:** {invite.channel.mention}", 
+                    discord.Color.red(), invite.guild)
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
