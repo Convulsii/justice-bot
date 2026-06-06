@@ -3458,6 +3458,104 @@ async def on_command_error(ctx, error):
     await log_action("❌ ОШИБКА КОМАНДЫ", f"**Пользователь:** {ctx.author.mention}\n**Команда:** {ctx.message.content}\n**Ошибка:** {str(error)[:300]}", discord.Color.red(), ctx.guild)
     await ctx.send(f"❌ Ошибка: {str(error)[:100]}")
 
+# ========== ДОСТИЖЕНИЯ И СТАТИСТИКА ==========
+
+@bot.command()
+async def achievements(ctx, member: discord.Member = None):
+    """🏆 Список достижений пользователя"""
+    target = member or ctx.author
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT achievement_id, achieved_at FROM achievements WHERE user_id=? AND guild_id=? ORDER BY achieved_at DESC', (target.id, ctx.guild.id))
+        earned = await cur.fetchall()
+    
+    embed = discord.Embed(title=f"🏆 ДОСТИЖЕНИЯ | {target.display_name}", color=discord.Color.gold())
+    embed.set_thumbnail(url=target.display_avatar.url)
+    
+    if not earned:
+        embed.description = "Нет полученных достижений"
+    else:
+        text = ""
+        for ach_id, date in earned[:25]:
+            ach_data = ACHIEVEMENTS.get(ach_id, {"name": ach_id, "desc": ""})
+            text += f"✅ **{ach_data['name']}** – {ach_data['desc']}\n   └ Получено: <t:{int(datetime.fromisoformat(date).timestamp())}:R>\n"
+        embed.description = text[:2000]
+        if len(earned) > 25:
+            embed.set_footer(text=f"Всего достижений: {len(earned)}")
+    
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+async def stats(ctx, member: discord.Member = None):
+    """📊 Подробная статистика пользователя"""
+    target = member or ctx.author
+    data = await get_user(target.id, ctx.guild.id)
+    
+    # Безопасное получение значений
+    total_msgs = data[9] if len(data) > 9 and data[9] is not None else 0
+    today_msgs = data[21] if len(data) > 21 and data[21] is not None else 0
+    week_msgs = data[22] if len(data) > 22 and data[22] is not None else 0
+    month_msgs = data[23] if len(data) > 23 and data[23] is not None else 0
+    voice_seconds = data[32] if len(data) > 32 and data[32] is not None else 0
+    total_plants = data[40] if len(data) > 40 and data[40] is not None else 0
+    total_harvests = data[39] if len(data) > 39 and data[39] is not None else 0
+    total_fish = data[36] if len(data) > 36 and data[36] is not None else 0
+    total_legendary_fish = data[37] if len(data) > 37 and data[37] is not None else 0
+    total_mythic_fish = data[38] if len(data) > 38 and data[38] is not None else 0
+    total_casino_wins = data[33] if len(data) > 33 and data[33] is not None else 0
+    total_blackjack_wins = data[34] if len(data) > 34 and data[34] is not None else 0
+    total_ttt_wins = data[35] if len(data) > 35 and data[35] is not None else 0
+    total_work = data[41] if len(data) > 41 and data[41] is not None else 0
+    total_rob = data[42] if len(data) > 42 and data[42] is not None else 0
+    total_shop_buys = data[44] if len(data) > 44 and data[44] is not None else 0
+    total_shop_spent = data[45] if len(data) > 45 and data[45] is not None else 0
+    
+    voice_hours = voice_seconds // 3600
+    voice_minutes = (voice_seconds % 3600) // 60
+    
+    embed = discord.Embed(title=f"📊 СТАТИСТИКА | {target.display_name}", color=discord.Color.blue())
+    embed.set_thumbnail(url=target.display_avatar.url)
+    
+    embed.add_field(name="💬 СООБЩЕНИЯ", 
+                    value=f"📅 Сегодня: **{today_msgs}**\n📆 Неделя: **{week_msgs}**\n📅 Месяц: **{month_msgs}**\n📊 Всего: **{total_msgs}**", 
+                    inline=True)
+    
+    embed.add_field(name="🎤 ГОЛОСОВОЙ ОНЛАЙН", 
+                    value=f"⏱️ **{voice_hours}ч {voice_minutes}мин**", 
+                    inline=True)
+    
+    embed.add_field(name="🌾 ФЕРМА", 
+                    value=f"🌱 Посажено: **{total_plants}**\n🌾 Собрано: **{total_harvests}**", 
+                    inline=True)
+    
+    embed.add_field(name="🎣 РЫБАЛКА", 
+                    value=f"🐟 Всего рыб: **{total_fish}**\n🐉 Легендарных: **{total_legendary_fish}**\n✨ Мифических: **{total_mythic_fish}**", 
+                    inline=True)
+    
+    embed.add_field(name="🎰 ИГРЫ", 
+                    value=f"🎰 Казино: **{total_casino_wins}** побед\n🃏 Блэкджек: **{total_blackjack_wins}** побед\n❌⭕ Крестики: **{total_ttt_wins}** побед", 
+                    inline=True)
+    
+    embed.add_field(name="💼 РАБОТА", 
+                    value=f"🔫 Ограблений: **{total_rob}**\n💼 Работ: **{total_work}**", 
+                    inline=True)
+    
+    embed.add_field(name="🛍️ МАГАЗИН", 
+                    value=f"📦 Покупок: **{total_shop_buys}**\n💰 Потрачено: **{total_shop_spent}** 💎", 
+                    inline=True)
+    
+    # Получаем количество достижений
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT COUNT(*) FROM achievements WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
+        ach_count = (await cur.fetchone())[0] or 0
+    
+    embed.add_field(name="🏆 ДОСТИЖЕНИЯ", 
+                    value=f"Получено: **{ach_count}/{len(ACHIEVEMENTS)}**", 
+                    inline=True)
+    
+    embed.set_footer(text=f"🆔 ID: {target.id}")
+    await ctx.send(embed=embed)
+
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
     print("🚀 Запуск Justice Bot...")
