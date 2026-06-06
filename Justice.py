@@ -1965,71 +1965,56 @@ async def backup_info(ctx):
     embed.add_field(name="👥 Пользователей", value=users, inline=True)
     await ctx.send(embed=embed)
 
-# ========== ПРИВАТНЫЕ ГОЛОСОВЫЕ ==========
-class VCControlPanel(View):
-    def __init__(self, cid, oid):
-        super().__init__(timeout=None)
-        self.cid, self.oid = cid, oid
-    @discord.ui.button(label="🔒 Закрыть", style=discord.ButtonStyle.danger)
-    async def lock(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
-        ch = bot.get_channel(self.cid)
-        if ch: await ch.set_permissions(i.guild.default_role, connect=False)
-        await i.response.send_message("🔒 Канал закрыт", ephemeral=True)
-    @discord.ui.button(label="🔓 Открыть", style=discord.ButtonStyle.success)
-    async def unlock(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
-        ch = bot.get_channel(self.cid)
-        if ch: await ch.set_permissions(i.guild.default_role, connect=True)
-        await i.response.send_message("🔓 Канал открыт", ephemeral=True)
-    @discord.ui.button(label="👥 Лимит", style=discord.ButtonStyle.primary)
-    async def limit(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
-        modal = LimitModal(self.cid)
-        await i.response.send_modal(modal)
-    @discord.ui.button(label="📝 Название", style=discord.ButtonStyle.primary)
-    async def rename(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
-        modal = RenameModal(self.cid)
-        await i.response.send_modal(modal)
-    @discord.ui.button(label="🗑 Удалить", style=discord.ButtonStyle.danger)
-    async def delete(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
-        ch = bot.get_channel(self.cid)
-        if ch: await ch.delete()
-        await i.response.send_message("🗑 Канал удалён", ephemeral=True)
-
-class LimitModal(Modal):
-    def __init__(self, cid):
-        super().__init__(title="Лимит участников")
-        self.cid = cid
-        self.l = TextInput(label="Лимит (1-99)", placeholder="10", required=True)
-        self.add_item(self.l)
-    async def on_submit(self, i):
-        try:
-            lim = int(self.l.value)
-            if lim < 1 or lim > 99: return await i.response.send_message("❌ 1-99", ephemeral=True)
-            ch = bot.get_channel(self.cid)
-            if ch: await ch.edit(user_limit=lim)
-            await i.response.send_message(f"✅ Лимит: {lim}", ephemeral=True)
-        except: await i.response.send_message("❌ Введите число", ephemeral=True)
-
-class RenameModal(Modal):
-    def __init__(self, cid):
-        super().__init__(title="Переименовать")
-        self.cid = cid
-        self.n = TextInput(label="Новое название", required=True)
-        self.add_item(self.n)
-    async def on_submit(self, i):
-        ch = bot.get_channel(self.cid)
-        if ch: await ch.edit(name=self.n.value)
-        await i.response.send_message(f"✅ Переименован в {self.n.value}", ephemeral=True)
-
 @bot.event
 async def on_voice_state_update(member, before, after):
+    # ========== ПОДСЧЁТ ВРЕМЕНИ В ГОЛОСОВОМ КАНАЛЕ ==========
+    if before.channel is None and after.channel is not None:
+        # Зашёл в голосовой канал
+        async with aiosqlite.connect("justice.db") as db:
+            await db.execute('UPDATE users SET voice_join_time=? WHERE user_id=? AND guild_id=?', 
+                           (datetime.now().isoformat(), member.id, member.guild.id))
+            await db.commit()
+            
+    elif before.channel is not None and after.channel is None:
+        # Вышел из голосового канала
+        async with aiosqlite.connect("justice.db") as db:
+            cur = await db.execute('SELECT voice_join_time, voice_total_seconds FROM users WHERE user_id=? AND guild_id=?', 
+                                  (member.id, member.guild.id))
+            row = await cur.fetchone()
+            if row and row[0]:
+                join_time = datetime.fromisoformat(row[0])
+                seconds = int((datetime.now() - join_time).total_seconds())
+                total = (row[1] or 0) + seconds
+                await db.execute('UPDATE users SET voice_total_seconds=?, voice_join_time=? WHERE user_id=? AND guild_id=?', 
+                               (total, None, member.id, member.guild.id))
+                await db.commit()
+                
+                # Обновление недельной статистики
+                week_start = datetime.now().strftime("%Y-%m-%d")
+                cur2 = await db.execute('SELECT voice_minutes FROM weekly_stats WHERE user_id=? AND guild_id=? AND week_start=?', 
+                                       (member.id, member.guild.id, week_start))
+                week_row = await cur2.fetchone()
+                if week_row:
+                    new_minutes = week_row[0] + (seconds // 60)
+                    await db.execute('UPDATE weekly_stats SET voice_minutes=? WHERE user_id=? AND guild_id=? AND week_start=?', 
+                                   (new_minutes, member.id, member.guild.id, week_start))
+                else:
+                    await db.execute('INSERT INTO weekly_stats (user_id, guild_id, week_start, voice_minutes) VALUES (?,?,?,?)', 
+                                   (member.id, member.guild.id, week_start, seconds // 60))
+                await db.commit()
+    
+    # ========== ПРИВАТНЫЕ ГОЛОСОВЫЕ КАНАЛЫ ==========
+    # Создание приватного канала при входе в триггерный канал
     if after.channel and after.channel.id == VC_TRIGGER_CHANNEL_ID:
         cat = member.guild.get_channel(VC_CREATE_CATEGORY_ID)
         if cat:
+            # Удаляем старые пустые каналы пользователя
+            for vc in cat.voice_channels:
+                if len(vc.members) == 0 and vc.id in vc_sessions:
+                    if vc_sessions[vc.id]["owner"] == member.id:
+                        await vc.delete()
+                        del vc_sessions[vc.id]
+            
             existing = [c for c in cat.voice_channels if c.name.startswith("Приватный")]
             num = len(existing) + 1
             overwrites = {
@@ -2039,15 +2024,23 @@ async def on_voice_state_update(member, before, after):
             }
             for rid in SUPPORT_ROLE_IDS:
                 role = member.guild.get_role(rid)
-                if role: overwrites[role] = discord.PermissionOverwrite(connect=True)
+                if role:
+                    overwrites[role] = discord.PermissionOverwrite(connect=True)
+            
             channel = await cat.create_voice_channel(name=f"Приватный #{num}", overwrites=overwrites)
             await member.move_to(channel)
+            
+            # Отправляем панель управления
             panel = VCControlPanel(channel.id, member.id)
             await channel.send(f"{member.mention}, панель управления:", view=panel)
             vc_sessions[channel.id] = {"owner": member.id}
+            
             async with aiosqlite.connect("justice.db") as db:
-                await db.execute('INSERT OR REPLACE INTO private_vc (channel_id, owner_id, guild_id, channel_name, created_at) VALUES (?,?,?,?,?)', (channel.id, member.id, member.guild.id, channel.name, datetime.now().isoformat()))
+                await db.execute('INSERT OR REPLACE INTO private_vc (channel_id, owner_id, guild_id, channel_name, created_at) VALUES (?,?,?,?,?)', 
+                               (channel.id, member.id, member.guild.id, channel.name, datetime.now().isoformat()))
                 await db.commit()
+    
+    # Удаление пустого приватного канала
     if before.channel and before.channel.id in vc_sessions and len(before.channel.members) == 0:
         await asyncio.sleep(10)
         if len(before.channel.members) == 0:
@@ -2056,7 +2049,6 @@ async def on_voice_state_update(member, before, after):
                 await db.commit()
             await before.channel.delete()
             del vc_sessions[before.channel.id]
-
 # ========== ЖИВОТНЫЕ ==========
 @bot.command()
 async def buy_animal(ctx, animal_type: str = None):
