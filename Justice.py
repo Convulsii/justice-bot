@@ -2967,27 +2967,50 @@ class HelpView(View):
         self.author_id = author_id
         self.page = 0
         self.pages = [
-            {"name": "📖 ОСНОВНЫЕ", "content": "`j.profile` - профиль\n`j.balance` - баланс\n`j.work` - работа\n`j.daily` - бонус\n`j.weekly` - бонус\n`j.monthly` - бонус\n`j.pay @user сумма` - перевод\n`j.bank` - банк\n`j.deposit сумма` - вклад\n`j.withdraw сумма` - вывод\n`j.rep` - репутация\n`j.plusrep @user` +1 репутации\n`j.rob @user` - ограбить"},
-            {"name": "🎮 ИГРЫ", "content": "`j.casino сумма` - казино\n`j.slots сумма` - слоты\n`j.dice число сумма` - кости\n`j.coinflip сторона сумма` - монетка\n`j.rps выбор сумма` - КНБ\n`j.blackjack сумма` - блэкджек\n`j.ttt @user сумма` - крестики\n`j.poker @иг1 @иг2 сумма` - покер\n`j.hangman` - виселица\n`j.guess буква` - угадать"},
-            {"name": "🌾 ФЕРМА", "content": "`j.farm` - ферма\n`j.buy_pot` - горшок\n`j.buy_seed семя` - семена\n`j.plant номер семя` - посадка\n`j.harvest номер` - сбор\n`j.sell_crop культура редкость` - продать\n`j.sell_all_crops` - продать всё\n`j.buy_animal животное` - животные\n`j.feed_animals` - кормление\n`j.collect_products` - сбор продукции\n`j.my_animals` - мои животные\n`j.upgrade_farm тип` - улучшить\n`j.craft рецепт` - крафт\n`j.recipes` - рецепты"},
-            {"name": "🎣 РЫБАЛКА", "content": "`j.fish` - рыбалка\n`j.buy_rod удочка` - удочка\n`j.sell_all` - продать всё"},
+            {"name": "📊 ОСНОВНЫЕ", "content": "`j.profile` - профиль\n`j.balance` - баланс\n`j.work` - работа\n`j.daily` - ежедневный бонус\n`j.weekly` - еженедельный бонус\n`j.monthly` - ежемесячный бонус\n`j.hourly_bonus` - часовой бонус\n`j.pay @user сумма` - перевод\n`j.bank` - банк\n`j.deposit сумма` - вклад\n`j.withdraw сумма` - вывод\n`j.rep` - репутация\n`j.plusrep @user` - +1 репутации\n`j.minusrep @user` - -1 репутации\n`j.rob @user` - ограбить"},
+            
+            {"name": "🎮 ИГРЫ", "content": "`j.casino сумма` - казино\n`j.slots сумма` - слоты\n`j.dice число сумма` - кости\n`j.coinflip сторона сумма` - монетка\n`j.rps выбор сумма` - камень-ножницы-бумага\n`j.blackjack сумма` - блэкджек\n`j.ttt @user сумма` - крестики-нолики\n`j.poker @иг1 @иг2 сумма` - покер\n`j.hangman` - виселица\n`j.guess буква` - угадать букву"},
+            
+            {"name": "🌾 ФЕРМА (Часть 1)", "content": "`j.farm` - ферма\n`j.buy_pot` - купить горшок\n`j.buy_seed семя` - купить семена\n`j.plant номер семя` - посадить\n`j.harvest номер` - собрать урожай\n`j.sell_crop культура редкость` - продать урожай\n`j.sell_all_crops` - продать всё\n`j.farm_time` - время и бонусы фермы"},
+            
+            {"name": "🌾 ФЕРМА (Часть 2)", "content": "`j.buy_animal животное` - купить животное\n`j.feed_animals` - покормить животных\n`j.collect_products` - собрать продукцию\n`j.my_animals` - мои животные\n`j.upgrade_farm тип` - улучшить ферму\n`j.farm_upgrades_info` - инфо об улучшениях"},
+            
+            {"name": "🔨 КРАФТ И ЗАВОД", "content": "`j.craft рецепт` - скрафтить предмет\n`j.recipes` - список рецептов\n`j.factory` - завод (переработка)\n`j.craft_product название` - создать продукт\n`j.factory_status` - статус завода"},
+            
+            {"name": "📈 БИРЖА И ДОСТАВКА", "content": "`j.market` - цены на бирже\n`j.sell_market культура количество` - продать по цене биржи\n`j.delivery` - получить заказ на доставку\n`j.complete_delivery` - выполнить заказ"},
+            
+            {"name": "🎣 РЫБАЛКА", "content": "`j.fish` - ловить рыбу\n`j.buy_rod удочка` - купить удочку\n`j.sell_all` - продать всю рыбу"},
+            
             {"name": "🛍️ МАГАЗИН", "content": "`j.shop` - магазин\n`j.buy товар` - купить\n`j.use предмет` - использовать\n`j.inventory` - инвентарь"},
-            {"name": "📈 ИНВЕСТИЦИИ", "content": "`j.invest тип сумма` - инвестировать\n`j.claim_invest` - забрать\n`j.invest_info` - инфо"},
-            {"name": "🎫 ТИКЕТЫ", "content": "`j.ticket` - создать тикет\n`j.close_ticket` - закрыть\n`j.tickets_list` - список\n`j.setup_ticket` - настройка (админ)"},
-            {"name": "🛡️ МОДЕРАЦИЯ", "content": "`j.warn @user причина` - варн\n`j.warns @user` - список варнов\n`j.unwarn @user id` - снять варн\n`j.mute @user время причина` - мут\n`j.unmute @user` - размут\n`j.ban @user причина` - бан\n`j.kick @user причина` - кик\n`j.clear кол-во` - очистка\n`j.nickname @user ник` - сменить ник\n`j.automod` - настройка"},
-            {"name": "🌤️ ПОГОДА", "content": "`j.weather город` - погода\n`j.weather_today город` - сегодня\n`j.weather_3days город` - 3 дня\n`j.weather_7days город` - 7 дней\n`j.weather_hourly город` - почасовой"},
-            {"name": "🎮 STEAM", "content": "`j.steam set <id>` - привязать\n`j.steam profile [@user]` - профиль"},
+            
+            {"name": "📈 ИНВЕСТИЦИИ", "content": "`j.invest тип сумма` - инвестировать\n`j.claim_invest` - забрать инвестиции\n`j.invest_info` - инфо об инвестициях"},
+            
+            {"name": "🎫 ТИКЕТЫ", "content": "`j.ticket` - создать тикет\n`j.close_ticket` - закрыть тикет\n`j.tickets_list` - список тикетов\n`j.setup_ticket` - настроить кнопку (админ)"},
+            
+            {"name": "🛡️ МОДЕРАЦИЯ", "content": "`j.warn @user причина` - предупреждение\n`j.warns @user` - список варнов\n`j.unwarn @user id` - снять варн\n`j.mute @user время причина` - мут\n`j.unmute @user` - размут\n`j.ban @user причина` - бан\n`j.kick @user причина` - кик\n`j.clear кол-во` - очистка чата\n`j.nickname @user ник` - сменить ник\n`j.automod` - настройка автомода (админ)"},
+            
+            {"name": "🌤️ ПОГОДА", "content": "`j.weather город` - погода на 7 дней\n`j.weather_today город` - на сегодня\n`j.weather_3days город` - на 3 дня\n`j.weather_7days город` - на 7 дней\n`j.weather_hourly город` - почасовой"},
+            
+            {"name": "🎮 STEAM", "content": "`j.steam set <steam_id>` - привязать Steam ID\n`j.steam profile [@user]` - показать Steam профиль"},
+            
             {"name": "🎰 СТОЛОТО", "content": "`j.loto_buy` - купить билет (розыгрыш в 14:00 МСК)"},
-            {"name": "💡 ИДЕИ", "content": "`j.suggest <идея>` - предложить\n`j.accept <id> <вердикт>` - принять (админ)\n`j.deny <id> <вердикт>` - отклонить (админ)"},
-            {"name": "🎁 РОЗЫГРЫШИ", "content": "`j.giveaway create #канал приз кол-во 1д/1ч/10м` - создать (админ)"},
-            {"name": "🤖 ИИ И РАЗНОЕ", "content": "`j.ai вопрос` - спросить\n`j.currency` - курсы валют\n`j.short ссылка` - сократить\n`j.get код` - получить\n`j.reminder время текст` - напоминание\n`j.donate` - поддержка\n`j.gender male/female/remove` - гендер\n`j.bio текст` - био\n`j.avatar @user` - аватар\n`j.userinfo @user` - инфо\n`j.serverinfo` - инфо сервера\n`j.ping` - пинг\n`j.about` - о боте\n`j.invite` - пригласить\n`j.daily_quests` - задания\n`j.bonus_invite` - бонус за приглашения"},
-            {"name": "🏆 ТОПЫ", "content": "`j.top balance` - топ баланс\n`j.top reputation` - топ репутация\n`j.top level` - топ уровень\n`j.top messages` - топ сообщения\n`j.top_voice` - топ войс"},
-            {"name": "🎭 РЕАКЦИИ", "content": "`j.hug` `j.kiss` `j.pat` `j.poke` `j.slap` `j.punch` `j.bite` `j.cry` `j.laugh` `j.smile` `j.blush` `j.dance` `j.celebrate` `j.airkiss` `j.handhold` `j.tickle` `j.run` `j.sleep` `j.shrug` `j.shy` `j.sorry` `j.stare` `j.wink`"},
+            
+            {"name": "💡 ИДЕИ", "content": "`j.suggest <идея>` - предложить идею\n`j.accept <id> <вердикт>` - принять идею (админ)\n`j.deny <id> <вердикт>` - отклонить идею (админ)"},
+            
+            {"name": "🎁 РОЗЫГРЫШИ", "content": "`j.giveaway create #канал приз кол-во 1д/1ч/10м` - создать розыгрыш (админ)"},
+            
+            {"name": "🤖 ИИ И РАЗНОЕ", "content": "`j.ai вопрос` - спросить ИИ\n`j.currency` - курсы валют\n`j.currency_full` - все курсы валют\n`j.short ссылка` - сократить ссылку\n`j.get код` - получить ссылку\n`j.reminder время текст` - напоминание\n`j.donate` - поддержать проект\n`j.gender male/female/remove` - выбрать гендер\n`j.bio текст` - изменить биографию\n`j.avatar @user` - аватар\n`j.userinfo @user` - информация о пользователе\n`j.serverinfo` - информация о сервере\n`j.ping` - пинг бота\n`j.about` - о боте\n`j.invite` - пригласить бота\n`j.daily_quests` - ежедневные задания\n`j.bonus_invite` - бонус за приглашения\n`j.invites_info` - статистика приглашений\n`j.achievements [@user]` - список достижений\n`j.stats [@user]` - подробная статистика"},
+            
+            {"name": "🏆 ТОПЫ", "content": "`j.top balance` - топ по балансу\n`j.top reputation` - топ по репутации\n`j.top level` - топ по уровню\n`j.top messages` - топ по сообщениям\n`j.top_voice` - топ по голосовому\n`j.top_weekly` - топ за неделю\n`j.top_weekly_voice` - топ войс за неделю\n`j.top_weekly_casino` - топ казино за неделю"},
+            
+            {"name": "🎭 РЕАКЦИИ", "content": "`j.hug` - обнять\n`j.kiss` - поцеловать\n`j.pat` - погладить\n`j.poke` - ткнуть\n`j.slap` - шлёпнуть\n`j.punch` - ударить\n`j.bite` - укусить\n`j.cry` - плакать\n`j.laugh` - смеяться\n`j.smile` - улыбаться\n`j.blush` - краснеть\n`j.dance` - танцевать\n`j.celebrate` - праздновать\n`j.airkiss` - воздушный поцелуй\n`j.handhold` - держаться за руки\n`j.tickle` - щекотать\n`j.run` - бежать\n`j.sleep` - спать\n`j.shrug` - пожать плечами\n`j.shy` - стесняться\n`j.sorry` - извиниться\n`j.stare` - смотреть\n`j.wink` - подмигнуть"},
+            
             {"name": "🏆 ДОСТИЖЕНИЯ", "content": "`j.achievements [@user]` - список достижений\n`j.stats [@user]` - подробная статистика"},
-            {"name": "👑 ВЛАДЕЛЬЦА", "content": "`j.admin_help` - помощь\n`j.owner_give @user сумма` - выдать\n`j.owner_take @user сумма` - забрать\n`j.owner_set_balance @user сумма` - установить\n`j.owner_reset_user @user` - сбросить\n`j.backup_db` - бэкап\n`j.download_backup` - скачать\n`j.upload_backup` - восстановить\n`j.add_shop_item название цена роль_id описание` - добавить товар\n`j.remove_shop_item название` - удалить\n`j.settings welcome/logs/levels #канал` - настройка\n`j.owner_stats` - статистика\n`j.reset_db confirm` - сброс БД"}
+            
+            {"name": "👑 ВЛАДЕЛЬЦА", "content": "`j.admin_help` - помощь владельца\n`j.owner_give @user сумма` - выдать деньги\n`j.owner_take @user сумма` - забрать деньги\n`j.owner_set_balance @user сумма` - установить баланс\n`j.owner_reset_user @user` - сбросить пользователя\n`j.backup_db` - бэкап БД\n`j.download_backup` - скачать БД\n`j.upload_backup` - восстановить БД\n`j.add_shop_item название цена роль_id описание` - добавить товар\n`j.remove_shop_item название` - удалить товар\n`j.settings welcome/logs/levels #канал` - настройка каналов\n`j.owner_stats` - статистика сервера\n`j.reset_db confirm` - сбросить БД"}
         ]
     
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, custom_id="help_prev")
     async def prev(self, i, b):
         if i.user.id != self.author_id:
             return await i.response.send_message("❌ Не ваша панель!", ephemeral=True)
@@ -2996,7 +3019,7 @@ class HelpView(View):
         embed.set_footer(text=f"Страница {self.page + 1}/{len(self.pages)} | Justice Bot")
         await i.response.edit_message(embed=embed, view=self)
     
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, custom_id="help_next")
     async def nxt(self, i, b):
         if i.user.id != self.author_id:
             return await i.response.send_message("❌ Не ваша панель!", ephemeral=True)
@@ -3005,7 +3028,7 @@ class HelpView(View):
         embed.set_footer(text=f"Страница {self.page + 1}/{len(self.pages)} | Justice Bot")
         await i.response.edit_message(embed=embed, view=self)
     
-    @discord.ui.button(label="🔒 Закрыть", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🔒 Закрыть", style=discord.ButtonStyle.danger, custom_id="help_close")
     async def close(self, i, b):
         if i.user.id != self.author_id:
             return await i.response.send_message("❌ Не ваша панель!", ephemeral=True)
@@ -3016,7 +3039,7 @@ class HelpView(View):
 async def help(ctx):
     view = HelpView(ctx.author.id)
     embed = discord.Embed(title=view.pages[0]["name"], description=view.pages[0]["content"], color=discord.Color.blue())
-    embed.set_footer(text=f"Страница 1/{len(view.pages)} | Justice Bot")
+    embed.set_footer(text=f"Страница 1/{len(view.pages)} | Justice Bot | Стрелки для навигации")
     await ctx.send(embed=embed, view=view)
 
 # ========== ЗАПУСК ==========
