@@ -25,7 +25,7 @@ retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
 openmeteo = openmeteo_requests.Client(session=retry_session)
 
 # ========== ЛОГИРОВАНИЕ ==========
-LOG_ACTION_CHANNEL_ID = 0
+LOG_ACTION_CHANNEL_ID = 1502637204982206681
 
 async def log_action(guild_id, title, description, color=discord.Color.blue()):
     embed = discord.Embed(title=title, description=description, color=color, timestamp=datetime.now())
