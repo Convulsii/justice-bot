@@ -6,19 +6,15 @@ import json
 import secrets
 import os
 from datetime import datetime
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
-# ========== DISCORD OAuth2 НАСТРОЙКИ ==========
-app.config["DISCORD_CLIENT_ID"] = "1358784569331224726"
-app.config["DISCORD_CLIENT_SECRET"] = "AoP1a5geUr3fq0OzUvwHJDPgEClF6jqb"
-app.config["DISCORD_REDIRECT_URI"] = "http://localhost:5000/callback"
+# ========== ТВОИ КЛЮЧИ ==========
+app.config["DISCORD_CLIENT_ID"] = "1502642822967459912"
+app.config["DISCORD_CLIENT_SECRET"] = "KsAy53aZXkZyh7_DiGz7ltNRIvz601py"
+app.config["DISCORD_REDIRECT_URI"] = "https://justice-bot-production.up.railway.app/callback"
 
-# Настройка Discord blueprint
 discord_bp = make_discord_blueprint(
     client_id=app.config["DISCORD_CLIENT_ID"],
     client_secret=app.config["DISCORD_CLIENT_SECRET"],
@@ -26,14 +22,12 @@ discord_bp = make_discord_blueprint(
 )
 app.register_blueprint(discord_bp, url_prefix="/login")
 
-# Путь к БД
+# ========== БАЗА ДАННЫХ ==========
 DB_PATH = "justice.db"
 
-# ========== ИНИЦИАЛИЗАЦИЯ БД ==========
 def init_web_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
     c.execute('''CREATE TABLE IF NOT EXISTS web_users (
         discord_id INTEGER PRIMARY KEY,
         username TEXT,
@@ -41,15 +35,6 @@ def init_web_db():
         is_admin INTEGER DEFAULT 0,
         last_login TEXT
     )''')
-    
-    c.execute('''CREATE TABLE IF NOT EXISTS guild_settings (
-        guild_id INTEGER PRIMARY KEY,
-        welcome_channel INTEGER,
-        log_channel INTEGER,
-        levels_channel INTEGER,
-        automod_enabled INTEGER DEFAULT 1
-    )''')
-    
     conn.commit()
     conn.close()
     print("✅ База данных готова")
@@ -58,6 +43,15 @@ def init_web_db():
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/dashboard')
+def dashboard():
+    if not session.get('user_id'):
+        return redirect(url_for('login'))
+    return render_template('dashboard.html',
+                          username=session.get('username'),
+                          avatar=session.get('avatar'),
+                          is_admin=session.get('is_admin', False))
 
 @app.route('/login')
 def login():
@@ -68,7 +62,6 @@ def callback():
     if not discord.authorized:
         return redirect(url_for('login'))
     
-    # Получаем информацию о пользователе
     resp = discord.get("/users/@me")
     user_data = resp.json()
     
@@ -78,8 +71,7 @@ def callback():
     
     is_admin = False
     for guild in guilds:
-        permissions = guild.get('permissions', 0)
-        if permissions & 0x8:  # Администратор
+        if guild.get('permissions', 0) & 0x8:  # Администратор
             is_admin = True
             break
     
@@ -105,24 +97,6 @@ def callback():
 def logout():
     session.clear()
     return redirect(url_for('index'))
-
-@app.route('/dashboard')
-def dashboard():
-    if not session.get('user_id'):
-        return redirect(url_for('login'))
-    return render_template('dashboard.html',
-                          username=session.get('username'),
-                          avatar=session.get('avatar'),
-                          is_admin=session.get('is_admin', False))
-
-@app.route('/embed-builder')
-def embed_builder():
-    if not session.get('user_id'):
-        return redirect(url_for('login'))
-    return render_template('embed_builder.html',
-                          username=session.get('username'),
-                          avatar=session.get('avatar'),
-                          is_admin=session.get('is_admin', False))
 
 # ========== API ==========
 @app.route('/api/user/guilds')
@@ -167,11 +141,8 @@ def api_stats():
     })
 
 # ========== ЗАПУСК ==========
-# web_server.py (в самом конце)
-
 if __name__ == '__main__':
-    import os
-    # Railway сам передает порт через переменную PORT
+    init_web_db()
     port = int(os.environ.get('PORT', 5000))
-    # Важно: host='0.0.0.0' — без этого контейнер не примет внешние запросы
+    print(f"🚀 Веб-сервер запущен на порту {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
