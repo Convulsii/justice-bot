@@ -14,26 +14,15 @@ import shutil
 from datetime import datetime, timedelta
 from openai import OpenAI
 from collections import defaultdict
-import openmeteo_requests
-import requests_cache
-from retry_requests import retry
 import hashlib
 
-# ========== ИНИЦИАЛИЗАЦИЯ OPEN-METEO ==========
-cache_session = requests_cache.CachedSession('.cache', expire_after=3600)
-retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
-openmeteo = openmeteo_requests.Client(session=retry_session)
-
 # ========== ЛОГИРОВАНИЕ ==========
-LOG_ACTION_CHANNEL_ID = 1502637204982206681
+LOG_ACTION_CHANNEL_ID = 0
 
-async def log_action(title, description, color=discord.Color.blue(), guild=None):
-    """Универсальная функция для отправки логов"""
+async def log_action(guild_id, title, description, color=discord.Color.blue()):
     embed = discord.Embed(title=title, description=description, color=color, timestamp=datetime.now())
-    if guild and guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
-    if LOGS_CHANNEL_ID:
-        ch = bot.get_channel(LOGS_CHANNEL_ID)
+    if LOG_ACTION_CHANNEL_ID:
+        ch = bot.get_channel(LOG_ACTION_CHANNEL_ID)
         if ch:
             await ch.send(embed=embed)
 
@@ -46,7 +35,6 @@ async def send_log(guild_id, embed):
 TOKEN = os.getenv('DISCORD_TOKEN')
 
 STEAM_API_KEY = os.getenv('STEAM_API_KEY')
-YANDEX_WEATHER_API_KEY = os.getenv('YANDEX_WEATHER_API_KEY')
 
 AI_API_KEY = "rk_live_G15mOokgVTN8hKFBvWVda38wZGOiXkVs"
 AI_BASE_URL = "https://api.ranvik.ru/v1"
@@ -88,8 +76,6 @@ LEVEL_ROLES = {
 }
 
 START_BALANCE = 5000
-MIN_EARN = 50
-MAX_EARN = 150
 BANK_INTEREST = 0.05
 
 GAME_COOLDOWN = {"casino": 300, "dice": 300, "coin": 300, "rps": 300, "blackjack": 300, "rob": 3600, "work": 3600, "rep": 3600, "hourly": 3600}
@@ -123,6 +109,15 @@ SEEDS = {
 }
 RARITY_MULTIPLIERS = {"обычное": 1.0, "редкое": 2.0, "эпическое": 5.0, "легендарное": 15.0}
 
+# ========== ФУНКЦИИ НОЧНОГО РЕЖИМА ==========
+def is_night_time():
+    hour = datetime.now().hour
+    return hour >= 23 or hour < 6
+
+def is_star_hour():
+    hour = datetime.now().hour
+    return 2 <= hour < 4
+
 # ========== РЫБАЛКА ==========
 FISHING_ITEMS = {
     "окунь": {"price": 80, "exp": 15, "emoji": "🐟"},
@@ -145,29 +140,134 @@ FISHING_RODS = {
 
 fishing_cooldowns = {}
 
-# ========== МАГАЗИН ==========
-SHOP_ITEMS = {
-    "лотерейный билет": {"price": 100, "desc": "🎫 Шанс выиграть до 100000 💎", "type": "lottery"},
-    "золотой слиток": {"price": 500, "desc": "🪙 Можно продать за 250 💎", "type": "consumable", "sell_price": 250},
-    "бустер x2 опыта": {"price": 5000, "desc": "🔥 x2 опыт на 1 час", "type": "booster", "duration": 3600},
-    "бустер x2 денег": {"price": 5000, "desc": "💰 x2 деньги на 1 час", "type": "booster", "duration": 3600},
+# ========== МАГАЗИН (РАСШИРЕННЫЙ) ==========
+
+# Цвета для профиля (40+ цветов)
+PROFILE_COLORS = {
+    "красный": {"code": 0xFF0000, "price": 1000, "desc": "🔴 Красный цвет профиля"},
+    "синий": {"code": 0x0000FF, "price": 1000, "desc": "🔵 Синий цвет профиля"},
+    "зеленый": {"code": 0x00FF00, "price": 1000, "desc": "🟢 Зеленый цвет профиля"},
+    "желтый": {"code": 0xFFFF00, "price": 1000, "desc": "🟡 Желтый цвет профиля"},
+    "фиолетовый": {"code": 0x800080, "price": 1000, "desc": "🟣 Фиолетовый цвет профиля"},
+    "оранжевый": {"code": 0xFFA500, "price": 1000, "desc": "🟠 Оранжевый цвет профиля"},
+    "розовый": {"code": 0xFF69B4, "price": 1000, "desc": "🌸 Розовый цвет профиля"},
+    "голубой": {"code": 0x87CEEB, "price": 1000, "desc": "💙 Голубой цвет профиля"},
+    "золотой": {"code": 0xFFD700, "price": 5000, "desc": "⭐ Золотой цвет профиля"},
+    "серебряный": {"code": 0xC0C0C0, "price": 3000, "desc": "🔘 Серебряный цвет профиля"},
+    "бронзовый": {"code": 0xCD7F32, "price": 2000, "desc": "🏆 Бронзовый цвет профиля"},
+    "бирюзовый": {"code": 0x40E0D0, "price": 2000, "desc": "💎 Бирюзовый цвет профиля"},
+    "коралловый": {"code": 0xFF7F50, "price": 2000, "desc": "🐠 Коралловый цвет профиля"},
+    "лавандовый": {"code": 0xE6E6FA, "price": 1500, "desc": "🌸 Лавандовый цвет профиля"},
+    "мятный": {"code": 0x98FB98, "price": 1500, "desc": "🌿 Мятный цвет профиля"},
+    "персиковый": {"code": 0xFFDAB9, "price": 1500, "desc": "🍑 Персиковый цвет профиля"},
+    "пурпурный": {"code": 0x9370DB, "price": 2500, "desc": "👾 Пурпурный цвет профиля"},
+    "индиго": {"code": 0x4B0082, "price": 2500, "desc": "🔮 Индиго цвет профиля"},
+    "малиновый": {"code": 0xDC143C, "price": 2000, "desc": "🍓 Малиновый цвет профиля"},
+    "оливковый": {"code": 0x808000, "price": 1500, "desc": "🫒 Оливковый цвет профиля"},
+    "шоколадный": {"code": 0xD2691E, "price": 1500, "desc": "🍫 Шоколадный цвет профиля"},
+    "сиреневый": {"code": 0xC8A2C8, "price": 2000, "desc": "🌺 Сиреневый цвет профиля"},
+    "неоновый": {"code": 0x39FF14, "price": 5000, "desc": "⚡ Неоновый цвет профиля"},
+    "радужный": {"code": 0xFF00FF, "price": 10000, "desc": "🌈 Радужный цвет профиля"},
+    "черный": {"code": 0x000000, "price": 500, "desc": "🖤 Черный цвет профиля"},
+    "белый": {"code": 0xFFFFFF, "price": 500, "desc": "🤍 Белый цвет профиля"},
+    "серый": {"code": 0x808080, "price": 500, "desc": "◻️ Серый цвет профиля"},
+    "темно-синий": {"code": 0x00008B, "price": 1200, "desc": "🌌 Тёмно-синий цвет профиля"},
+    "темно-зеленый": {"code": 0x006400, "price": 1200, "desc": "🌲 Тёмно-зеленый цвет профиля"},
+    "темно-красный": {"code": 0x8B0000, "price": 1200, "desc": "🍎 Тёмно-красный цвет профиля"},
+    "золотистый": {"code": 0xB8860B, "price": 4000, "desc": "👑 Золотистый цвет профиля"},
+    "платиновый": {"code": 0xE5E4E2, "price": 8000, "desc": "💎 Платиновый цвет профиля"},
+    "алмазный": {"code": 0xB9F2FF, "price": 15000, "desc": "✨ Алмазный цвет профиля"},
+    "лунный": {"code": 0xF5F5DC, "price": 3000, "desc": "🌙 Лунный цвет профиля"},
+    "солнечный": {"code": 0xFF4500, "price": 3000, "desc": "☀️ Солнечный цвет профиля"},
+    "космический": {"code": 0x191970, "price": 5000, "desc": "🚀 Космический цвет профиля"},
+    "королевский": {"code": 0x7851A9, "price": 7000, "desc": "👑 Королевский цвет профиля"},
+    "изумрудный": {"code": 0x50C878, "price": 4000, "desc": "💚 Изумрудный цвет профиля"},
+    "рубиновый": {"code": 0xE0115F, "price": 4000, "desc": "❤️ Рубиновый цвет профиля"},
+    "сапфировый": {"code": 0x0F52BA, "price": 4000, "desc": "💙 Сапфировый цвет профиля"},
+    "янтарный": {"code": 0xFFBF00, "price": 3500, "desc": "🧡 Янтарный цвет профиля"},
 }
+
+# Украшения для профиля
+PROFILE_DECORATIONS = {
+    "корона": {"price": 15000, "desc": "👑 Корона в профиль", "emoji": "👑"},
+    "звезда": {"price": 5000, "desc": "⭐ Звезда в профиль", "emoji": "⭐"},
+    "радуга": {"price": 8000, "desc": "🌈 Радуга в профиль", "emoji": "🌈"},
+    "огонь": {"price": 7000, "desc": "🔥 Огонь в профиль", "emoji": "🔥"},
+    "алмаз": {"price": 10000, "desc": "💎 Алмаз в профиль", "emoji": "💎"},
+    "цветок": {"price": 3000, "desc": "🌸 Цветок в профиль", "emoji": "🌸"},
+    "клевер": {"price": 4000, "desc": "🍀 Клевер в профиль", "emoji": "🍀"},
+    "бабочка": {"price": 5000, "desc": "🦋 Бабочка в профиль", "emoji": "🦋"},
+    "луна": {"price": 6000, "desc": "🌙 Луна в профиль", "emoji": "🌙"},
+    "солнце": {"price": 6000, "desc": "☀️ Солнце в профиль", "emoji": "☀️"},
+    "сердце": {"price": 4000, "desc": "💖 Сердце в профиль", "emoji": "💖"},
+    "молния": {"price": 5000, "desc": "⚡ Молния в профиль", "emoji": "⚡"},
+    "снежинка": {"price": 3000, "desc": "❄️ Снежинка в профиль", "emoji": "❄️"},
+    "музыка": {"price": 4000, "desc": "🎵 Ноты в профиль", "emoji": "🎵"},
+    "джойстик": {"price": 5000, "desc": "🎮 Джойстик в профиль", "emoji": "🎮"},
+    "кубок": {"price": 8000, "desc": "🏆 Кубок в профиль", "emoji": "🏆"},
+    "театр": {"price": 4000, "desc": "🎭 Маски в профиль", "emoji": "🎭"},
+    "голубь": {"price": 5000, "desc": "🕊️ Голубь в профиль", "emoji": "🕊️"},
+    "дракон": {"price": 15000, "desc": "🐉 Дракон в профиль", "emoji": "🐉"},
+    "единорог": {"price": 12000, "desc": "🦄 Единорог в профиль", "emoji": "🦄"},
+}
+
+# Бустеры
+BOOSTERS = {
+    "бустер опыта x2 (1 час)": {"price": 5000, "desc": "🔥 x2 опыт на 1 час", "type": "exp", "multiplier": 2, "duration": 3600},
+    "бустер опыта x5 (30 мин)": {"price": 10000, "desc": "⚡ x5 опыт на 30 минут", "type": "exp", "multiplier": 5, "duration": 1800},
+    "бустер денег x2 (1 час)": {"price": 5000, "desc": "💰 x2 деньги на 1 час", "type": "money", "multiplier": 2, "duration": 3600},
+    "бустер денег x5 (30 мин)": {"price": 10000, "desc": "💎 x5 деньги на 30 минут", "type": "money", "multiplier": 5, "duration": 1800},
+}
+
+# Лотерейные билеты
+LOTTERY_TICKETS = {
+    "обычный билет": {"price": 100, "desc": "🎫 Шанс выиграть до 1000 💎", "max_win": 1000},
+    "золотой билет": {"price": 500, "desc": "🎟️ Шанс выиграть до 10000 💎", "max_win": 10000},
+    "алмазный билет": {"price": 2000, "desc": "💎 Шанс выиграть до 100000 💎", "max_win": 100000},
+}
+
+# Объединяем всё в SHOP_ITEMS
+SHOP_ITEMS = {}
+
+for color_name, color_data in PROFILE_COLORS.items():
+    SHOP_ITEMS[f"цвет {color_name}"] = {
+        "price": color_data["price"],
+        "desc": color_data["desc"],
+        "type": "color",
+        "color_code": color_data["code"],
+        "category": "colors"
+    }
+
+for deco_name, deco_data in PROFILE_DECORATIONS.items():
+    SHOP_ITEMS[deco_name] = {
+        "price": deco_data["price"],
+        "desc": deco_data["desc"],
+        "type": "decoration",
+        "emoji": deco_data["emoji"],
+        "category": "decorations"
+    }
+
+for booster_name, booster_data in BOOSTERS.items():
+    SHOP_ITEMS[booster_name] = {
+        "price": booster_data["price"],
+        "desc": booster_data["desc"],
+        "type": "booster",
+        "booster_type": booster_data["type"],
+        "multiplier": booster_data["multiplier"],
+        "duration": booster_data["duration"],
+        "category": "boosters"
+    }
+
+for ticket_name, ticket_data in LOTTERY_TICKETS.items():
+    SHOP_ITEMS[ticket_name] = {
+        "price": ticket_data["price"],
+        "desc": ticket_data["desc"],
+        "type": "lottery",
+        "max_win": ticket_data["max_win"],
+        "category": "lottery"
+    }
 
 CUSTOM_SHOP_ITEMS = {}
-
-# ========== ПОГОДА ==========
-WEATHER_CODES = {
-    0: ("☀️ Ясно", 0xFFD700),
-    1: ("🌤️ Преимущественно ясно", 0xFFA500),
-    2: ("⛅ Переменная облачность", 0x87CEEB),
-    3: ("☁️ Пасмурно", 0x808080),
-    45: ("🌫️ Туман", 0xA9A9A9),
-    51: ("🌧️ Лёгкий дождь", 0x4682B4),
-    61: ("🌧️ Дождь", 0x4169E1),
-    71: ("❄️ Снег", 0xE0FFFF),
-    80: ("🌧️ Ливень", 0x0000CD),
-    95: ("⛈️ Гроза", 0x8B008B),
-}
 
 # ========== РЕАКЦИИ ==========
 REACTION_GIFS = {
@@ -326,6 +426,30 @@ INVESTMENTS = {
     "премиум": {"min": 500000, "max": 5000000, "days": 60, "rate": 0.18, "name": "💎 Премиум"},
 }
 
+# ========== БИРЖА (ДИНАМИЧЕСКИЕ ЦЕНЫ) ==========
+market_prices = {}
+
+async def update_market_prices():
+    global market_prices
+    while True:
+        for crop in SEEDS.keys():
+            base_price = SEEDS[crop]["base_price"]
+            multiplier = random.uniform(0.7, 1.5)
+            market_prices[crop] = int(base_price * multiplier)
+        await asyncio.sleep(3600)
+
+# ========== ЗАВОД (ПЕРЕРАБОТКА) ==========
+factory_recipes = {
+    "мука": {"ingredients": {"пшеница": 3}, "time": 600, "reward": 200},
+    "хлеб": {"ingredients": {"мука": 2, "вода": 1}, "time": 1200, "reward": 500},
+    "масло": {"ingredients": {"подсолнух": 5}, "time": 900, "reward": 400},
+    "сок": {"ingredients": {"яблоко": 4, "сахар": 2}, "time": 1800, "reward": 800},
+}
+factory_queue = defaultdict(list)
+
+# ========== ДОСТАВКА ==========
+delivery_orders = {}
+
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def check_cooldown(user_id, command):
     if command not in GAME_COOLDOWN:
@@ -344,8 +468,8 @@ def check_rep_cooldown(user_id, target_id):
     key = f"{user_id}_{target_id}"
     last = rep_cooldowns[key].get("last", 0)
     now = time.time()
-    if now - last < GAME_COOLDOWN["rep"]:
-        remaining = GAME_COOLDOWN["rep"] - (now - last)
+    if now - last < 3600:
+        remaining = 3600 - (now - last)
         return False, int(remaining)
     return True, 0
 
@@ -353,16 +477,6 @@ def set_rep_cooldown(user_id, target_id):
     key = f"{user_id}_{target_id}"
     rep_cooldowns[key]["last"] = time.time()
 
-def is_night_time():
-    """Проверка, сейчас ночь (23:00 - 06:00)"""
-    hour = datetime.now().hour
-    return hour >= 23 or hour < 6
-
-def is_star_hour():
-    """Звёздный час (02:00 - 04:00) - лучший шанс на редкие культуры"""
-    hour = datetime.now().hour
-    return 2 <= hour < 4
-    
 # ========== БАЗА ДАННЫХ ==========
 async def init_db():
     async with aiosqlite.connect("justice.db") as db:
@@ -496,16 +610,14 @@ async def get_user(user_id, guild_id):
         row = await cur.fetchone()
         if not row:
             now = datetime.now().isoformat()
-            # Вставляем все поля с DEFAULT значениями
             await db.execute('''INSERT INTO users (
                 user_id, guild_id, join_date, balance, today_messages, week_messages, 
-                month_messages, total_messages, last_message_time, pots, voice_total_seconds
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)''', 
-            (user_id, guild_id, now, START_BALANCE, 0, 0, 0, 0, now, 0, 0))
+                month_messages, total_messages, last_message_time, pots
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)''', 
+            (user_id, guild_id, now, START_BALANCE, 0, 0, 0, 0, now, 0))
             await db.commit()
             cur = await db.execute('SELECT * FROM users WHERE user_id=? AND guild_id=?', (user_id, guild_id))
             row = await cur.fetchone()
-        # Преобразуем None в 0 для числовых полей
         row = list(row)
         for i in range(len(row)):
             if row[i] is None:
@@ -541,23 +653,27 @@ async def add_reputation(user_id, guild_id, amount):
 async def add_xp(user_id, guild_id, amount):
     user = await get_user(user_id, guild_id)
     
+    current_xp = user[2] if user[2] is not None else 0
+    current_level = user[3] if user[3] is not None else 0
+    current_total_msgs = user[9] if len(user) > 9 and user[9] is not None else 0
+    current_today = user[21] if len(user) > 21 and user[21] is not None else 0
+    current_week = user[22] if len(user) > 22 and user[22] is not None else 0
+    current_month = user[23] if len(user) > 23 and user[23] is not None else 0
+    
     boost_mult = 2 if datetime.now().weekday() in [5, 6] else 1
     if user_id in active_boosters and "exp" in active_boosters[user_id]:
         if time.time() < active_boosters[user_id]["exp"]["end"]:
             boost_mult *= active_boosters[user_id]["exp"]["mult"]
     amount = int(amount * boost_mult)
-    new_xp = (user[2] or 0) + amount
+    new_xp = current_xp + amount
     new_level = int((new_xp / 200) ** 0.55)
-    level_up = new_level > (user[3] or 0)
+    level_up = new_level > current_level
     
     async with aiosqlite.connect("justice.db") as db:
         await db.execute('''UPDATE users SET 
             xp=?, level=?, total_messages=?, today_messages=?, week_messages=?, month_messages=?, last_message_time=? 
             WHERE user_id=? AND guild_id=?''',
-            (new_xp, new_level, (user[9] or 0) + 1, 
-             (user[21] or 0) + 1, 
-             (user[22] or 0) + 1, 
-             (user[23] or 0) + 1, 
+            (new_xp, new_level, current_total_msgs + 1, current_today + 1, current_week + 1, current_month + 1, 
              datetime.now().isoformat(), user_id, guild_id))
         await db.commit()
     
@@ -570,7 +686,10 @@ async def add_xp(user_id, guild_id, amount):
                     if role:
                         member = guild.get_member(user_id)
                         if member and role not in member.roles:
-                            await member.add_roles(role)
+                            try:
+                                await member.add_roles(role)
+                            except:
+                                pass
         await check_achievement(user_id, guild_id, "level", new_level)
     
     return level_up, new_level
@@ -590,6 +709,14 @@ async def check_achievement(user_id, guild_id, ach_type, value):
             if value >= target:
                 should_unlock = True
         elif ach_type == "level" and ach_id.startswith("lvl_"):
+            target = int(ach_id.split("_")[1])
+            if value >= target:
+                should_unlock = True
+        elif ach_type == "balance" and ach_id.startswith("bal_"):
+            target = int(ach_id.split("_")[1])
+            if value >= target:
+                should_unlock = True
+        elif ach_type == "reputation" and ach_id.startswith("rep_"):
             target = int(ach_id.split("_")[1])
             if value >= target:
                 should_unlock = True
@@ -694,21 +821,13 @@ async def update_user_stats(user_id, guild_id, stat_type, value=1):
     elif stat_type == "shop_spend":
         await update_user(user_id, guild_id, total_shop_spent=value)
 
-# ========== ПОГОДА (Open-Meteo) ==========
-async def get_weather_data(lat, lon, forecast_days=7):
-    params = {"latitude": lat, "longitude": lon, "current": ["temperature_2m", "relative_humidity_2m", "apparent_temperature", "precipitation", "weather_code", "wind_speed_10m"], "daily": ["weather_code", "temperature_2m_max", "temperature_2m_min", "precipitation_sum"], "timezone": "auto", "forecast_days": forecast_days}
-    try:
-        responses = openmeteo.weather_api("https://api.open-meteo.com/v1/forecast", params=params)
-        return responses[0]
-    except: return None
-
+# ========== ПОГОДА (БЕЗ NUMPY) ==========
 @bot.command()
 async def weather(ctx, *, city: str = None):
     if not city:
         return await ctx.send("🌤️ `j.weather Москва`")
     
     async with aiohttp.ClientSession() as session:
-        # Поиск координат города
         geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
         headers = {'User-Agent': 'JusticeBot/1.0'}
         try:
@@ -722,7 +841,6 @@ async def weather(ctx, *, city: str = None):
         except Exception as e:
             return await ctx.send(f"❌ Ошибка поиска: {str(e)[:100]}")
         
-        # Запрос погоды (ВНУТРИ ТОЙ ЖЕ СЕССИИ)
         try:
             weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto"
             async with session.get(weather_url) as resp:
@@ -765,14 +883,12 @@ async def weather(ctx, *, city: str = None):
         except Exception as e:
             await ctx.send(f"❌ Ошибка получения погоды: {str(e)[:100]}")
 
-
 @bot.command()
 async def weather_today(ctx, *, city: str = None):
     if not city:
         return await ctx.send("❌ Укажите город")
     
     async with aiohttp.ClientSession() as session:
-        # Поиск координат
         geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
         headers = {'User-Agent': 'JusticeBot/1.0'}
         try:
@@ -810,190 +926,6 @@ async def weather_today(ctx, *, city: str = None):
         except Exception as e:
             await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
 
-
-@bot.command()
-async def weather_3days(ctx, *, city: str = None):
-    if not city:
-        return await ctx.send("❌ Укажите город")
-    
-    async with aiohttp.ClientSession() as session:
-        # Поиск координат
-        geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
-        headers = {'User-Agent': 'JusticeBot/1.0'}
-        try:
-            async with session.get(geo_url, headers=headers) as resp:
-                data = await resp.json()
-                if not data:
-                    return await ctx.send(f"❌ Город {city} не найден")
-                lat = data[0]['lat']
-                lon = data[0]['lon']
-                city_name = data[0].get('display_name', city).split(',')[0]
-        except:
-            return await ctx.send("❌ Ошибка поиска")
-        
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&forecast_days=3"
-        
-        try:
-            async with session.get(url) as resp:
-                data = await resp.json()
-                
-                if "daily" not in data:
-                    return await ctx.send("❌ Ошибка получения данных")
-                
-                daily = data["daily"]
-                
-                weather_icons = {
-                    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
-                    45: "🌫️", 48: "🌫️",
-                    51: "🌧️", 53: "🌧️", 55: "🌧️",
-                    61: "🌧️", 63: "🌧️", 65: "🌧️",
-                    71: "❄️", 73: "❄️", 75: "❄️",
-                    80: "🌧️", 81: "🌧️", 82: "🌧️",
-                    95: "⛈️", 96: "⛈️", 99: "⛈️"
-                }
-                
-                embed = discord.Embed(title=f"🌤️ ПРОГНОЗ НА 3 ДНЯ | {city_name}", color=discord.Color.blue())
-                
-                for i in range(3):
-                    date = datetime.fromisoformat(daily["time"][i]).strftime("%d.%m")
-                    code = daily["weathercode"][i]
-                    icon = weather_icons.get(code, "🌡️")
-                    temp_max = daily["temperature_2m_max"][i]
-                    temp_min = daily["temperature_2m_min"][i]
-                    precip = daily["precipitation_sum"][i]
-                    
-                    embed.add_field(
-                        name=f"{date} {icon}",
-                        value=f"{temp_min:.0f}°…{temp_max:.0f}° | 💧{precip:.1f}мм",
-                        inline=True
-                    )
-                
-                await ctx.send(embed=embed)
-                
-        except Exception as e:
-            await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
-
-
-@bot.command()
-async def weather_7days(ctx, *, city: str = None):
-    if not city:
-        return await ctx.send("❌ Укажите город")
-    
-    async with aiohttp.ClientSession() as session:
-        # Поиск координат
-        geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
-        headers = {'User-Agent': 'JusticeBot/1.0'}
-        try:
-            async with session.get(geo_url, headers=headers) as resp:
-                data = await resp.json()
-                if not data:
-                    return await ctx.send(f"❌ Город {city} не найден")
-                lat = data[0]['lat']
-                lon = data[0]['lon']
-                city_name = data[0].get('display_name', city).split(',')[0]
-        except:
-            return await ctx.send("❌ Ошибка поиска")
-        
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum&timezone=auto&forecast_days=7"
-        
-        try:
-            async with session.get(url) as resp:
-                data = await resp.json()
-                
-                if "daily" not in data:
-                    return await ctx.send("❌ Ошибка получения данных")
-                
-                daily = data["daily"]
-                
-                weather_icons = {
-                    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
-                    45: "🌫️", 48: "🌫️",
-                    51: "🌧️", 53: "🌧️", 55: "🌧️",
-                    61: "🌧️", 63: "🌧️", 65: "🌧️",
-                    71: "❄️", 73: "❄️", 75: "❄️",
-                    80: "🌧️", 81: "🌧️", 82: "🌧️",
-                    95: "⛈️", 96: "⛈️", 99: "⛈️"
-                }
-                
-                embed = discord.Embed(title=f"🌤️ ПРОГНОЗ НА 7 ДНЕЙ | {city_name}", color=discord.Color.blue())
-                text = ""
-                
-                for i in range(len(daily["time"])):
-                    date = datetime.fromisoformat(daily["time"][i]).strftime("%d.%m")
-                    code = daily["weathercode"][i]
-                    icon = weather_icons.get(code, "🌡️")
-                    temp_max = daily["temperature_2m_max"][i]
-                    temp_min = daily["temperature_2m_min"][i]
-                    precip = daily["precipitation_sum"][i]
-                    
-                    text += f"**{date}** {icon} {temp_min:.0f}°…{temp_max:.0f}° | 💧{precip:.1f}мм\n"
-                
-                embed.description = text[:2000]
-                await ctx.send(embed=embed)
-                
-        except Exception as e:
-            await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
-
-
-@bot.command()
-async def weather_hourly(ctx, *, city: str = None):
-    if not city:
-        return await ctx.send("❌ Укажите город")
-    
-    async with aiohttp.ClientSession() as session:
-        # Поиск координат
-        geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
-        headers = {'User-Agent': 'JusticeBot/1.0'}
-        try:
-            async with session.get(geo_url, headers=headers) as resp:
-                data = await resp.json()
-                if not data:
-                    return await ctx.send(f"❌ Город {city} не найден")
-                lat = data[0]['lat']
-                lon = data[0]['lon']
-                city_name = data[0].get('display_name', city).split(',')[0]
-        except:
-            return await ctx.send("❌ Ошибка поиска")
-        
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,precipitation_probability,weathercode&timezone=auto&forecast_days=1"
-        
-        try:
-            async with session.get(url) as resp:
-                data = await resp.json()
-                
-                if "hourly" not in data:
-                    return await ctx.send("❌ Ошибка получения данных")
-                
-                hourly = data["hourly"]
-                
-                weather_icons = {
-                    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
-                    45: "🌫️", 48: "🌫️",
-                    51: "🌧️", 53: "🌧️", 55: "🌧️",
-                    61: "🌧️", 63: "🌧️", 65: "🌧️",
-                    71: "❄️", 73: "❄️", 75: "❄️",
-                    80: "🌧️", 81: "🌧️", 82: "🌧️",
-                    95: "⛈️", 96: "⛈️", 99: "⛈️"
-                }
-                
-                embed = discord.Embed(title=f"🌤️ ПОЧАСОВОЙ ПРОГНОЗ | {city_name}", color=discord.Color.blue())
-                text = ""
-                
-                # Показываем ближайшие 12 часов
-                for i in range(min(12, len(hourly["time"]))):
-                    time_str = datetime.fromisoformat(hourly["time"][i]).strftime("%H:%M")
-                    temp = hourly["temperature_2m"][i]
-                    prob = hourly["precipitation_probability"][i]
-                    code = hourly["weathercode"][i]
-                    icon = weather_icons.get(code, "🌡️")
-                    
-                    text += f"**{time_str}** {icon} {temp:.0f}°C ☔{prob:.0f}%\n"
-                
-                embed.description = text[:2000]
-                await ctx.send(embed=embed)
-                
-        except Exception as e:
-            await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
 # ========== ИИ ==========
 async def get_ai_response(user_id, user_message):
     global user_conversations
@@ -1023,117 +955,25 @@ async def ai(ctx, *, question: str = None):
         response = await get_ai_response(ctx.author.id, question)
     await msg.edit(content=response)
 
-# ========== АВТОМОДЕРАЦИЯ ==========
-async def check_spam(message):
-    user_id = message.author.id
-    content = message.content.strip().lower()
-    now = time.time()
-    settings = guild_settings.get(message.guild.id, {})
-    for word in settings.get("automod_bad_words", []):
-        if word in content:
-            spam_messages_to_delete[user_id].append(message.id)
-            return True, f"запрещённое слово: {word}"
-    if settings.get("automod_invites_enabled", True):
-        if "discord.gg/" in content or "discord.com/invite/" in content:
-            spam_messages_to_delete[user_id].append(message.id)
-            return True, "реклама сервера"
-    if settings.get("automod_phishing_enabled", True):
-        if ("free" in content or "giveaway" in content) and ("nitro" in content or "steam" in content):
-            spam_messages_to_delete[user_id].append(message.id)
-            return True, "подозрение на фишинг"
-    if user_id not in user_message_timestamps: user_message_timestamps[user_id] = []
-    user_message_timestamps[user_id].append(now)
-    spam_messages_to_delete[user_id].append(message.id)
-    cutoff = now - ANTISPAM_WINDOW_SECONDS
-    old_indices = [i for i, t in enumerate(user_message_timestamps[user_id]) if t < cutoff]
-    for i in sorted(old_indices, reverse=True):
-        user_message_timestamps[user_id].pop(i)
-        spam_messages_to_delete[user_id].pop(i)
-    if len(user_message_timestamps[user_id]) > ANTISPAM_MAX_MESSAGES:
-        return True, f"флуд ({len(user_message_timestamps[user_id])} сообщений)"
-    return False, None
-
-async def add_auto_warning(user, reason, channel):
-    user_id = user.id
-    now = time.time()
-    user_warnings[user_id] = [w for w in user_warnings[user_id] if now - w["time"] < ANTISPAM_WARNING_EXPIRE_HOURS * 3600]
-    user_warnings[user_id].append({"reason": reason, "time": now, "moderator": "Automod"})
-    warning_count = len(user_warnings[user_id])
-    embed = discord.Embed(title="⚠️ АВТОМАТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ", color=discord.Color.orange(), timestamp=datetime.now())
-    embed.add_field(name="👤 Пользователь", value=f"{user.mention}\n{user.name}", inline=True)
-    embed.add_field(name="📝 Причина", value=reason, inline=True)
-    embed.add_field(name="📊 Всего варнов", value=f"{warning_count}/{ANTISPAM_MAX_WARNINGS}", inline=True)
-    await send_log(user.guild.id, embed)
-    if warning_count >= ANTISPAM_MAX_WARNINGS:
-        alert = discord.Embed(title="🚨 ПРЕВЫШЕН ЛИМИТ ПРЕДУПРЕЖДЕНИЙ", description=f"{user.mention} получил {warning_count} предупреждений за 24 часа", color=discord.Color.red())
-        await send_log(user.guild.id, alert)
-    return warning_count
-
-async def send_warning_dm(user, reason, wc, channel):
-    try:
-        await user.send(f"⚠️ **Автомодерация**\nВаши сообщения в {channel.mention} удалены\nПричина: {reason}\nПредупреждений: {wc}/{ANTISPAM_MAX_WARNINGS}")
-    except: pass
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def automod(ctx, action: str = None, module: str = None, *args):
-    if ctx.guild.id not in guild_settings: guild_settings[ctx.guild.id] = {}
-    settings = guild_settings[ctx.guild.id]
-    if "automod_enabled" not in settings:
-        settings.update({"automod_enabled": True, "automod_bad_words": [], "automod_invites_enabled": True, "automod_phishing_enabled": True, "automod_exempt_roles": []})
-    if action is None or action == "status":
-        embed = discord.Embed(title="⚙️ АВТОМОДЕРАЦИЯ", color=discord.Color.blue())
-        embed.add_field(name="📊 Статус", value="✅ ВКЛ" if settings["automod_enabled"] else "❌ ВЫКЛ", inline=False)
-        embed.add_field(name="📝 Запрещённые слова", value=f"{len(settings['automod_bad_words'])} слов", inline=True)
-        embed.add_field(name="🚫 Реклама", value="✅ ВКЛ" if settings["automod_invites_enabled"] else "❌ ВЫКЛ", inline=True)
-        embed.add_field(name="🎣 Фишинг", value="✅ ВКЛ" if settings["automod_phishing_enabled"] else "❌ ВЫКЛ", inline=True)
-        roles = [ctx.guild.get_role(rid).mention for rid in settings["automod_exempt_roles"] if ctx.guild.get_role(rid)]
-        embed.add_field(name="👑 Исключённые", value=", ".join(roles) if roles else "Нет", inline=False)
-        await ctx.send(embed=embed)
-        return
-    if action == "enable": settings["automod_enabled"] = True; await ctx.send("✅ Автомод ВКЛ")
-    elif action == "disable": settings["automod_enabled"] = False; await ctx.send("❌ Автомод ВЫКЛ")
-    elif action == "words":
-        if module == "add" and len(args)>=2:
-            word = " ".join(args[1:]).lower()
-            if word not in settings["automod_bad_words"]: settings["automod_bad_words"].append(word); await ctx.send(f"✅ Добавлено: {word}")
-        elif module == "remove" and len(args)>=2:
-            word = " ".join(args[1:]).lower()
-            if word in settings["automod_bad_words"]: settings["automod_bad_words"].remove(word); await ctx.send(f"✅ Удалено: {word}")
-        elif module == "list": await ctx.send(f"📝 Слова: {', '.join(settings['automod_bad_words']) if settings['automod_bad_words'] else 'пусто'}")
-        elif module == "clear": settings["automod_bad_words"] = []; await ctx.send("✅ Очищено")
-    elif action == "invites":
-        if args[0]=="on": settings["automod_invites_enabled"]=True; await ctx.send("✅ Реклама включена")
-        elif args[0]=="off": settings["automod_invites_enabled"]=False; await ctx.send("❌ Реклама выключена")
-    elif action == "phishing":
-        if args[0]=="on": settings["automod_phishing_enabled"]=True; await ctx.send("✅ Фишинг включён")
-        elif args[0]=="off": settings["automod_phishing_enabled"]=False; await ctx.send("❌ Фишинг выключен")
-    elif action == "exempt":
-        if module == "add" and ctx.message.role_mentions:
-            role = ctx.message.role_mentions[0]
-            if role.id not in settings["automod_exempt_roles"]: settings["automod_exempt_roles"].append(role.id); await ctx.send(f"✅ {role.mention} исключена")
-        elif module == "remove" and ctx.message.role_mentions:
-            role = ctx.message.role_mentions[0]
-            if role.id in settings["automod_exempt_roles"]: settings["automod_exempt_roles"].remove(role.id); await ctx.send(f"✅ {role.mention} удалена")
-        elif module == "list": await ctx.send(f"👑 Исключённые: {', '.join([ctx.guild.get_role(rid).mention for rid in settings['automod_exempt_roles'] if ctx.guild.get_role(rid)]) or 'Нет'}")
-
 # ========== ЭКОНОМИКА ==========
 @bot.command()
 async def balance(ctx, member: discord.Member = None):
     t = member or ctx.author
     d = await get_user(t.id, ctx.guild.id)
-    await ctx.send(f"💰 {t.mention}: {d[4]} 💎 | 🏦 {d[5] if len(d)>5 else 0} 💎")
+    await ctx.send(f"💰 {t.mention}: {d[4]} 💎 | 🏦 {d[5] if len(d)>5 and d[5] is not None else 0} 💎")
 
 @bot.command()
 async def bank(ctx):
     d = await get_user(ctx.author.id, ctx.guild.id)
-    await ctx.send(f"🏦 {ctx.author.mention}: {d[5] if len(d)>5 else 0} 💎 | {BANK_INTEREST*100}% в день")
+    await ctx.send(f"🏦 {ctx.author.mention}: {d[5] if len(d)>5 and d[5] is not None else 0} 💎 | {BANK_INTEREST*100}% в день")
 
 @bot.command()
 async def deposit(ctx, amount: int):
-    if amount<10: return await ctx.send("❌ Мин. 10 💎")
+    if amount < 10:
+        return await ctx.send("❌ Мин. 10 💎")
     d = await get_user(ctx.author.id, ctx.guild.id)
-    if d[4] < amount: return await ctx.send(f"❌ Не хватает ({d[4]} 💎)")
+    if d[4] < amount:
+        return await ctx.send(f"❌ Не хватает ({d[4]} 💎)")
     await add_balance(ctx.author.id, ctx.guild.id, -amount)
     await add_bank(ctx.author.id, ctx.guild.id, amount)
     await ctx.send(f"🏦 +{amount} 💎 в банк")
@@ -1141,17 +981,20 @@ async def deposit(ctx, amount: int):
 @bot.command()
 async def withdraw(ctx, amount: int):
     d = await get_user(ctx.author.id, ctx.guild.id)
-    bank = d[5] if len(d)>5 else 0
-    if bank < amount: return await ctx.send(f"❌ В банке {bank} 💎")
+    bank = d[5] if len(d) > 5 and d[5] is not None else 0
+    if bank < amount:
+        return await ctx.send(f"❌ В банке {bank} 💎")
     await add_bank(ctx.author.id, ctx.guild.id, -amount)
     await add_balance(ctx.author.id, ctx.guild.id, amount)
     await ctx.send(f"🏦 Выведено {amount} 💎")
 
 @bot.command()
 async def pay(ctx, member: discord.Member, amount: int):
-    if amount<=0 or member==ctx.author: return await ctx.send("❌ Неверно")
+    if amount <= 0 or member == ctx.author:
+        return await ctx.send("❌ Неверно")
     s = await get_user(ctx.author.id, ctx.guild.id)
-    if s[4] < amount: return await ctx.send(f"❌ Не хватает ({s[4]} 💎)")
+    if s[4] < amount:
+        return await ctx.send(f"❌ Не хватает ({s[4]} 💎)")
     await add_balance(ctx.author.id, ctx.guild.id, -amount)
     await add_balance(member.id, ctx.guild.id, amount)
     await ctx.send(f"💸 {ctx.author.mention} перевёл {amount} 💎 {member.mention}")
@@ -1171,11 +1014,11 @@ async def take(ctx, member: discord.Member, amount: int):
 @bot.command()
 async def daily(ctx):
     d = await get_user(ctx.author.id, ctx.guild.id)
-    last = d[10] if len(d)>10 else None
+    last = d[10] if len(d) > 10 else None
     if last:
         ld = datetime.fromisoformat(last)
-        if (datetime.now()-ld).days < 1:
-            rem = 86400 - (datetime.now()-ld).seconds
+        if (datetime.now() - ld).days < 1:
+            rem = 86400 - (datetime.now() - ld).seconds
             return await ctx.send(f"⏰ Через {rem//3600}ч")
     earn = random.randint(500, 1500)
     await add_balance(ctx.author.id, ctx.guild.id, earn)
@@ -1186,10 +1029,10 @@ async def daily(ctx):
 @bot.command()
 async def weekly(ctx):
     d = await get_user(ctx.author.id, ctx.guild.id)
-    last = d[11] if len(d)>11 else None
+    last = d[11] if len(d) > 11 else None
     if last:
         ld = datetime.fromisoformat(last)
-        if (datetime.now()-ld).days < 7:
+        if (datetime.now() - ld).days < 7:
             return await ctx.send("⏰ Через неделю")
     earn = random.randint(3000, 6000)
     await add_balance(ctx.author.id, ctx.guild.id, earn)
@@ -1199,10 +1042,10 @@ async def weekly(ctx):
 @bot.command()
 async def monthly(ctx):
     d = await get_user(ctx.author.id, ctx.guild.id)
-    last = d[12] if len(d)>12 else None
+    last = d[12] if len(d) > 12 else None
     if last:
         ld = datetime.fromisoformat(last)
-        if (datetime.now()-ld).days < 30:
+        if (datetime.now() - ld).days < 30:
             return await ctx.send("⏰ Через месяц")
     earn = random.randint(10000, 20000)
     await add_balance(ctx.author.id, ctx.guild.id, earn)
@@ -1224,15 +1067,58 @@ async def work(ctx):
     await update_user_stats(ctx.author.id, ctx.guild.id, "work", 1)
 
 @bot.command()
+async def hourly_bonus(ctx):
+    can, w = check_cooldown(ctx.author.id, "hourly")
+    if not can:
+        if w is not None:
+            minutes = w // 60
+            return await ctx.send(f"⏰ Бонус будет доступен через {minutes} минут")
+        return await ctx.send("⏰ Подождите немного")
+    earn = random.randint(50, 200)
+    await add_balance(ctx.author.id, ctx.guild.id, earn)
+    set_cooldown(ctx.author.id, "hourly")
+    await ctx.send(f"🎁 Часовой бонус +{earn} 💎")
+
+@bot.command()
+async def weekly_bonus(ctx):
+    d = await get_user(ctx.author.id, ctx.guild.id)
+    last = d[11] if len(d) > 11 else None
+    if last:
+        ld = datetime.fromisoformat(last)
+        if (datetime.now() - ld).days < 7:
+            remaining = 7 - (datetime.now() - ld).days
+            return await ctx.send(f"⏰ Еженедельный бонус будет доступен через {remaining} дней")
+    earn = random.randint(5000, 10000)
+    await add_balance(ctx.author.id, ctx.guild.id, earn)
+    await update_user(ctx.author.id, ctx.guild.id, last_weekly=datetime.now().isoformat())
+    await ctx.send(f"🎁 Еженедельный бонус +{earn} 💎")
+
+@bot.command()
+async def monthly_bonus(ctx):
+    d = await get_user(ctx.author.id, ctx.guild.id)
+    last = d[12] if len(d) > 12 else None
+    if last:
+        ld = datetime.fromisoformat(last)
+        if (datetime.now() - ld).days < 30:
+            remaining = 30 - (datetime.now() - ld).days
+            return await ctx.send(f"⏰ Ежемесячный бонус будет доступен через {remaining} дней")
+    earn = random.randint(20000, 50000)
+    await add_balance(ctx.author.id, ctx.guild.id, earn)
+    await update_user(ctx.author.id, ctx.guild.id, last_monthly=datetime.now().isoformat())
+    await ctx.send(f"🎁 Ежемесячный бонус +{earn} 💎")
+
+@bot.command()
 async def rob(ctx, member: discord.Member):
-    if member==ctx.author: return await ctx.send("❌ Себя нельзя")
+    if member == ctx.author:
+        return await ctx.send("❌ Себя нельзя")
     can, w = check_cooldown(ctx.author.id, "rob")
     if not can:
         if w is not None:
             return await ctx.send(f"❌ КД {w//60}мин")
         return await ctx.send("❌ Подождите немного")
     td = await get_user(member.id, ctx.guild.id)
-    if td[4] < 500: return await ctx.send(f"❌ У {member.mention} мало денег")
+    if td[4] < 500:
+        return await ctx.send(f"❌ У {member.mention} мало денег")
     success = random.random() < WIN_CHANCE["rob"]
     set_cooldown(ctx.author.id, "rob")
     if success:
@@ -1253,7 +1139,8 @@ async def rep(ctx, member: discord.Member = None):
 
 @bot.command()
 async def plusrep(ctx, member: discord.Member):
-    if member==ctx.author: return await ctx.send("❌ Себе нельзя")
+    if member == ctx.author:
+        return await ctx.send("❌ Себе нельзя")
     can, w = check_rep_cooldown(ctx.author.id, member.id)
     if not can:
         if w is not None:
@@ -1266,7 +1153,8 @@ async def plusrep(ctx, member: discord.Member):
 
 @bot.command()
 async def minusrep(ctx, member: discord.Member):
-    if member==ctx.author: return await ctx.send("❌ Себе нельзя")
+    if member == ctx.author:
+        return await ctx.send("❌ Себе нельзя")
     can, w = check_rep_cooldown(ctx.author.id, member.id)
     if not can:
         if w is not None:
@@ -1279,15 +1167,18 @@ async def minusrep(ctx, member: discord.Member):
 # ========== ИГРЫ ==========
 @bot.command()
 async def casino(ctx, amount: int = None):
-    if not amount: return await ctx.send("🎰 j.casino 100")
+    if not amount:
+        return await ctx.send("🎰 j.casino 100")
     can, w = check_cooldown(ctx.author.id, "casino")
     if not can:
         if w is not None:
             return await ctx.send(f"⏰ {w}сек")
         return await ctx.send("⏰ Подождите немного")
-    if amount<100: return await ctx.send("❌ Мин. 100 💎")
+    if amount < 100:
+        return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
-    if bal<amount: return await ctx.send(f"❌ Не хватает")
+    if bal < amount:
+        return await ctx.send(f"❌ Не хватает")
     msg = await ctx.send(f"🎰 {ctx.author.mention} крутит...")
     for _ in range(3):
         await asyncio.sleep(0.3)
@@ -1306,21 +1197,24 @@ async def casino(ctx, amount: int = None):
 
 @bot.command()
 async def slots(ctx, bet: int = None):
-    if not bet: return await ctx.send("🎰 j.slots 100")
+    if not bet:
+        return await ctx.send("🎰 j.slots 100")
     can, w = check_cooldown(ctx.author.id, "casino")
     if not can:
         if w is not None:
             return await ctx.send(f"⏰ {w}сек")
         return await ctx.send("⏰ Подождите немного")
-    if bet<100: return await ctx.send("❌ Мин. 100 💎")
+    if bet < 100:
+        return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
-    if bal<bet: return await ctx.send(f"❌ Не хватает")
+    if bal < bet:
+        return await ctx.send(f"❌ Не хватает")
     msg = await ctx.send(f"🎰 {ctx.author.mention} крутит...")
     for _ in range(3):
         await asyncio.sleep(0.3)
         await msg.edit(content=f"🎰 {' '.join(random.choices(SLOT_EMOJIS, k=3))}")
     res = random.choices(SLOT_EMOJIS, k=3)
-    mul = 10 if res[0]==res[1]==res[2] else 2 if res[0]==res[1] or res[1]==res[2] or res[0]==res[2] else 0
+    mul = 10 if res[0] == res[1] == res[2] else 2 if res[0] == res[1] or res[1] == res[2] or res[0] == res[2] else 0
     set_cooldown(ctx.author.id, "casino")
     if mul:
         win = bet * mul
@@ -1332,21 +1226,23 @@ async def slots(ctx, bet: int = None):
 
 @bot.command()
 async def dice(ctx, num: int = None, bet: int = None):
-    if not num or not bet: return await ctx.send("🎲 j.dice 3 100")
+    if not num or not bet:
+        return await ctx.send("🎲 j.dice 3 100")
     can, w = check_cooldown(ctx.author.id, "dice")
     if not can:
         if w is not None:
             return await ctx.send(f"⏰ {w}сек")
         return await ctx.send("⏰ Подождите немного")
-    if num<1 or num>6: return await ctx.send("❌ 1-6")
-    if bet<100: return await ctx.send("❌ Мин. 100 💎")
+    if num < 1 or num > 6:
+        return await ctx.send("❌ 1-6")
+    if bet < 100:
+        return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
-    if bal<bet: return await ctx.send(f"❌ Не хватает")
+    if bal < bet:
+        return await ctx.send(f"❌ Не хватает")
     msg = await ctx.send(f"🎲 {ctx.author.mention} бросает...")
-    for _ in range(2):
-        await asyncio.sleep(0.3)
-        await msg.edit(content=f"🎲 {random.choice(DICE_EMOJIS)}")
-    roll = random.randint(1,6)
+    await asyncio.sleep(0.5)
+    roll = random.randint(1, 6)
     set_cooldown(ctx.author.id, "dice")
     if roll == num:
         win = bet * 6
@@ -1359,23 +1255,27 @@ async def dice(ctx, num: int = None, bet: int = None):
 
 @bot.command()
 async def coinflip(ctx, side: str = None, bet: int = None):
-    if not side or not bet: return await ctx.send("🪙 j.coinflip орёл 100")
+    if not side or not bet:
+        return await ctx.send("🪙 j.coinflip орёл 100")
     can, w = check_cooldown(ctx.author.id, "coin")
     if not can:
         if w is not None:
             return await ctx.send(f"⏰ {w}сек")
         return await ctx.send("⏰ Подождите немного")
-    side=side.lower()
-    if side not in ["орёл","орел","решка"]: return await ctx.send("❌ орёл/решка")
-    if bet<100: return await ctx.send("❌ Мин. 100 💎")
+    side = side.lower()
+    if side not in ["орёл", "орел", "решка"]:
+        return await ctx.send("❌ орёл/решка")
+    if bet < 100:
+        return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
-    if bal<bet: return await ctx.send(f"❌ Не хватает")
+    if bal < bet:
+        return await ctx.send(f"❌ Не хватает")
     msg = await ctx.send(f"🪙 {ctx.author.mention} подбрасывает...")
     await asyncio.sleep(0.5)
-    res = random.choice(["орёл","решка"])
+    res = random.choice(["орёл", "решка"])
     win = random.random() < WIN_CHANCE["coin"]
     set_cooldown(ctx.author.id, "coin")
-    if (side in ["орёл","орел"] and res=="орёл" and win) or (side=="решка" and res=="решка" and win):
+    if (side in ["орёл", "орел"] and res == "орёл" and win) or (side == "решка" and res == "решка" and win):
         wa = bet * 2
         await add_balance(ctx.author.id, ctx.guild.id, wa)
         await msg.edit(content=f"🪙 {res.upper()}! УГАДАЛ! +{wa} 💎")
@@ -1386,18 +1286,22 @@ async def coinflip(ctx, side: str = None, bet: int = None):
 
 @bot.command()
 async def rps(ctx, choice: str = None, bet: int = None):
-    if not choice or not bet: return await ctx.send("✊ j.rps камень 100")
+    if not choice or not bet:
+        return await ctx.send("✊ j.rps камень 100")
     can, w = check_cooldown(ctx.author.id, "rps")
     if not can:
         if w is not None:
             return await ctx.send(f"⏰ {w}сек")
         return await ctx.send("⏰ Подождите немного")
-    choice=choice.lower()
-    if choice not in ["камень","ножницы","бумага"]: return await ctx.send("❌ камень/ножницы/бумага")
-    if bet<100: return await ctx.send("❌ Мин. 100 💎")
+    choice = choice.lower()
+    if choice not in ["камень", "ножницы", "бумага"]:
+        return await ctx.send("❌ камень/ножницы/бумага")
+    if bet < 100:
+        return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
-    if bal<bet: return await ctx.send(f"❌ Не хватает")
-    botc = random.choice(["камень","ножницы","бумага"])
+    if bal < bet:
+        return await ctx.send(f"❌ Не хватает")
+    botc = random.choice(["камень", "ножницы", "бумага"])
     msg = await ctx.send(f"✊ {ctx.author.mention} vs бот...")
     await asyncio.sleep(0.5)
     win = random.random() < WIN_CHANCE["rps"]
@@ -1405,7 +1309,7 @@ async def rps(ctx, choice: str = None, bet: int = None):
     if choice == botc:
         await msg.edit(content=f"✊ {choice} vs {botc} → НИЧЬЯ!")
         return
-    if (choice=="камень" and botc=="ножницы") or (choice=="ножницы" and botc=="бумага") or (choice=="бумага" and botc=="камень"):
+    if (choice == "камень" and botc == "ножницы") or (choice == "ножницы" and botc == "бумага") or (choice == "бумага" and botc == "камень"):
         if win:
             wa = bet * 2
             await add_balance(ctx.author.id, ctx.guild.id, wa)
@@ -1426,68 +1330,88 @@ async def rps(ctx, choice: str = None, bet: int = None):
 
 @bot.command()
 async def blackjack(ctx, bet: int = None):
-    if not bet: return await ctx.send("🃏 j.blackjack 100")
+    if not bet:
+        return await ctx.send("🃏 j.blackjack 100")
     can, w = check_cooldown(ctx.author.id, "blackjack")
     if not can:
         if w is not None:
             return await ctx.send(f"⏰ {w}сек")
         return await ctx.send("⏰ Подождите немного")
-    if bet<100: return await ctx.send("❌ Мин. 100 💎")
+    if bet < 100:
+        return await ctx.send("❌ Мин. 100 💎")
     bal = (await get_user(ctx.author.id, ctx.guild.id))[4]
-    if bal<bet: return await ctx.send(f"❌ Не хватает")
+    if bal < bet:
+        return await ctx.send(f"❌ Не хватает")
     await add_balance(ctx.author.id, ctx.guild.id, -bet)
     deck = FULL_DECK.copy()
     random.shuffle(deck)
     player = [deck.pop(), deck.pop()]
     dealer = [deck.pop(), deck.pop()]
+    
     def hv(h):
-        v,a=0,0
+        v, a = 0, 0
         for c in h:
-            r=c[:-2] if len(c)>2 else c[:-1]
-            if r in ['J','Q','K']: v+=10
-            elif r=='A': a+=1; v+=11
-            else: v+=int(r)
-        while v>21 and a>0: v-=10; a-=1
+            r = c[:-2] if len(c) > 2 else c[:-1]
+            if r in ['J', 'Q', 'K']:
+                v += 10
+            elif r == 'A':
+                a += 1
+                v += 11
+            else:
+                v += int(r)
+        while v > 21 and a > 0:
+            v -= 10
+            a -= 1
         return v
+    
     msg = await ctx.send(f"🃏 БЛЭКДЖЕК | Ставка: {bet} 💎\nВаши: {' '.join(player)} ({hv(player)})\nДилер: {dealer[0]} ?")
+    
     class BJView(View):
         def __init__(self):
             super().__init__(timeout=30)
-            self.ended=False
+            self.ended = False
+        
         @discord.ui.button(label="Ещё", style=discord.ButtonStyle.primary)
         async def hit(self, i, b):
-            if i.user.id!=ctx.author.id: return await i.response.send_message("❌ Не ваша игра!", ephemeral=True)
+            if i.user.id != ctx.author.id:
+                return await i.response.send_message("❌ Не ваша игра!", ephemeral=True)
             player.append(deck.pop())
-            pv=hv(player)
-            if pv>21:
-                await i.response.edit_message(content=f"🃏 **ПЕРЕБОР!**\n{' '.join(player)} ({pv})\nДилер: {' '.join(dealer)} ({hv(dealer)})\n-{bet} 💎", view=None)
-                self.ended=True
+            pv = hv(player)
+            if pv > 21:
+                await i.response.edit_message(content=f"🃏 **ПЕРЕБОР!**\n-{bet} 💎", view=None)
+                self.ended = True
                 set_cooldown(ctx.author.id, "blackjack")
                 return
             await i.response.edit_message(content=f"🃏 БЛЭКДЖЕК\nВаши: {' '.join(player)} ({pv})\nДилер: {dealer[0]} ?")
+        
         @discord.ui.button(label="Стоп", style=discord.ButtonStyle.success)
         async def stand(self, i, b):
-            if i.user.id!=ctx.author.id: return await i.response.send_message("❌ Не ваша игра!", ephemeral=True)
-            pv=hv(player); dv=hv(dealer)
-            while dv<17: dealer.append(deck.pop()); dv=hv(dealer)
-            win=random.random()<WIN_CHANCE["blackjack"]
+            if i.user.id != ctx.author.id:
+                return await i.response.send_message("❌ Не ваша игра!", ephemeral=True)
+            pv = hv(player)
+            dv = hv(dealer)
+            while dv < 17:
+                dealer.append(deck.pop())
+                dv = hv(dealer)
             set_cooldown(ctx.author.id, "blackjack")
-            if dv>21 or (pv>dv and win):
-                wa=bet*2
+            if dv > 21 or pv > dv:
+                wa = bet * 2
                 await add_balance(ctx.author.id, ctx.guild.id, wa)
-                await i.response.edit_message(content=f"🃏 **ВЫИГРЫШ!**\nВаши: {' '.join(player)} ({pv})\nДилер: {' '.join(dealer)} ({dv})\n+{wa} 💎", view=None)
+                await i.response.edit_message(content=f"🃏 **ВЫИГРЫШ!**\n+{wa} 💎", view=None)
                 await check_daily_quest(ctx.author.id, ctx.guild.id, "bj_win", 1)
                 await update_user_stats(ctx.author.id, ctx.guild.id, "blackjack_win", 1)
-            elif pv==dv:
+            elif pv == dv:
                 await add_balance(ctx.author.id, ctx.guild.id, bet)
-                await i.response.edit_message(content=f"🃏 **НИЧЬЯ!**\n{' '.join(player)} ({pv})\n{' '.join(dealer)} ({dv})", view=None)
+                await i.response.edit_message(content=f"🃏 **НИЧЬЯ!**", view=None)
             else:
-                await i.response.edit_message(content=f"🃏 **ПРОИГРЫШ!**\n{' '.join(player)} ({pv})\n{' '.join(dealer)} ({dv})", view=None)
-            self.ended=True
+                await i.response.edit_message(content=f"🃏 **ПРОИГРЫШ!**", view=None)
+            self.ended = True
+        
         async def on_timeout(self):
             if not self.ended:
                 await msg.edit(content="⏰ Время вышло! Ставка возвращена", view=None)
                 await add_balance(ctx.author.id, ctx.guild.id, bet)
+    
     view = BJView()
     await msg.edit(view=view)
 
@@ -1505,8 +1429,12 @@ async def farm(ctx):
         for i, c in enumerate(crops[:10]):
             if c:
                 planted = datetime.fromisoformat(c["planted_at"])
-                left = (planted + timedelta(seconds=SEEDS[c["seed"]]["grow_time"]) - datetime.now())
-                status = f"🌱 {int(left.total_seconds()//3600)}ч {int((left.total_seconds()%3600)//60)}мин" if left.total_seconds() > 0 else "✅ ГОТОВО!"
+                grow_time = c.get("grow_time", SEEDS[c["seed"]]["grow_time"])
+                left = (planted + timedelta(seconds=grow_time) - datetime.now())
+                if left.total_seconds() > 0:
+                    status = f"🌱 {int(left.total_seconds()//3600)}ч {int((left.total_seconds()%3600)//60)}мин"
+                else:
+                    status = "✅ ГОТОВО!"
                 text += f"**{i+1}.** {c['seed'].capitalize()} ({c['rarity']}) - {status}\n"
         embed.add_field(name="📋 Посевы", value=text[:1024], inline=False)
     embed.set_footer(text="j.buy_pot | j.buy_seed | j.plant | j.harvest | j.sell_crop")
@@ -1516,9 +1444,11 @@ async def farm(ctx):
 async def buy_pot(ctx):
     data = await get_user(ctx.author.id, ctx.guild.id)
     pots = data[28] if len(data) > 28 else 0
-    if pots >= 10: return await ctx.send("❌ Максимум 10 горшков!")
+    if pots >= 10:
+        return await ctx.send("❌ Максимум 10 горшков!")
     price = 2000 * (pots + 1)
-    if data[4] < price: return await ctx.send(f"❌ Нужно {price} 💎")
+    if data[4] < price:
+        return await ctx.send(f"❌ Нужно {price} 💎")
     await add_balance(ctx.author.id, ctx.guild.id, -price)
     await update_user(ctx.author.id, ctx.guild.id, pots=pots + 1)
     await ctx.send(f"✅ Куплен горшок №{pots+1} за {price} 💎")
@@ -1561,7 +1491,6 @@ async def plant(ctx, pot: int = None, seed: str = None):
     seed_data = SEEDS[seed]
     is_star_seed = seed_data.get("star", False)
     
-    # Проверка: звёздные семена можно сажать только ночью
     if is_star_seed and not is_night_time():
         return await ctx.send("🌙 **Звёздные семена можно сажать только ночью!** (23:00 - 06:00)")
     
@@ -1573,16 +1502,12 @@ async def plant(ctx, pot: int = None, seed: str = None):
         inv.remove(f"seed_{seed}")
         await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
     
-    # Расчёт времени роста с учётом ночного режима
     grow_time = seed_data["grow_time"]
     if is_star_seed and is_night_time():
-        # Звёздные культуры ночью растут в 2 раза быстрее
         grow_time = grow_time // 2
     
-    # Шанс на редкую редкость выше в звёздный час
     weights = seed_data["rarity_weights"].copy()
     if is_star_hour():
-        # В звёздный час повышаем шанс на эпические и легендарные
         weights["эпическое"] = weights.get("эпическое", 10) * 2
         weights["легендарное"] = weights.get("легендарное", 2) * 3
     
@@ -1595,18 +1520,15 @@ async def plant(ctx, pot: int = None, seed: str = None):
         "seed": seed, 
         "planted_at": datetime.now().isoformat(), 
         "rarity": rarity,
-        "grow_time": grow_time  # Сохраняем реальное время роста
+        "grow_time": grow_time
     }
     
     await update_user(ctx.author.id, ctx.guild.id, crops=json.dumps(crops))
     
-    # Сообщение о посадке
     night_emoji = "🌙" if is_night_time() else "☀️"
     star_emoji = "✨" if is_star_seed else ""
     
-    await ctx.send(f"{night_emoji} Посажен {star_emoji}**{seed}** ({rarity}) в горшок №{pot}!\n"
-                   f"⏰ Время роста: {grow_time // 3600}ч {(grow_time % 3600) // 60}мин")
-    
+    await ctx.send(f"{night_emoji} Посажен {star_emoji}**{seed}** ({rarity}) в горшок №{pot}!\n⏰ Время роста: {grow_time // 3600}ч {(grow_time % 3600) // 60}мин")
     await check_daily_quest(ctx.author.id, ctx.guild.id, "plant", 1)
     await update_user_stats(ctx.author.id, ctx.guild.id, "plant", 1)
 
@@ -1635,7 +1557,6 @@ async def harvest(ctx, pot: int = None):
     seed_data = SEEDS[crop["seed"]]
     is_star_seed = seed_data.get("star", False)
     
-    # Бонус за сбор ночью для звёздных культур
     price = int(seed_data["base_price"] * RARITY_MULTIPLIERS.get(crop["rarity"], 1.0))
     if is_star_seed and is_night_time():
         price = int(price * 1.5)
@@ -1661,14 +1582,17 @@ async def harvest(ctx, pot: int = None):
 
 @bot.command()
 async def sell_crop(ctx, crop: str = None, rarity: str = None):
-    if not crop or not rarity: return await ctx.send("❌ j.sell_crop <культура> <редкость>")
+    if not crop or not rarity:
+        return await ctx.send("❌ j.sell_crop <культура> <редкость>")
     crop = crop.lower()
-    if crop not in SEEDS: return await ctx.send("❌ Нет такой культуры")
+    if crop not in SEEDS:
+        return await ctx.send("❌ Нет такой культуры")
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
         inv = json.loads((await cur.fetchone())[0] or "[]")
         item = f"crop_{crop}_{rarity}"
-        if item not in inv: return await ctx.send(f"❌ Нет {crop} ({rarity})")
+        if item not in inv:
+            return await ctx.send(f"❌ Нет {crop} ({rarity})")
         inv.remove(item)
         price = int(SEEDS[crop]["base_price"] * RARITY_MULTIPLIERS.get(rarity, 1.0))
         await add_balance(ctx.author.id, ctx.guild.id, price)
@@ -1682,7 +1606,8 @@ async def sell_all_crops(ctx):
         cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
         inv = json.loads((await cur.fetchone())[0] or "[]")
         crops = [i for i in inv if i.startswith("crop_")]
-        if not crops: return await ctx.send("❌ Нет урожая")
+        if not crops:
+            return await ctx.send("❌ Нет урожая")
         total = 0
         for item in crops:
             parts = item.split("_")
@@ -1694,6 +1619,178 @@ async def sell_all_crops(ctx):
         await db.commit()
     await ctx.send(f"💰 Продано всё за {total} 💎")
 
+@bot.command()
+async def farm_time(ctx):
+    """🌙 Показать текущее время и бонусы фермы"""
+    now = datetime.now()
+    hour = now.hour
+    
+    if is_night_time():
+        status = "🌙 **НОЧНОЙ РЕЖИМ** 🌙\n⭐ Звёздные культуры можно сажать!\n⚡ Звёздные культуры растут в 2 раза быстрее"
+    else:
+        status = "☀️ **ДНЕВНОЙ РЕЖИМ** ☀️\n⭐ Звёздные культуры нельзя сажать до ночи"
+    
+    if is_star_hour():
+        status += "\n✨ **ЗВЁЗДНЫЙ ЧАС!** ✨\n🎲 Повышен шанс на эпические и легендарные культуры!"
+    
+    embed = discord.Embed(title="🌙 ФЕРМА | ВРЕМЯ", description=status, color=discord.Color.blue())
+    embed.add_field(name="🕐 Текущее время", value=f"{now.strftime('%H:%M:%S')}", inline=True)
+    if hour < 23:
+        embed.add_field(name="🌙 Ночь наступает", value=f"Через {23 - hour}ч", inline=True)
+    else:
+        embed.add_field(name="🌙 Ночь наступает", value="Сейчас ночь!", inline=True)
+    if is_star_hour():
+        embed.add_field(name="✨ Звёздный час", value="⭐ АКТИВЕН!", inline=True)
+    else:
+        embed.add_field(name="✨ Звёздный час", value="02:00 - 04:00", inline=True)
+    
+    await ctx.send(embed=embed)
+
+# ========== ЖИВОТНЫЕ ==========
+@bot.command()
+async def buy_animal(ctx, animal_type: str = None):
+    if not animal_type or animal_type.lower() not in FARM_ANIMALS:
+        animals = "\n".join([f"• {a} - {data['price']} 💎 | Даёт: {data['produce']} ({data['produce_price']} 💎)" for a, data in FARM_ANIMALS.items()])
+        return await ctx.send(f"🐔 **Животные**\n{animals}\nПример: `j.buy_animal курица`")
+    animal = animal_type.lower()
+    animal_data = FARM_ANIMALS[animal]
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT level FROM farm_upgrades WHERE user_id=? AND guild_id=? AND upgrade_type="max_animals"', (ctx.author.id, ctx.guild.id))
+        upgrade = await cur.fetchone()
+        max_animals = 5 + (upgrade[0] * 2 if upgrade else 0)
+        cur = await db.execute('SELECT count FROM farm_animals WHERE user_id=? AND guild_id=? AND animal_type=?', (ctx.author.id, ctx.guild.id, animal))
+        current = await cur.fetchone()
+        current_count = current[0] if current else 0
+        if current_count >= max_animals:
+            return await ctx.send(f"❌ Максимум {max_animals} {animal}")
+    user = await get_user(ctx.author.id, ctx.guild.id)
+    if user[4] < animal_data["price"]:
+        return await ctx.send(f"❌ Нужно {animal_data['price']} 💎")
+    await add_balance(ctx.author.id, ctx.guild.id, -animal_data["price"])
+    async with aiosqlite.connect("justice.db") as db:
+        if current:
+            await db.execute('UPDATE farm_animals SET count=? WHERE user_id=? AND guild_id=? AND animal_type=?', (current_count+1, ctx.author.id, ctx.guild.id, animal))
+        else:
+            await db.execute('INSERT INTO farm_animals (user_id, guild_id, animal_type, count, last_produce, last_fed) VALUES (?,?,?,1,?,?)', (ctx.author.id, ctx.guild.id, animal, datetime.now().isoformat(), datetime.now().isoformat()))
+        await db.commit()
+    await ctx.send(f"✅ Куплен {animal_data['name']} за {animal_data['price']} 💎!")
+
+@bot.command()
+async def feed_animals(ctx):
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT animal_type, count FROM farm_animals WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        animals = await cur.fetchall()
+        if not animals:
+            return await ctx.send("❌ Нет животных")
+        total_feed = 0
+        for animal, count in animals:
+            animal_data = FARM_ANIMALS[animal]
+            feed_needed = animal_data["feed_amount"] * count
+            cur3 = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+            inv = json.loads((await cur3.fetchone())[0] or "[]")
+            feed_count = inv.count(f"crop_{animal_data['feed']}")
+            if feed_count >= feed_needed:
+                for _ in range(feed_needed):
+                    inv.remove(f"crop_{animal_data['feed']}")
+                total_feed += feed_needed
+                await db.execute('UPDATE farm_animals SET last_fed=? WHERE user_id=? AND guild_id=? AND animal_type=?', (datetime.now().isoformat(), ctx.author.id, ctx.guild.id, animal))
+            else:
+                await ctx.send(f"⚠️ Не хватает {animal_data['feed']} для {animal} (нужно {feed_needed}, есть {feed_count})")
+        if total_feed > 0:
+            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+            await db.commit()
+            await ctx.send(f"✅ Потрачено {total_feed} еды")
+        else:
+            await ctx.send("❌ Нет еды")
+
+@bot.command()
+async def collect_products(ctx):
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT animal_type, count, last_produce FROM farm_animals WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        animals = await cur.fetchall()
+        if not animals:
+            return await ctx.send("❌ Нет животных")
+        total_earn = 0
+        collected = []
+        for animal, count, last_produce in animals:
+            animal_data = FARM_ANIMALS[animal]
+            last_time = datetime.fromisoformat(last_produce)
+            time_passed = (datetime.now() - last_time).total_seconds()
+            produce_time = animal_data["produce_time"]
+            if time_passed >= produce_time:
+                cycles = int(time_passed // produce_time)
+                if cycles > 0:
+                    produced = count * cycles
+                    earn = produced * animal_data["produce_price"]
+                    total_earn += earn
+                    collected.append(f"{animal_data['name']} x{produced} (+{earn} 💎)")
+                    new_time = last_time + timedelta(seconds=produce_time * cycles)
+                    await db.execute('UPDATE farm_animals SET last_produce=? WHERE user_id=? AND guild_id=? AND animal_type=?', (new_time.isoformat(), ctx.author.id, ctx.guild.id, animal))
+        if total_earn > 0:
+            cur4 = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+            inv = json.loads((await cur4.fetchone())[0] or "[]")
+            for item in collected:
+                inv.append(f"product_{item.split(' x')[0]}")
+            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+            await add_balance(ctx.author.id, ctx.guild.id, total_earn)
+            await db.commit()
+            await ctx.send(f"✅ Собрано:\n" + "\n".join(collected[:10]) + f"\n💰 Всего: {total_earn} 💎")
+        else:
+            await ctx.send("❌ Продукция не готова")
+
+@bot.command()
+async def my_animals(ctx):
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT animal_type, count, last_fed FROM farm_animals WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        animals = await cur.fetchall()
+        if not animals:
+            return await ctx.send("🐔 Нет животных. `j.buy_animal курица`")
+        embed = discord.Embed(title=f"🐔 ЖИВОТНЫЕ | {ctx.author.display_name}", color=discord.Color.green())
+        for animal, count, last_fed in animals:
+            animal_data = FARM_ANIMALS[animal]
+            last_fed_time = datetime.fromisoformat(last_fed)
+            hungry = (datetime.now() - last_fed_time).total_seconds() > 43200
+            status = "😋 Сытые" if not hungry else "🍽️ Голодные!"
+            embed.add_field(name=f"{animal_data['name']} x{count}", value=f"📦 Даёт: {animal_data['produce']}\n💎 Цена: {animal_data['produce_price']}\n{status}", inline=True)
+        await ctx.send(embed=embed)
+
+@bot.command()
+async def upgrade_farm(ctx, upgrade_type: str = None):
+    if not upgrade_type or upgrade_type.lower() not in FARM_UPGRADES:
+        upgrades = "\n".join([f"• {ut} - {data['name']} | Уровень {data['max_level']} | Старт: {data['base_cost']} 💎" for ut, data in FARM_UPGRADES.items()])
+        return await ctx.send(f"📈 **Улучшения фермы**\n{upgrades}\n\nПример: `j.upgrade_farm grow_speed`")
+    upgrade = upgrade_type.lower()
+    upgrade_data = FARM_UPGRADES[upgrade]
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT level FROM farm_upgrades WHERE user_id=? AND guild_id=? AND upgrade_type=?', (ctx.author.id, ctx.guild.id, upgrade))
+        current = await cur.fetchone()
+        current_level = current[0] if current else 0
+        if current_level >= upgrade_data["max_level"]:
+            return await ctx.send(f"❌ Максимальный уровень {upgrade_data['max_level']} достигнут!")
+        cost = upgrade_data["base_cost"] * (current_level + 1)
+        user = await get_user(ctx.author.id, ctx.guild.id)
+        if user[4] < cost:
+            return await ctx.send(f"❌ Не хватает {cost} 💎")
+        await add_balance(ctx.author.id, ctx.guild.id, -cost)
+        if current:
+            await db.execute('UPDATE farm_upgrades SET level=? WHERE user_id=? AND guild_id=? AND upgrade_type=?', (current_level+1, ctx.author.id, ctx.guild.id, upgrade))
+        else:
+            await db.execute('INSERT INTO farm_upgrades (user_id, guild_id, upgrade_type, level) VALUES (?,?,?,1)', (ctx.author.id, ctx.guild.id, upgrade))
+        await db.commit()
+    await ctx.send(f"✅ {upgrade_data['name']} улучшен до {current_level+1} уровня за {cost} 💎!")
+
+@bot.command()
+async def farm_upgrades_info(ctx):
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT upgrade_type, level FROM farm_upgrades WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        upgrades = {row[0]: row[1] for row in await cur.fetchall()}
+    embed = discord.Embed(title="📈 УЛУЧШЕНИЯ ФЕРМЫ", color=discord.Color.green())
+    for ut, data in FARM_UPGRADES.items():
+        level = upgrades.get(ut, 0)
+        next_cost = data["base_cost"] * (level + 1)
+        embed.add_field(name=f"{data['name']} (ур.{level}/{data['max_level']})", value=f"След. уровень: {next_cost} 💎\n`j.upgrade_farm {ut}`", inline=True)
+    await ctx.send(embed=embed)
+
 # ========== РЫБАЛКА ==========
 class FishingView(View):
     def __init__(self, user_id):
@@ -1701,9 +1798,11 @@ class FishingView(View):
         self.user_id = user_id
         self.clicked = False
         self.start = time.time()
+    
     @discord.ui.button(label="🎣 ТЯНУТЬ!", style=discord.ButtonStyle.success)
     async def pull(self, i, b):
-        if i.user.id != self.user_id: return await i.response.send_message("❌ Не вы!", ephemeral=True)
+        if i.user.id != self.user_id:
+            return await i.response.send_message("❌ Не вы!", ephemeral=True)
         self.clicked = True
         self.reaction_time = time.time() - self.start
         await i.response.edit_message(content=f"✅ {self.reaction_time:.1f} сек!", view=None)
@@ -1720,7 +1819,8 @@ async def fish(ctx):
     inv = json.loads(data[19] if len(data) > 19 else "[]")
     rod = "простая"
     for r in FISHING_RODS:
-        if f"rod_{r}" in inv: rod = r
+        if f"rod_{r}" in inv:
+            rod = r
     fishing_cooldowns[user_id] = now
     msg = await ctx.send(f"🎣 Заброс... {FISHING_RODS[rod]['emoji']}")
     await asyncio.sleep(2)
@@ -1730,7 +1830,8 @@ async def fish(ctx):
     view = FishingView(user_id)
     game_msg = await ctx.send("🎣 ТЯНИ!", view=view)
     await view.wait()
-    if not view.clicked: return await game_msg.edit(content=f"💔 Леска порвалась! {fish} уплыл!")
+    if not view.clicked:
+        return await game_msg.edit(content=f"💔 Леска порвалась! {fish} уплыл!")
     mult = 1.5 if view.reaction_time < 1.5 else 1.2 if view.reaction_time < 3 else 1.0
     price = int(fd["price"] * mult)
     exp = int(fd["exp"] * mult)
@@ -1750,14 +1851,18 @@ async def fish(ctx):
 
 @bot.command()
 async def buy_rod(ctx, rod_name: str = None):
-    if not rod_name: return await ctx.send("Удочки: простая, улучшенная, золотая")
+    if not rod_name:
+        return await ctx.send("Удочки: простая, улучшенная, золотая")
     rod_name = rod_name.lower()
-    if rod_name not in FISHING_RODS: return await ctx.send("Нет такой удочки")
+    if rod_name not in FISHING_RODS:
+        return await ctx.send("Нет такой удочки")
     rod = FISHING_RODS[rod_name]
     data = await get_user(ctx.author.id, ctx.guild.id)
-    if data[4] < rod["price"]: return await ctx.send(f"❌ Нужно {rod['price']} 💎")
+    if data[4] < rod["price"]:
+        return await ctx.send(f"❌ Нужно {rod['price']} 💎")
     inv = json.loads(data[19] if len(data) > 19 else "[]")
-    if f"rod_{rod_name}" in inv: return await ctx.send("Уже есть")
+    if f"rod_{rod_name}" in inv:
+        return await ctx.send("Уже есть")
     inv.append(f"rod_{rod_name}")
     await add_balance(ctx.author.id, ctx.guild.id, -rod["price"])
     await update_user(ctx.author.id, ctx.guild.id, inventory=json.dumps(inv))
@@ -1768,7 +1873,8 @@ async def sell_all(ctx):
     data = await get_user(ctx.author.id, ctx.guild.id)
     inv = json.loads(data[19] if len(data) > 19 else "[]")
     fish = [i for i in inv if i.startswith("fish_")]
-    if not fish: return await ctx.send("Нет рыбы")
+    if not fish:
+        return await ctx.send("Нет рыбы")
     total = sum(FISHING_ITEMS[f.replace("fish_", "")]["price"] for f in fish)
     inv = [i for i in inv if not i.startswith("fish_")]
     await add_balance(ctx.author.id, ctx.guild.id, total)
@@ -1778,100 +1884,165 @@ async def sell_all(ctx):
 # ========== МАГАЗИН ==========
 @bot.command()
 async def shop(ctx, category: str = None):
-    embed = discord.Embed(title="🛍️ МАГАЗИН", color=discord.Color.gold())
-    if not category or category == "алкоголь":
-        text = "\n".join([f"**{n}** - {d['price']} 💎 | {d['desc']}" for n, d in SHOP_ITEMS.items() if d.get("type") == "consumable"])
-        embed.add_field(name="🍺 АЛКОГОЛЬ", value=text or "Нет", inline=False)
-    if not category or category == "украшения":
-        text = "\n".join([f"**{n}** - {d['price']} 💎 | {d['desc']}" for n, d in SHOP_ITEMS.items() if d.get("type") == "award"])
-        embed.add_field(name="✨ УКРАШЕНИЯ", value=text or "Нет", inline=False)
-    if not category or category == "цвета":
-        text = "\n".join([f"**{n}** - {d['price']} 💎 | {d['desc']}" for n, d in SHOP_ITEMS.items() if d.get("type") == "color"])
-        embed.add_field(name="🎨 ЦВЕТА", value=text or "Нет", inline=False)
-    if not category or category == "бустеры":
-        text = "\n".join([f"**{n}** - {d['price']} 💎 | {d['desc']}" for n, d in SHOP_ITEMS.items() if d.get("type") == "booster"])
-        embed.add_field(name="⚡ БУСТЕРЫ", value=text or "Нет", inline=False)
-    if not category or category == "роли":
-        text = "\n".join([f"**{n}** - {d['price']} 💎 | {d['desc']}" for n, d in SHOP_ITEMS.items() if d.get("type") == "role"])
-        embed.add_field(name="👑 РОЛИ", value=text or "Нет", inline=False)
-    if not category or category == "лотерея":
-        text = "\n".join([f"**{n}** - {d['price']} 💎 | {d['desc']}" for n, d in SHOP_ITEMS.items() if d.get("type") == "lottery"])
-        embed.add_field(name="🎫 ЛОТЕРЕЯ", value=text or "Нет", inline=False)
-    if CUSTOM_SHOP_ITEMS:
-        text = "\n".join([f"**{n}** - {d['price']} 💎 | {d['desc']}" for n, d in CUSTOM_SHOP_ITEMS.items()])
-        embed.add_field(name="📦 КАСТОМНЫЕ", value=text, inline=False)
-    embed.set_footer(text="j.buy <товар> | j.use <предмет> | j.inventory")
+    categories = {
+        "colors": {"name": "🎨 ЦВЕТА ПРОФИЛЯ", "emoji": "🎨"},
+        "decorations": {"name": "✨ УКРАШЕНИЯ", "emoji": "✨"},
+        "boosters": {"name": "⚡ БУСТЕРЫ", "emoji": "⚡"},
+        "lottery": {"name": "🎫 ЛОТЕРЕЯ", "emoji": "🎫"},
+    }
+    
+    if not category or category not in categories:
+        embed = discord.Embed(title="🛍️ МАГАЗИН", description="Выберите категорию:\n`j.shop colors` - цвета профиля\n`j.shop decorations` - украшения\n`j.shop boosters` - бустеры\n`j.shop lottery` - лотерея", color=discord.Color.gold())
+        await ctx.send(embed=embed)
+        return
+    
+    cat = categories[category]
+    embed = discord.Embed(title=f"{cat['emoji']} {cat['name']}", color=discord.Color.gold())
+    
+    items_in_category = []
+    for name, data in SHOP_ITEMS.items():
+        if data.get("category") == category:
+            items_in_category.append((name, data))
+        elif category == "colors" and name.startswith("цвет "):
+            items_in_category.append((name, data))
+    
+    for name, data in items_in_category[:25]:
+        embed.add_field(name=f"{name} - {data['price']} 💎", value=data['desc'], inline=False)
+    
+    if len(items_in_category) > 25:
+        embed.set_footer(text=f"Всего товаров: {len(items_in_category)} | Используйте j.buy <товар>")
+    else:
+        embed.set_footer(text="Используйте j.buy <товар> для покупки")
+    
     await ctx.send(embed=embed)
 
 @bot.command()
 async def buy(ctx, *, item: str = None):
-    if not item: return await ctx.send("❌ j.buy <товар>")
+    if not item:
+        return await ctx.send("❌ j.buy <товар>\nНапример: `j.buy цвет красный` или `j.buy корона`")
+    
     item = item.lower()
-    if item not in SHOP_ITEMS and item not in CUSTOM_SHOP_ITEMS:
-        return await ctx.send("❌ Нет такого товара")
-    data = SHOP_ITEMS.get(item) or CUSTOM_SHOP_ITEMS.get(item)
+    
+    found_item = None
+    found_name = None
+    
+    for name, data in SHOP_ITEMS.items():
+        if name.lower() == item:
+            found_item = data
+            found_name = name
+            break
+        elif item in name.lower():
+            found_item = data
+            found_name = name
+            break
+    
+    if not found_item:
+        return await ctx.send(f"❌ Товар не найден! Используйте `j.shop` для просмотра")
+    
     user = await get_user(ctx.author.id, ctx.guild.id)
-    if user[4] < data["price"]: return await ctx.send(f"❌ Нужно {data['price']} 💎")
-    await add_balance(ctx.author.id, ctx.guild.id, -data["price"])
+    if user[4] < found_item["price"]:
+        return await ctx.send(f"❌ Нужно {found_item['price']} 💎")
+    
+    await add_balance(ctx.author.id, ctx.guild.id, -found_item["price"])
+    
     async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-        inv = json.loads((await cur.fetchone())[0] or "[]")
-        inv.append(item)
+        cur = await db.execute('SELECT inventory, awards FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inv = json.loads(row[0] or "[]")
+        awards = json.loads(row[1] or "[]")
+        inv.append(found_name)
+        
+        if found_item["type"] == "color":
+            await db.execute('UPDATE users SET profile_color=? WHERE user_id=? AND guild_id=?', 
+                           (found_item["color_code"], ctx.author.id, ctx.guild.id))
+            await ctx.send(f"✅ {ctx.author.mention} купил **{found_name}** за {found_item['price']} 💎!\n🎨 Цвет профиля изменён!")
+            
+        elif found_item["type"] == "decoration":
+            await db.execute('UPDATE users SET awards=? WHERE user_id=? AND guild_id=?', 
+                           (json.dumps(awards + [found_name]), ctx.author.id, ctx.guild.id))
+            await ctx.send(f"✅ {ctx.author.mention} купил **{found_name}** за {found_item['price']} 💎!\n✨ Украшение добавлено в инвентарь!")
+            
+        elif found_item["type"] == "booster":
+            boost_type = found_item["booster_type"]
+            active_boosters[ctx.author.id][boost_type] = {
+                "mult": found_item["multiplier"],
+                "end": time.time() + found_item["duration"]
+            }
+            await ctx.send(f"✅ {ctx.author.mention} активировал **{found_name}**!\n⚡ +{found_item['multiplier']}x {boost_type.upper()} на {found_item['duration']//60} минут!")
+            
+        elif found_item["type"] == "lottery":
+            win_chance = random.randint(0, 100)
+            if win_chance < 10:
+                win_amount = random.randint(100, found_item["max_win"])
+                await add_balance(ctx.author.id, ctx.guild.id, win_amount)
+                await ctx.send(f"🎉 {ctx.author.mention} выиграл **{win_amount}** 💎 по билету **{found_name}**!")
+            else:
+                await ctx.send(f"😔 {ctx.author.mention} ничего не выиграл по билету **{found_name}**!")
+            return
+        
+        else:
+            await ctx.send(f"✅ {ctx.author.mention} купил **{found_name}** за {found_item['price']} 💎!")
+        
         await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
-        if data.get("type") == "color" and "color_code" in data:
-            await db.execute('UPDATE users SET profile_color=? WHERE user_id=? AND guild_id=?', (data["color_code"], ctx.author.id, ctx.guild.id))
-        if data.get("type") == "role" and data.get("role_id"):
-            role = ctx.guild.get_role(data["role_id"])
-            if role: await ctx.author.add_roles(role)
-        if data.get("type") == "booster":
-            if "exp" in item.lower():
-                active_boosters[ctx.author.id]["exp"] = {"mult": 2 if "x2" in item else 5, "end": time.time() + data["duration"]}
-            elif "денег" in item.lower():
-                active_boosters[ctx.author.id]["money"] = {"mult": 2 if "x2" in item else 5, "end": time.time() + data["duration"]}
         await db.commit()
-    await ctx.send(f"✅ {ctx.author.mention} купил **{item}** за {data['price']} 💎!")
-    await check_daily_quest(ctx.author.id, ctx.guild.id, "buy", 1)
+    
     await update_user_stats(ctx.author.id, ctx.guild.id, "shop_buy", 1)
-    await update_user_stats(ctx.author.id, ctx.guild.id, "shop_spend", data["price"])
+    await update_user_stats(ctx.author.id, ctx.guild.id, "shop_spend", found_item["price"])
 
 @bot.command()
-async def use(ctx, *, item: str = None):
-    if not item: return await ctx.send("❌ j.use <предмет>")
-    item = item.lower()
+async def use_decoration(ctx, *, decoration: str = None):
+    if not decoration:
+        return await ctx.send("❌ j.use_decoration <украшение>\nНапример: `j.use_decoration корона`")
+    
+    decoration = decoration.lower()
+    
     async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-        inv = json.loads((await cur.fetchone())[0] or "[]")
-        if item not in inv: return await ctx.send(f"❌ Нет {item} в инвентаре")
-        inv.remove(item)
-        if item == "лотерейный билет":
-            win = random.randint(0, 100)
-            if win < 10:
-                prize = random.randint(1000, 100000)
-                await add_balance(ctx.author.id, ctx.guild.id, prize)
-                await ctx.send(f"🎫 Вы выиграли {prize} 💎!")
-            else:
-                await ctx.send(f"🎫 К сожалению, ничего не выиграно")
-        elif item in ["золотой слиток"]:
-            sell_price = SHOP_ITEMS[item].get("sell_price", SHOP_ITEMS[item]["price"] // 2)
-            await add_balance(ctx.author.id, ctx.guild.id, sell_price)
-            await ctx.send(f"💰 Вы продали {item} за {sell_price} 💎")
-        else:
-            await ctx.send(f"✅ Использован {item}")
-        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+        cur = await db.execute('SELECT inventory, awards FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inv = json.loads(row[0] or "[]")
+        awards = json.loads(row[1] or "[]")
+        
+        found = None
+        for item in inv:
+            if decoration in item.lower():
+                found = item
+                break
+        
+        if not found:
+            return await ctx.send(f"❌ У вас нет украшения **{decoration}**! Купите в магазине `j.shop decorations`")
+        
+        inv.remove(found)
+        awards.append(found)
+        
+        await db.execute('UPDATE users SET inventory=?, awards=? WHERE user_id=? AND guild_id=?', 
+                        (json.dumps(inv), json.dumps(awards), ctx.author.id, ctx.guild.id))
         await db.commit()
+    
+    await ctx.send(f"✅ {ctx.author.mention} использовал **{found}**! Теперь оно отображается в профиле!")
 
 @bot.command()
 async def inventory(ctx, member: discord.Member = None):
     target = member or ctx.author
     async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
-        inv = json.loads((await cur.fetchone())[0] or "[]")
-    if not inv: return await ctx.send(f"📦 У {target.mention} пусто")
+        cur = await db.execute('SELECT inventory, awards FROM users WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
+        row = await cur.fetchone()
+        inv = json.loads(row[0] or "[]")
+        awards = json.loads(row[1] or "[]")
+    
+    if not inv and not awards:
+        return await ctx.send(f"📦 У {target.mention} пусто")
+    
     items = {}
-    for i in inv: items[i] = items.get(i, 0) + 1
-    embed = discord.Embed(title=f"📦 Инвентарь {target.display_name}", color=discord.Color.blue())
-    for i, c in list(items.items())[:20]:
-        embed.add_field(name=f"🔹 {i}", value=f"Кол-во: {c}\n`j.use {i}`", inline=True)
+    for i in inv:
+        items[i] = items.get(i, 0) + 1
+    
+    embed = discord.Embed(title=f"📦 ИНВЕНТАРЬ | {target.display_name}", color=discord.Color.blue())
+    
+    if items:
+        embed.add_field(name="🎒 ПРЕДМЕТЫ", value="\n".join([f"🔹 {i} x{c}" for i, c in list(items.items())[:15]]), inline=False)
+    if awards:
+        embed.add_field(name="✨ УКРАШЕНИЯ В ПРОФИЛЕ", value=" ".join(awards[:10]), inline=False)
+    
     await ctx.send(embed=embed)
 
 # ========== ПРОФИЛЬ ==========
@@ -1880,42 +2051,19 @@ async def profile(ctx, member: discord.Member = None):
     target = member or ctx.author
     data = await get_user(target.id, ctx.guild.id)
     
-    # Безопасное получение всех значений с проверкой на None
+    awards = json.loads(data[18] if len(data) > 18 else "[]")
+    decorations_text = " ".join(awards[:5]) if awards else "Нет украшений"
+    
     level = data[3] if data[3] is not None else 0
     xp = data[2] if data[2] is not None else 0
     bal = data[4] if data[4] is not None else 0
     bank = data[5] if len(data) > 5 and data[5] is not None else 0
     rep = data[6] if len(data) > 6 and data[6] is not None else 0
     total_msgs = data[9] if len(data) > 9 and data[9] is not None else 0
-    today_msgs = data[21] if len(data) > 21 and data[21] is not None else 0
-    week_msgs = data[22] if len(data) > 22 and data[22] is not None else 0
-    month_msgs = data[23] if len(data) > 23 and data[23] is not None else 0
-    
-    # ВАЖНО: проверка voice_seconds на None
-    voice_seconds = data[32] if len(data) > 32 and data[32] is not None else 0
-    
     bio = data[17] if len(data) > 17 and data[17] else "Нет биографии"
     gender = data[20] if len(data) > 20 and data[20] else ""
     profile_color = data[31] if len(data) > 31 and data[31] is not None else 0x5865F2
-    total_plants = data[40] if len(data) > 40 and data[40] is not None else 0
-    total_harvests = data[39] if len(data) > 39 and data[39] is not None else 0
-    total_fish = data[36] if len(data) > 36 and data[36] is not None else 0
-    total_legendary_fish = data[37] if len(data) > 37 and data[37] is not None else 0
-    total_mythic_fish = data[38] if len(data) > 38 and data[38] is not None else 0
-    total_casino_wins = data[33] if len(data) > 33 and data[33] is not None else 0
-    total_blackjack_wins = data[34] if len(data) > 34 and data[34] is not None else 0
-    total_work = data[41] if len(data) > 41 and data[41] is not None else 0
-    total_rob = data[42] if len(data) > 42 and data[42] is not None else 0
     
-    # Голосовой онлайн - БЕЗОПАСНОЕ деление
-    if voice_seconds is not None and voice_seconds > 0:
-        voice_hours = voice_seconds // 3600
-        voice_minutes = (voice_seconds % 3600) // 60
-        voice_text = f"{voice_hours}ч {voice_minutes}мин"
-    else:
-        voice_text = "0ч 0мин"
-    
-    # XP для следующего уровня
     if level == 0:
         xp_for_next = 200
         xp_for_current = 0
@@ -1933,7 +2081,6 @@ async def profile(ctx, member: discord.Member = None):
     bar = "█" * (percent // 5) + "░" * (20 - (percent // 5))
     gender_text = "👨 Мужчина" if gender == "male" else "👩 Женщина" if gender == "female" else "❓ Не указан"
     
-    # Получаем количество достижений
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT COUNT(*) FROM achievements WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
         ach_count = (await cur.fetchone())[0] or 0
@@ -1942,16 +2089,20 @@ async def profile(ctx, member: discord.Member = None):
     embed.set_thumbnail(url=target.display_avatar.url)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🎚️ УРОВЕНЬ", value=f"**{level}** уровень\n`{bar}` {percent}%\n✨ {xp} XP", inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n💰 ЭКОНОМИКА", value=f"💎 {bal} 💎\n🏦 {bank} 💎\n⭐ {rep}", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📊 СТАТИСТИКА", value=f"💬 Сообщений: {total_msgs}\n🎤 Голосовой онлайн: {voice_text}\n🌱 Посажено: {total_plants}\n🌾 Собрано: {total_harvests}\n🎣 Рыбы: {total_fish} (легенд: {total_legendary_fish}, миф: {total_mythic_fish})\n🎰 Побед в казино: {total_casino_wins}\n🃏 Побед в блэкджек: {total_blackjack_wins}\n💼 Работ: {total_work}\n🔫 Ограблений: {total_rob}\n📅 Сегодня: {today_msgs} | Неделя: {week_msgs} | Месяц: {month_msgs}", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🏆 ДОСТИЖЕНИЯ", value=f"{ach_count}/{len(ACHIEVEMENTS)} получено", inline=True)
+    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n💬 СТАТИСТИКА", value=f"Сообщений: {total_msgs}", inline=False)
+    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n✨ УКРАШЕНИЯ", value=decorations_text[:100], inline=False)
+    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🏆 ДОСТИЖЕНИЯ", value=f"{ach_count}/{len(ACHIEVEMENTS)} получено", inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n⚧ ПОЛ", value=gender_text, inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📝 БИОГРАФИЯ", value=bio[:500], inline=False)
     embed.set_footer(text=f"🎨 Цвет профиля | 🆔 ID: {target.id}")
     await ctx.send(embed=embed)
+
 @bot.command()
 async def bio(ctx, *, text: str = None):
-    if not text: return await ctx.send("❌ j.bio <текст>")
-    if len(text) > 500: return await ctx.send("❌ Максимум 500 символов")
+    if not text:
+        return await ctx.send("❌ j.bio <текст>")
+    if len(text) > 500:
+        return await ctx.send("❌ Максимум 500 символов")
     await update_user(ctx.author.id, ctx.guild.id, bio=text)
     await ctx.send("✅ Био обновлено")
 
@@ -1962,10 +2113,60 @@ async def avatar(ctx, member: discord.Member = None):
     embed.set_image(url=t.display_avatar.url)
     await ctx.send(embed=embed)
 
-# ========== ТИКЕТЫ (ВЕЧНЫЕ КНОПКИ) ==========
+@bot.command()
+async def userinfo(ctx, member: discord.Member = None):
+    t = member or ctx.author
+    d = await get_user(t.id, ctx.guild.id)
+    embed = discord.Embed(title=f"👤 ИНФОРМАЦИЯ | {t.display_name}", color=discord.Color.blue())
+    embed.set_thumbnail(url=t.display_avatar.url)
+    embed.add_field(name="🆔 ID", value=t.id, inline=True)
+    embed.add_field(name="📊 Уровень", value=d[3], inline=True)
+    embed.add_field(name="⭐ Репутация", value=d[6] if len(d)>6 else 0, inline=True)
+    embed.add_field(name="📅 Аккаунт создан", value=t.created_at.strftime("%d.%m.%Y %H:%M"), inline=True)
+    embed.add_field(name="📅 Присоединился", value=t.joined_at.strftime("%d.%m.%Y %H:%M"), inline=True)
+    embed.add_field(name="🎭 Роли", value=", ".join([r.mention for r in t.roles[1:8]]) or "Нет", inline=False)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def serverinfo(ctx):
+    g = ctx.guild
+    embed = discord.Embed(title=f"📊 ИНФОРМАЦИЯ | {g.name}", color=discord.Color.blue())
+    if g.icon:
+        embed.set_thumbnail(url=g.icon.url)
+    embed.add_field(name="👑 Владелец", value=g.owner.mention, inline=True)
+    embed.add_field(name="👥 Участников", value=g.member_count, inline=True)
+    embed.add_field(name="💬 Текстовых", value=len(g.text_channels), inline=True)
+    embed.add_field(name="🎤 Голосовых", value=len(g.voice_channels), inline=True)
+    embed.add_field(name="🎭 Ролей", value=len(g.roles), inline=True)
+    embed.add_field(name="📅 Создан", value=g.created_at.strftime("%d.%m.%Y"), inline=True)
+    embed.add_field(name="🔒 Уровень верификации", value=str(g.verification_level), inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send(f"🏓 Понг! Задержка: **{round(bot.latency * 1000)} мс**")
+
+@bot.command()
+async def about(ctx):
+    embed = discord.Embed(title="🤖 JUSTICE BOT", color=discord.Color.blue())
+    embed.add_field(name="📦 Версия", value="5.0", inline=True)
+    embed.add_field(name="📚 Библиотека", value="discord.py", inline=True)
+    embed.add_field(name="🖥️ Серверов", value=len(bot.guilds), inline=True)
+    embed.add_field(name="⚙️ Команд", value="150+", inline=True)
+    embed.add_field(name="🔤 Префикс", value="j.", inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def invite(ctx):
+    inv_link = f"https://discord.com/api/oauth2/authorize?client_id={bot.user.id}&permissions=8&scope=bot%20applications.commands"
+    embed = discord.Embed(title="🔗 ПРИГЛАСИТЬ БОТА", description=f"[Нажмите сюда]({inv_link})", color=discord.Color.blue())
+    await ctx.send(embed=embed)
+
+# ========== ТИКЕТЫ ==========
 class PersistentTicketButton(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+    
     @discord.ui.button(label="🎫 Создать тикет", style=discord.ButtonStyle.primary, custom_id="persistent_ticket", emoji="🎫")
     async def ticket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         category = interaction.guild.get_channel(TICKET_CATEGORY_ID)
@@ -1998,6 +2199,7 @@ class AcceptTicketButton(Button):
         super().__init__(label="✅ Принять тикет", style=discord.ButtonStyle.success, emoji="✅")
         self.channel_id = channel_id
         self.creator_id = creator_id
+    
     async def callback(self, interaction: discord.Interaction):
         is_support = any(interaction.guild.get_role(rid) in interaction.user.roles for rid in SUPPORT_ROLE_IDS if interaction.guild.get_role(rid))
         if not is_support:
@@ -2021,6 +2223,7 @@ class CloseTicketButton(Button):
         super().__init__(label="🔒 Закрыть", style=discord.ButtonStyle.danger, emoji="🔒")
         self.channel_id = channel_id
         self.creator_id = creator_id
+    
     async def callback(self, interaction: discord.Interaction):
         channel = bot.get_channel(self.channel_id)
         if not channel:
@@ -2042,6 +2245,8 @@ class CloseTicketButton(Button):
             await log_ch.send(file=discord.File(filename))
         await channel.delete()
         os.remove(filename)
+        if channel.id in active_tickets:
+            del active_tickets[channel.id]
 
 @bot.command()
 async def ticket(ctx):
@@ -2089,8 +2294,10 @@ async def close_ticket(ctx):
     msg = await ctx.send(embed=embed)
     await msg.add_reaction("✅")
     await msg.add_reaction("❌")
+    
     def check(r, u):
         return u.id == ctx.author.id and str(r.emoji) in ["✅", "❌"] and r.message.id == msg.id
+    
     try:
         r, u = await bot.wait_for('reaction_add', timeout=30, check=check)
         if str(r.emoji) == "❌":
@@ -2107,6 +2314,8 @@ async def close_ticket(ctx):
             await log_ch.send(file=discord.File(filename))
         await ctx.channel.delete()
         os.remove(filename)
+        if ctx.channel.id in active_tickets:
+            del active_tickets[ctx.channel.id]
     except asyncio.TimeoutError:
         await ctx.send("⏰ Время вышло")
 
@@ -2149,23 +2358,27 @@ async def admin_help(ctx):
 @bot.command()
 @commands.check(is_owner)
 async def owner_give(ctx, member: discord.Member, amount: int):
-    if amount <= 0: return await ctx.send("❌ Сумма > 0")
+    if amount <= 0:
+        return await ctx.send("❌ Сумма > 0")
     await add_balance(member.id, ctx.guild.id, amount)
     await ctx.send(f"✅ Выдано {amount} 💎 {member.mention}")
 
 @bot.command()
 @commands.check(is_owner)
 async def owner_take(ctx, member: discord.Member, amount: int):
-    if amount <= 0: return await ctx.send("❌ Сумма > 0")
+    if amount <= 0:
+        return await ctx.send("❌ Сумма > 0")
     user = await get_user(member.id, ctx.guild.id)
-    if user[4] < amount: return await ctx.send(f"❌ У {member.mention} только {user[4]} 💎")
+    if user[4] < amount:
+        return await ctx.send(f"❌ У {member.mention} только {user[4]} 💎")
     await add_balance(member.id, ctx.guild.id, -amount)
     await ctx.send(f"✅ Забрано {amount} 💎 у {member.mention}")
 
 @bot.command()
 @commands.check(is_owner)
 async def owner_set_balance(ctx, member: discord.Member, amount: int):
-    if amount < 0: return await ctx.send("❌ Баланс не может быть отрицательным")
+    if amount < 0:
+        return await ctx.send("❌ Баланс не может быть отрицательным")
     await update_user(member.id, ctx.guild.id, balance=amount)
     await ctx.send(f"✅ Баланс {member.mention} = {amount} 💎")
 
@@ -2178,7 +2391,8 @@ async def owner_reset_user(ctx, member: discord.Member):
 @bot.command()
 @commands.check(is_owner)
 async def backup_db(ctx):
-    if not os.path.exists("justice.db"): return await ctx.send("❌ БД не найдена")
+    if not os.path.exists("justice.db"):
+        return await ctx.send("❌ БД не найдена")
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     backup = f"justice_db_backup_{now}.db"
     shutil.copy2("justice.db", backup)
@@ -2188,22 +2402,26 @@ async def backup_db(ctx):
 @bot.command()
 @commands.check(is_owner)
 async def download_backup(ctx):
-    if not os.path.exists("justice.db"): return await ctx.send("❌ БД не найдена")
+    if not os.path.exists("justice.db"):
+        return await ctx.send("❌ БД не найдена")
     await ctx.send(file=discord.File("justice.db"))
 
 @bot.command()
 @commands.check(is_owner)
 async def upload_backup(ctx):
-    if not ctx.message.attachments: return await ctx.send("❌ Прикрепите файл .db")
+    if not ctx.message.attachments:
+        return await ctx.send("❌ Прикрепите файл .db")
     att = ctx.message.attachments[0]
-    if not att.filename.endswith('.db'): return await ctx.send("❌ Нужен .db файл")
+    if not att.filename.endswith('.db'):
+        return await ctx.send("❌ Нужен .db файл")
     await att.save("justice.db")
     await ctx.send("✅ База данных восстановлена! Перезапустите бота")
 
 @bot.command()
 @commands.check(is_owner)
 async def backup_info(ctx):
-    if not os.path.exists("justice.db"): return await ctx.send("❌ БД не найдена")
+    if not os.path.exists("justice.db"):
+        return await ctx.send("❌ БД не найдена")
     size = os.path.getsize("justice.db") / (1024 * 1024)
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT COUNT(*) FROM users')
@@ -2214,38 +2432,108 @@ async def backup_info(ctx):
     embed.add_field(name="👥 Пользователей", value=users, inline=True)
     await ctx.send(embed=embed)
 
+@bot.command()
+@commands.check(is_owner)
+async def owner_stats(ctx):
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT COUNT(DISTINCT user_id) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_users = (await cur.fetchone())[0]
+        cur = await db.execute('SELECT SUM(balance) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_balance = (await cur.fetchone())[0] or 0
+        cur = await db.execute('SELECT SUM(xp) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_xp = (await cur.fetchone())[0] or 0
+        cur = await db.execute('SELECT SUM(total_messages) FROM users WHERE guild_id=?', (ctx.guild.id,))
+        total_messages = (await cur.fetchone())[0] or 0
+    embed = discord.Embed(title="📊 СТАТИСТИКА СЕРВЕРА", description=f"Статистика для **{ctx.guild.name}**", color=discord.Color.gold())
+    embed.add_field(name="👥 Пользователей в БД", value=total_users, inline=True)
+    embed.add_field(name="💰 Общий баланс", value=f"{total_balance} 💎", inline=True)
+    embed.add_field(name="✨ Общий опыт", value=f"{total_xp} XP", inline=True)
+    embed.add_field(name="💬 Всего сообщений", value=total_messages, inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command()
+@commands.check(is_owner)
+async def reset_db(ctx, confirm: str = None):
+    if confirm != "confirm":
+        return await ctx.send("⚠️ **ВНИМАНИЕ!** Эта команда УДАЛИТ ВСЕ ДАННЫЕ!\n🔒 Чтобы подтвердить: `j.reset_db confirm`")
+    await ctx.send("⏳ Удаление базы данных...")
+    try:
+        if os.path.exists("justice.db"):
+            os.remove("justice.db")
+            await ctx.send("✅ База данных удалена! Перезапустите бота.")
+        else:
+            await ctx.send("❌ Файл базы данных не найден!")
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка: {str(e)[:100]}")
+
+@bot.command()
+@commands.check(is_owner)
+async def add_shop_item(ctx, name: str, price: int, role_id: int, *, description: str = "Кастомный товар"):
+    if name.lower() in SHOP_ITEMS or name.lower() in CUSTOM_SHOP_ITEMS:
+        return await ctx.send(f"❌ Товар с именем `{name}` уже существует!")
+    CUSTOM_SHOP_ITEMS[name.lower()] = {"price": price, "description": description, "type": "role", "role_id": role_id}
+    async with aiosqlite.connect("justice.db") as db:
+        await db.execute('INSERT OR REPLACE INTO custom_shop (name, price, description, role_id) VALUES (?,?,?,?)', (name.lower(), price, description, role_id))
+        await db.commit()
+    await ctx.send(f"✅ Товар **{name}** добавлен в магазин!\n💰 Цена: {price} 💎\n🎭 Роль: <@&{role_id}>\n📝 Описание: {description}")
+
+@bot.command()
+@commands.check(is_owner)
+async def remove_shop_item(ctx, *, name: str):
+    name = name.lower()
+    if name not in CUSTOM_SHOP_ITEMS:
+        return await ctx.send(f"❌ Товар `{name}` не найден!")
+    del CUSTOM_SHOP_ITEMS[name]
+    async with aiosqlite.connect("justice.db") as db:
+        await db.execute('DELETE FROM custom_shop WHERE name=?', (name,))
+        await db.commit()
+    await ctx.send(f"✅ Товар **{name}** удалён из магазина!")
+
 # ========== ПРИВАТНЫЕ ГОЛОСОВЫЕ ==========
 class VCControlPanel(View):
     def __init__(self, cid, oid):
         super().__init__(timeout=None)
         self.cid, self.oid = cid, oid
+    
     @discord.ui.button(label="🔒 Закрыть", style=discord.ButtonStyle.danger)
     async def lock(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
+        if i.user.id != self.oid:
+            return await i.response.send_message("❌ Не владелец!", ephemeral=True)
         ch = bot.get_channel(self.cid)
-        if ch: await ch.set_permissions(i.guild.default_role, connect=False)
+        if ch:
+            await ch.set_permissions(i.guild.default_role, connect=False)
         await i.response.send_message("🔒 Канал закрыт", ephemeral=True)
+    
     @discord.ui.button(label="🔓 Открыть", style=discord.ButtonStyle.success)
     async def unlock(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
+        if i.user.id != self.oid:
+            return await i.response.send_message("❌ Не владелец!", ephemeral=True)
         ch = bot.get_channel(self.cid)
-        if ch: await ch.set_permissions(i.guild.default_role, connect=True)
+        if ch:
+            await ch.set_permissions(i.guild.default_role, connect=True)
         await i.response.send_message("🔓 Канал открыт", ephemeral=True)
+    
     @discord.ui.button(label="👥 Лимит", style=discord.ButtonStyle.primary)
     async def limit(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
+        if i.user.id != self.oid:
+            return await i.response.send_message("❌ Не владелец!", ephemeral=True)
         modal = LimitModal(self.cid)
         await i.response.send_modal(modal)
+    
     @discord.ui.button(label="📝 Название", style=discord.ButtonStyle.primary)
     async def rename(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
+        if i.user.id != self.oid:
+            return await i.response.send_message("❌ Не владелец!", ephemeral=True)
         modal = RenameModal(self.cid)
         await i.response.send_modal(modal)
+    
     @discord.ui.button(label="🗑 Удалить", style=discord.ButtonStyle.danger)
     async def delete(self, i, b):
-        if i.user.id != self.oid: return await i.response.send_message("❌ Не владелец!", ephemeral=True)
+        if i.user.id != self.oid:
+            return await i.response.send_message("❌ Не владелец!", ephemeral=True)
         ch = bot.get_channel(self.cid)
-        if ch: await ch.delete()
+        if ch:
+            await ch.delete()
         await i.response.send_message("🗑 Канал удалён", ephemeral=True)
 
 class LimitModal(Modal):
@@ -2254,14 +2542,18 @@ class LimitModal(Modal):
         self.cid = cid
         self.l = TextInput(label="Лимит (1-99)", placeholder="10", required=True)
         self.add_item(self.l)
+    
     async def on_submit(self, i):
         try:
             lim = int(self.l.value)
-            if lim < 1 or lim > 99: return await i.response.send_message("❌ 1-99", ephemeral=True)
+            if lim < 1 or lim > 99:
+                return await i.response.send_message("❌ 1-99", ephemeral=True)
             ch = bot.get_channel(self.cid)
-            if ch: await ch.edit(user_limit=lim)
+            if ch:
+                await ch.edit(user_limit=lim)
             await i.response.send_message(f"✅ Лимит: {lim}", ephemeral=True)
-        except: await i.response.send_message("❌ Введите число", ephemeral=True)
+        except:
+            await i.response.send_message("❌ Введите число", ephemeral=True)
 
 class RenameModal(Modal):
     def __init__(self, cid):
@@ -2269,9 +2561,11 @@ class RenameModal(Modal):
         self.cid = cid
         self.n = TextInput(label="Новое название", required=True)
         self.add_item(self.n)
+    
     async def on_submit(self, i):
         ch = bot.get_channel(self.cid)
-        if ch: await ch.edit(name=self.n.value)
+        if ch:
+            await ch.edit(name=self.n.value)
         await i.response.send_message(f"✅ Переименован в {self.n.value}", ephemeral=True)
 
 @bot.event
@@ -2289,7 +2583,8 @@ async def on_voice_state_update(member, before, after):
             }
             for rid in SUPPORT_ROLE_IDS:
                 role = member.guild.get_role(rid)
-                if role: overwrites[role] = discord.PermissionOverwrite(connect=True)
+                if role:
+                    overwrites[role] = discord.PermissionOverwrite(connect=True)
             channel = await cat.create_voice_channel(name=f"Приватный #{num}", overwrites=overwrites)
             await member.move_to(channel)
             panel = VCControlPanel(channel.id, member.id)
@@ -2298,6 +2593,7 @@ async def on_voice_state_update(member, before, after):
             async with aiosqlite.connect("justice.db") as db:
                 await db.execute('INSERT OR REPLACE INTO private_vc (channel_id, owner_id, guild_id, channel_name, created_at) VALUES (?,?,?,?,?)', (channel.id, member.id, member.guild.id, channel.name, datetime.now().isoformat()))
                 await db.commit()
+    
     # Удаление пустого приватного канала
     if before.channel and before.channel.id in vc_sessions and len(before.channel.members) == 0:
         await asyncio.sleep(10)
@@ -2307,107 +2603,6 @@ async def on_voice_state_update(member, before, after):
                 await db.commit()
             await before.channel.delete()
             del vc_sessions[before.channel.id]
-
-# ========== ЖИВОТНЫЕ ==========
-@bot.command()
-async def buy_animal(ctx, animal_type: str = None):
-    if not animal_type or animal_type.lower() not in FARM_ANIMALS:
-        animals = "\n".join([f"• {a} - {data['price']} 💎 | Даёт: {data['produce']} ({data['produce_price']} 💎)" for a, data in FARM_ANIMALS.items()])
-        return await ctx.send(f"🐔 **Животные**\n{animals}\nПример: `j.buy_animal курица`")
-    animal = animal_type.lower()
-    animal_data = FARM_ANIMALS[animal]
-    async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT level FROM farm_upgrades WHERE user_id=? AND guild_id=? AND upgrade_type="max_animals"', (ctx.author.id, ctx.guild.id))
-        upgrade = await cur.fetchone()
-        max_animals = 5 + (upgrade[0] * 2 if upgrade else 0)
-        cur = await db.execute('SELECT count FROM farm_animals WHERE user_id=? AND guild_id=? AND animal_type=?', (ctx.author.id, ctx.guild.id, animal))
-        current = await cur.fetchone()
-        current_count = current[0] if current else 0
-        if current_count >= max_animals: return await ctx.send(f"❌ Максимум {max_animals} {animal}")
-    user = await get_user(ctx.author.id, ctx.guild.id)
-    if user[4] < animal_data["price"]: return await ctx.send(f"❌ Нужно {animal_data['price']} 💎")
-    await add_balance(ctx.author.id, ctx.guild.id, -animal_data["price"])
-    async with aiosqlite.connect("justice.db") as db:
-        if current:
-            await db.execute('UPDATE farm_animals SET count=? WHERE user_id=? AND guild_id=? AND animal_type=?', (current_count+1, ctx.author.id, ctx.guild.id, animal))
-        else:
-            await db.execute('INSERT INTO farm_animals (user_id, guild_id, animal_type, count, last_produce, last_fed) VALUES (?,?,?,1,?,?)', (ctx.author.id, ctx.guild.id, animal, datetime.now().isoformat(), datetime.now().isoformat()))
-        await db.commit()
-    await ctx.send(f"✅ Куплен {animal_data['name']} за {animal_data['price']} 💎!")
-
-@bot.command()
-async def feed_animals(ctx):
-    async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT animal_type, count FROM farm_animals WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-        animals = await cur.fetchall()
-        if not animals: return await ctx.send("❌ Нет животных")
-        total_feed = 0
-        for animal, count in animals:
-            animal_data = FARM_ANIMALS[animal]
-            feed_needed = animal_data["feed_amount"] * count
-            cur3 = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-            inv = json.loads((await cur3.fetchone())[0] or "[]")
-            feed_count = inv.count(f"crop_{animal_data['feed']}")
-            if feed_count >= feed_needed:
-                for _ in range(feed_needed): inv.remove(f"crop_{animal_data['feed']}")
-                total_feed += feed_needed
-                await db.execute('UPDATE farm_animals SET last_fed=? WHERE user_id=? AND guild_id=? AND animal_type=?', (datetime.now().isoformat(), ctx.author.id, ctx.guild.id, animal))
-            else:
-                await ctx.send(f"⚠️ Не хватает {animal_data['feed']} для {animal} (нужно {feed_needed}, есть {feed_count})")
-        if total_feed > 0:
-            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
-            await db.commit()
-            await ctx.send(f"✅ Потрачено {total_feed} еды")
-        else:
-            await ctx.send("❌ Нет еды")
-
-@bot.command()
-async def collect_products(ctx):
-    async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT animal_type, count, last_produce FROM farm_animals WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-        animals = await cur.fetchall()
-        if not animals: return await ctx.send("❌ Нет животных")
-        total_earn = 0
-        collected = []
-        for animal, count, last_produce in animals:
-            animal_data = FARM_ANIMALS[animal]
-            last_time = datetime.fromisoformat(last_produce)
-            time_passed = (datetime.now() - last_time).total_seconds()
-            produce_time = animal_data["produce_time"]
-            if time_passed >= produce_time:
-                cycles = int(time_passed // produce_time)
-                if cycles > 0:
-                    produced = count * cycles
-                    earn = produced * animal_data["produce_price"]
-                    total_earn += earn
-                    collected.append(f"{animal_data['name']} x{produced} (+{earn} 💎)")
-                    new_time = last_time + timedelta(seconds=produce_time * cycles)
-                    await db.execute('UPDATE farm_animals SET last_produce=? WHERE user_id=? AND guild_id=? AND animal_type=?', (new_time.isoformat(), ctx.author.id, ctx.guild.id, animal))
-        if total_earn > 0:
-            cur4 = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-            inv = json.loads((await cur4.fetchone())[0] or "[]")
-            for item in collected: inv.append(f"product_{item.split(' x')[0]}")
-            await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
-            await add_balance(ctx.author.id, ctx.guild.id, total_earn)
-            await db.commit()
-            await ctx.send(f"✅ Собрано:\n" + "\n".join(collected[:10]) + f"\n💰 Всего: {total_earn} 💎")
-        else:
-            await ctx.send("❌ Продукция не готова")
-
-@bot.command()
-async def my_animals(ctx):
-    async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT animal_type, count, last_fed FROM farm_animals WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-        animals = await cur.fetchall()
-        if not animals: return await ctx.send("🐔 Нет животных. `j.buy_animal курица`")
-        embed = discord.Embed(title=f"🐔 ЖИВОТНЫЕ | {ctx.author.display_name}", color=discord.Color.green())
-        for animal, count, last_fed in animals:
-            animal_data = FARM_ANIMALS[animal]
-            last_fed_time = datetime.fromisoformat(last_fed)
-            hungry = (datetime.now() - last_fed_time).total_seconds() > 43200
-            status = "😋 Сытые" if not hungry else "🍽️ Голодные!"
-            embed.add_field(name=f"{animal_data['name']} x{count}", value=f"📦 Даёт: {animal_data['produce']}\n💎 Цена: {animal_data['produce_price']}\n{status}", inline=True)
-        await ctx.send(embed=embed)
 
 # ========== КРАФТ ==========
 @bot.command()
@@ -2422,14 +2617,20 @@ async def craft(ctx, recipe_id: str = None):
         missing = []
         for ing, amount in recipe["ingredients"].items():
             count = inv.count(f"crop_{ing}") + inv.count(f"product_{ing}") + inv.count(ing)
-            if count < amount: missing.append(f"{ing} ({count}/{amount})")
-        if missing: return await ctx.send("❌ Не хватает:\n" + "\n".join(missing))
+            if count < amount:
+                missing.append(f"{ing} ({count}/{amount})")
+        if missing:
+            return await ctx.send("❌ Не хватает:\n" + "\n".join(missing))
         for ing, amount in recipe["ingredients"].items():
             for _ in range(amount):
-                if f"crop_{ing}" in inv: inv.remove(f"crop_{ing}")
-                elif f"product_{ing}" in inv: inv.remove(f"product_{ing}")
-                else: inv.remove(ing)
-        for _ in range(recipe["count"]): inv.append(recipe["result"])
+                if f"crop_{ing}" in inv:
+                    inv.remove(f"crop_{ing}")
+                elif f"product_{ing}" in inv:
+                    inv.remove(f"product_{ing}")
+                else:
+                    inv.remove(ing)
+        for _ in range(recipe["count"]):
+            inv.append(recipe["result"])
         await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
         await add_xp(ctx.author.id, ctx.guild.id, recipe["xp"])
         await db.commit()
@@ -2454,14 +2655,18 @@ async def invest(ctx, invest_type: str = None, amount: int = None):
         types = "\n".join([f"• {k} - {v['name']}: {v['min']}-{v['max']} 💎, {v['days']} дн, +{v['rate']*100}%" for k, v in INVESTMENTS.items()])
         return await ctx.send(f"📊 **Инвестиции**\n{types}\nПример: `j.invest надёжный 50000`")
     invest_type = invest_type.lower()
-    if invest_type not in INVESTMENTS: return await ctx.send("❌ Типы: надёжный, средний, рисковый, премиум")
+    if invest_type not in INVESTMENTS:
+        return await ctx.send("❌ Типы: надёжный, средний, рисковый, премиум")
     inv_data = INVESTMENTS[invest_type]
-    if amount < inv_data["min"] or amount > inv_data["max"]: return await ctx.send(f"❌ Сумма от {inv_data['min']} до {inv_data['max']}")
+    if amount < inv_data["min"] or amount > inv_data["max"]:
+        return await ctx.send(f"❌ Сумма от {inv_data['min']} до {inv_data['max']}")
     user = await get_user(ctx.author.id, ctx.guild.id)
-    if user[4] < amount: return await ctx.send(f"❌ Не хватает {amount} 💎")
+    if user[4] < amount:
+        return await ctx.send(f"❌ Не хватает {amount} 💎")
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT * FROM investments WHERE user_id=? AND guild_id=? AND claimed=0', (ctx.author.id, ctx.guild.id))
-        if await cur.fetchone(): return await ctx.send("❌ У вас уже есть активная инвестиция!")
+        if await cur.fetchone():
+            return await ctx.send("❌ У вас уже есть активная инвестиция!")
         await add_balance(ctx.author.id, ctx.guild.id, -amount)
         await db.execute('INSERT INTO investments (user_id, guild_id, invest_type, amount, invest_date, days, interest_rate, claimed) VALUES (?,?,?,?,?,?,?,0)', (ctx.author.id, ctx.guild.id, invest_type, amount, datetime.now().isoformat(), inv_data["days"], inv_data["rate"]))
         await db.commit()
@@ -2472,7 +2677,8 @@ async def claim_invest(ctx):
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT * FROM investments WHERE user_id=? AND guild_id=? AND claimed=0', (ctx.author.id, ctx.guild.id))
         inv = await cur.fetchone()
-        if not inv: return await ctx.send("❌ Нет активных инвестиций")
+        if not inv:
+            return await ctx.send("❌ Нет активных инвестиций")
         _, _, _, inv_type, amount, inv_date, days, rate, claimed = inv
         end_date = datetime.fromisoformat(inv_date) + timedelta(days=days)
         if datetime.now() < end_date:
@@ -2484,31 +2690,192 @@ async def claim_invest(ctx):
         await db.commit()
     await ctx.send(f"💰 Получено {profit} 💎 (вложено {amount}, прибыль {profit-amount})")
 
+@bot.command()
+async def invest_info(ctx):
+    embed = discord.Embed(title="📊 ИНВЕСТИЦИИ", color=discord.Color.gold())
+    for inv_type, data in INVESTMENTS.items():
+        embed.add_field(name=f"{data['name']}", value=f"Сумма: {data['min']}-{data['max']} 💎\nСрок: {data['days']} дней\nДоход: +{data['rate']*100}%\n`j.invest {inv_type} <сумма>`", inline=True)
+    await ctx.send(embed=embed)
+
+# ========== БИРЖА ==========
+@bot.command()
+async def market(ctx, crop: str = None):
+    if not crop:
+        if not market_prices:
+            return await ctx.send("📈 Цены загружаются... Подождите немного")
+        embed = discord.Embed(title="📈 БИРЖА", description="Текущие цены на культуры", color=discord.Color.gold())
+        for crop_name, price in list(market_prices.items())[:12]:
+            base_price = SEEDS[crop_name]["base_price"]
+            change = ((price - base_price) / base_price) * 100
+            emoji = "📈" if change > 0 else "📉" if change < 0 else "➖"
+            embed.add_field(name=f"{crop_name}", value=f"{emoji} {price} 💎 ({change:+.0f}%)", inline=True)
+        await ctx.send(embed=embed)
+    else:
+        crop = crop.lower()
+        if crop not in market_prices:
+            return await ctx.send("❌ Нет такой культуры")
+        price = market_prices[crop]
+        base_price = SEEDS[crop]["base_price"]
+        change = ((price - base_price) / base_price) * 100
+        emoji = "📈" if change > 0 else "📉" if change < 0 else "➖"
+        await ctx.send(f"📊 **{crop}**: {emoji} {price} 💎 (изменение: {change:+.0f}%)")
+
+@bot.command()
+async def sell_market(ctx, crop: str = None, amount: int = 1):
+    if not crop:
+        return await ctx.send("❌ j.sell_market <культура> <количество>")
+    crop = crop.lower()
+    if crop not in market_prices:
+        return await ctx.send("❌ Нет такой культуры")
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        inv = json.loads((await cur.fetchone())[0] or "[]")
+        items_to_sell = [i for i in inv if i.startswith(f"crop_{crop}_")]
+        if len(items_to_sell) < amount:
+            return await ctx.send(f"❌ У вас только {len(items_to_sell)} {crop}")
+        total = 0
+        for i in range(amount):
+            item = items_to_sell[i]
+            inv.remove(item)
+            total += market_prices[crop]
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+        await add_balance(ctx.author.id, ctx.guild.id, total)
+        await ctx.send(f"💰 Продано {amount} {crop} за {total} 💎 (цена: {market_prices[crop]} 💎)")
+
+# ========== ДОСТАВКА ==========
+@bot.command()
+async def delivery(ctx):
+    if ctx.author.id in delivery_orders and delivery_orders[ctx.author.id]["expires"] > time.time():
+        remaining = int(delivery_orders[ctx.author.id]["expires"] - time.time())
+        return await ctx.send(f"⏰ У вас уже есть активный заказ! Следующий через {remaining//60}мин")
+    crops = list(SEEDS.keys())
+    required_crop = random.choice(crops)
+    required_amount = random.randint(3, 15)
+    reward = int(market_prices.get(required_crop, SEEDS[required_crop]["base_price"]) * required_amount * 1.5)
+    delivery_orders[ctx.author.id] = {
+        "crop": required_crop,
+        "amount": required_amount,
+        "reward": reward,
+        "expires": time.time() + 3600
+    }
+    embed = discord.Embed(title="🚚 НОВЫЙ ЗАКАЗ НА ДОСТАВКУ", color=discord.Color.blue())
+    embed.add_field(name="🌾 Требуется", value=f"{required_crop} x{required_amount}", inline=True)
+    embed.add_field(name="💰 Награда", value=f"{reward} 💎", inline=True)
+    embed.add_field(name="⏰ Время", value="1 час", inline=True)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def complete_delivery(ctx):
+    if ctx.author.id not in delivery_orders:
+        return await ctx.send("❌ У вас нет активного заказа! Используйте `j.delivery`")
+    order = delivery_orders[ctx.author.id]
+    if order["expires"] < time.time():
+        del delivery_orders[ctx.author.id]
+        return await ctx.send("❌ Время заказа истекло! Создайте новый `j.delivery`")
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        inv = json.loads((await cur.fetchone())[0] or "[]")
+        needed = f"crop_{order['crop']}_"
+        items = [i for i in inv if i.startswith(needed)]
+        if len(items) < order["amount"]:
+            return await ctx.send(f"❌ Не хватает {order['crop']}! Нужно {order['amount']}, у вас {len(items)}")
+        for i in range(order["amount"]):
+            inv.remove(items[i])
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+        await add_balance(ctx.author.id, ctx.guild.id, order["reward"])
+        del delivery_orders[ctx.author.id]
+        await ctx.send(f"✅ Заказ выполнен! Получено {order['reward']} 💎")
+
+# ========== ЗАВОД ==========
+@bot.command()
+async def factory(ctx):
+    embed = discord.Embed(title="🏭 ЗАВОД", description="Рецепты переработки", color=discord.Color.blue())
+    for product, recipe in factory_recipes.items():
+        ingredients = ", ".join([f"{k} x{v}" for k, v in recipe["ingredients"].items()])
+        embed.add_field(name=f"🔧 {product}", value=f"{ingredients}\n⏰ {recipe['time']//60}мин | 💰 {recipe['reward']} 💎", inline=False)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def craft_product(ctx, product: str = None):
+    if not product or product.lower() not in factory_recipes:
+        return await ctx.send("❌ j.craft_product <мука/хлеб/масло/сок>")
+    product = product.lower()
+    recipe = factory_recipes[product]
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        inv = json.loads((await cur.fetchone())[0] or "[]")
+        missing = []
+        for ing, amount in recipe["ingredients"].items():
+            count = inv.count(f"crop_{ing}") + inv.count(f"product_{ing}")
+            if count < amount:
+                missing.append(f"{ing} ({count}/{amount})")
+        if missing:
+            return await ctx.send(f"❌ Не хватает:\n" + "\n".join(missing))
+        for ing, amount in recipe["ingredients"].items():
+            for _ in range(amount):
+                if f"crop_{ing}" in inv:
+                    inv.remove(f"crop_{ing}")
+                else:
+                    inv.remove(f"product_{ing}")
+        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
+        queue = factory_queue[ctx.author.id]
+        end_time = time.time() + recipe["time"]
+        queue.append({"product": product, "end_time": end_time, "reward": recipe["reward"]})
+    await ctx.send(f"🏭 Производство **{product}** начато! Готово через {recipe['time']//60} минут")
+
+@bot.command()
+async def factory_status(ctx):
+    queue = factory_queue.get(ctx.author.id, [])
+    if not queue:
+        return await ctx.send("🏭 Нет активных производств")
+    embed = discord.Embed(title="🏭 СТАТУС ЗАВОДА", color=discord.Color.blue())
+    now = time.time()
+    ready = []
+    for item in queue:
+        if item["end_time"] <= now:
+            ready.append(item)
+    if ready:
+        total_reward = sum(r["reward"] for r in ready)
+        await add_balance(ctx.author.id, ctx.guild.id, total_reward)
+        factory_queue[ctx.author.id] = [q for q in queue if q["end_time"] > now]
+        await ctx.send(f"✅ Готово! Получено {total_reward} 💎")
+    else:
+        next_ready = min(q["end_time"] for q in queue)
+        remaining = int(next_ready - now)
+        await ctx.send(f"⏳ Производство идёт... Готово через {remaining//60} минут")
+
 # ========== КРЕСТИКИ-НОЛИКИ ==========
 class TicTacToeButton(Button):
     def __init__(self, x, y, p1, p2, bet):
         super().__init__(style=discord.ButtonStyle.secondary, label="⬜", row=y)
         self.x, self.y, self.p1, self.p2, self.bet = x, y, p1, p2, bet
         self.clicked = False
+    
     async def callback(self, i):
         game = ttt_games.get(i.channel.id)
-        if not game: return await i.response.send_message("❌ Игра не найдена", ephemeral=True)
-        if i.user.id not in [game["p1"], game["p2"]]: return await i.response.send_message("❌ Вы не участник", ephemeral=True)
-        if game["turn"] != i.user.id: return await i.response.send_message("❌ Не ваш ход", ephemeral=True)
-        if self.clicked: return await i.response.send_message("❌ Занято", ephemeral=True)
+        if not game:
+            return await i.response.send_message("❌ Игра не найдена", ephemeral=True)
+        if i.user.id not in [game["p1"], game["p2"]]:
+            return await i.response.send_message("❌ Вы не участник", ephemeral=True)
+        if game["turn"] != i.user.id:
+            return await i.response.send_message("❌ Не ваш ход", ephemeral=True)
+        if self.clicked:
+            return await i.response.send_message("❌ Занято", ephemeral=True)
         symbol = "❌" if i.user.id == game["p1"] else "⭕"
-        self.label, self.style, self.clicked = symbol, discord.ButtonStyle.danger if symbol=="❌" else discord.ButtonStyle.success, True
+        self.label = symbol
+        self.style = discord.ButtonStyle.danger if symbol == "❌" else discord.ButtonStyle.success
+        self.clicked = True
         game["board"][self.y][self.x] = symbol
-        game["turn"] = game["p2"] if game["turn"]==game["p1"] else game["p1"]
+        game["turn"] = game["p2"] if game["turn"] == game["p1"] else game["p1"]
         winner = self.check_winner(game["board"])
         if winner:
-            prize = game["bet"]*2
-            if winner=="❌":
+            prize = game["bet"] * 2
+            if winner == "❌":
                 await add_balance(game["p1"], i.guild.id, prize)
                 await add_balance(game["p2"], i.guild.id, -game["bet"])
                 winner_mention = f"<@{game['p1']}>"
                 await update_user_stats(game["p1"], i.guild.id, "ttt_win", 1)
-            elif winner=="⭕":
+            elif winner == "⭕":
                 await add_balance(game["p2"], i.guild.id, prize)
                 await add_balance(game["p1"], i.guild.id, -game["bet"])
                 winner_mention = f"<@{game['p2']}>"
@@ -2518,11 +2885,11 @@ class TicTacToeButton(Button):
                 await add_balance(game["p1"], i.guild.id, game["bet"])
                 await add_balance(game["p2"], i.guild.id, game["bet"])
             embed = discord.Embed(title="❌⭕ КРЕСТИКИ-НОЛИКИ", color=discord.Color.gold())
-            embed.add_field(name="🏆 РЕЗУЛЬТАТ", value=f"{winner_mention} победил!\n💰 Выигрыш: {prize} 💎" if winner!="Ничья" else "Ничья!", inline=False)
+            embed.add_field(name="🏆 РЕЗУЛЬТАТ", value=f"{winner_mention} победил!\n💰 Выигрыш: {prize} 💎" if winner != "Ничья" else "Ничья!", inline=False)
             await i.response.edit_message(embed=embed, view=None)
             del ttt_games[i.channel.id]
             return
-        if all(cell!="⬜" for row in game["board"] for cell in row):
+        if all(cell != "⬜" for row in game["board"] for cell in row):
             await add_balance(game["p1"], i.guild.id, game["bet"])
             await add_balance(game["p2"], i.guild.id, game["bet"])
             embed = discord.Embed(title="❌⭕ КРЕСТИКИ-НОЛИКИ", color=discord.Color.blue())
@@ -2535,181 +2902,254 @@ class TicTacToeButton(Button):
         embed.add_field(name="💰 Ставка", value=f"{game['bet']} 💎", inline=True)
         embed.add_field(name="🎲 Ход", value=f"<@{game['turn']}>", inline=True)
         await i.response.edit_message(embed=embed, view=view)
+    
     def check_winner(self, board):
         for row in board:
-            if row[0]==row[1]==row[2] and row[0]!="⬜": return row[0]
+            if row[0] == row[1] == row[2] and row[0] != "⬜":
+                return row[0]
         for col in range(3):
-            if board[0][col]==board[1][col]==board[2][col] and board[0][col]!="⬜": return board[0][col]
-        if board[0][0]==board[1][1]==board[2][2] and board[0][0]!="⬜": return board[0][0]
-        if board[0][2]==board[1][1]==board[2][0] and board[0][2]!="⬜": return board[0][2]
+            if board[0][col] == board[1][col] == board[2][col] and board[0][col] != "⬜":
+                return board[0][col]
+        if board[0][0] == board[1][1] == board[2][2] and board[0][0] != "⬜":
+            return board[0][0]
+        if board[0][2] == board[1][1] == board[2][0] and board[0][2] != "⬜":
+            return board[0][2]
         return None
 
 class TicTacToeView(View):
     def __init__(self, p1, p2, bet, board=None):
         super().__init__(timeout=180)
-        self.board = board if board else [["⬜","⬜","⬜"] for _ in range(3)]
+        self.board = board if board else [["⬜", "⬜", "⬜"] for _ in range(3)]
         for y in range(3):
             for x in range(3):
                 btn = TicTacToeButton(x, y, p1, p2, bet)
-                if self.board[y][x]!="⬜":
+                if self.board[y][x] != "⬜":
                     btn.label = self.board[y][x]
-                    btn.style = discord.ButtonStyle.danger if self.board[y][x]=="❌" else discord.ButtonStyle.success
+                    btn.style = discord.ButtonStyle.danger if self.board[y][x] == "❌" else discord.ButtonStyle.success
                     btn.clicked = True
                 self.add_item(btn)
 
 @bot.command()
 async def ttt(ctx, member: discord.Member = None, bet: int = None):
-    if not member or not bet: return await ctx.send("❌ j.ttt @user 100")
-    if member==ctx.author: return await ctx.send("❌ Нельзя с собой")
-    if bet<100: return await ctx.send("❌ Мин. 100 💎")
+    if not member or not bet:
+        return await ctx.send("❌ j.ttt @user 100")
+    if member == ctx.author:
+        return await ctx.send("❌ Нельзя с собой")
+    if bet < 100:
+        return await ctx.send("❌ Мин. 100 💎")
     bal1 = (await get_user(ctx.author.id, ctx.guild.id))[4]
     bal2 = (await get_user(member.id, ctx.guild.id))[4]
-    if bal1<bet or bal2<bet: return await ctx.send("❌ У кого-то не хватает")
+    if bal1 < bet or bal2 < bet:
+        return await ctx.send("❌ У кого-то не хватает")
     await add_balance(ctx.author.id, ctx.guild.id, -bet)
     await add_balance(member.id, ctx.guild.id, -bet)
     view = TicTacToeView(ctx.author.id, member.id, bet)
     embed = discord.Embed(title="❌⭕ КРЕСТИКИ-НОЛИКИ", color=discord.Color.blue())
     embed.add_field(name="💰 Ставка", value=f"{bet} 💎", inline=True)
     embed.add_field(name="🎲 Ход", value=f"{ctx.author.mention} (❌)", inline=True)
-    ttt_games[ctx.channel.id] = {"p1": ctx.author.id, "p2": member.id, "bet": bet, "board": [["⬜","⬜","⬜"] for _ in range(3)], "turn": ctx.author.id}
+    ttt_games[ctx.channel.id] = {"p1": ctx.author.id, "p2": member.id, "bet": bet, "board": [["⬜", "⬜", "⬜"] for _ in range(3)], "turn": ctx.author.id}
     await ctx.send(embed=embed, view=view)
 
 # ========== ПОКЕР ==========
 class PokerGame:
     def __init__(self, players, bets, channel_id):
-        self.players = players; self.bets = bets; self.hands = {}; self.community = []
-        self.current_bet = 0; self.pot = sum(bets.values()); self.folded = []
-        self.current_player_index = 0; self.channel_id = channel_id; self.stage = "preflop"
+        self.players = players
+        self.bets = bets
+        self.hands = {}
+        self.community = []
+        self.current_bet = 0
+        self.pot = sum(bets.values())
+        self.folded = []
+        self.current_player_index = 0
+        self.channel_id = channel_id
+        self.stage = "preflop"
+    
     def deal(self, deck):
-        for uid in self.players: self.hands[uid] = [deck.pop(), deck.pop()]
+        for uid in self.players:
+            self.hands[uid] = [deck.pop(), deck.pop()]
+    
     def get_card_value(self, card):
-        rank = card[:-1]; values = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14}
-        return values.get(rank,0)
+        rank = card[:-1]
+        values = {'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'J':11,'Q':12,'K':13,'A':14}
+        return values.get(rank, 0)
+    
     def get_hand_rank(self, cards):
         ranks = sorted([self.get_card_value(c) for c in cards], reverse=True)
         suits = [c[-1] for c in cards]
         flush_suit = None
         for suit in ['♠️','♥️','♣️','♦️']:
-            if suits.count(suit)>=5: flush_suit = suit; break
+            if suits.count(suit) >= 5:
+                flush_suit = suit
+                break
         unique_ranks = sorted(set(ranks), reverse=True)
         straight_high = None
         for i in range(len(unique_ranks)-4):
-            if unique_ranks[i]-unique_ranks[i+4]==4: straight_high = unique_ranks[i]; break
-        if straight_high is None and set([14,2,3,4,5]).issubset(set(ranks)): straight_high = 5
+            if unique_ranks[i] - unique_ranks[i+4] == 4:
+                straight_high = unique_ranks[i]
+                break
+        if straight_high is None and set([14,2,3,4,5]).issubset(set(ranks)):
+            straight_high = 5
         if flush_suit and straight_high:
             flush_cards = [c for c in cards if c.endswith(flush_suit)]
             flush_ranks = sorted([self.get_card_value(c) for c in flush_cards], reverse=True)
             for i in range(len(flush_ranks)-4):
-                if flush_ranks[i]-flush_ranks[i+4]==4:
-                    return (9, flush_ranks[i]) if flush_ranks[i]==14 else (8, flush_ranks[i])
+                if flush_ranks[i] - flush_ranks[i+4] == 4:
+                    return (9, flush_ranks[i]) if flush_ranks[i] == 14 else (8, flush_ranks[i])
         rank_counts = {}
-        for r in ranks: rank_counts[r] = rank_counts.get(r,0)+1
+        for r in ranks:
+            rank_counts[r] = rank_counts.get(r, 0) + 1
         counts = sorted(rank_counts.values(), reverse=True)
-        if counts[0]==4: return (7, max([r for r,c in rank_counts.items() if c==4]))
-        if counts[0]==3 and counts[1]>=2: return (6, max([r for r,c in rank_counts.items() if c==3]))
+        if counts[0] == 4:
+            return (7, max([r for r, c in rank_counts.items() if c == 4]))
+        if counts[0] == 3 and counts[1] >= 2:
+            return (6, max([r for r, c in rank_counts.items() if c == 3]))
         if flush_suit:
             flush_ranks = sorted([self.get_card_value(c) for c in cards if c.endswith(flush_suit)], reverse=True)[:5]
             return (5, flush_ranks[0])
-        if straight_high: return (4, straight_high)
-        if counts[0]==3: return (3, max([r for r,c in rank_counts.items() if c==3]))
-        if counts[0]==2 and counts[1]==2:
-            pairs = sorted([r for r,c in rank_counts.items() if c==2], reverse=True)
+        if straight_high:
+            return (4, straight_high)
+        if counts[0] == 3:
+            return (3, max([r for r, c in rank_counts.items() if c == 3]))
+        if counts[0] == 2 and counts[1] == 2:
+            pairs = sorted([r for r, c in rank_counts.items() if c == 2], reverse=True)
             return (2, pairs[0], pairs[1])
-        if counts[0]==2: return (1, max([r for r,c in rank_counts.items() if c==2]))
+        if counts[0] == 2:
+            return (1, max([r for r, c in rank_counts.items() if c == 2]))
         return (0, max(ranks))
 
 poker_games = {}
 
 class PokerButton(Button):
     def __init__(self, label, style, action, amount=None):
-        super().__init__(label=label, style=style); self.action = action; self.amount = amount
+        super().__init__(label=label, style=style)
+        self.action = action
+        self.amount = amount
+    
     async def callback(self, i):
         game = poker_games.get(i.channel.id)
-        if not game: return await i.response.send_message("❌ Игра не найдена", ephemeral=True)
-        if i.user.id not in game.players: return await i.response.send_message("❌ Вы не в игре", ephemeral=True)
-        if i.user.id in game.folded: return await i.response.send_message("❌ Вы сбросили", ephemeral=True)
-        if game.players[game.current_player_index]!=i.user.id: return await i.response.send_message("❌ Не ваш ход", ephemeral=True)
+        if not game:
+            return await i.response.send_message("❌ Игра не найдена", ephemeral=True)
+        if i.user.id not in game.players:
+            return await i.response.send_message("❌ Вы не в игре", ephemeral=True)
+        if i.user.id in game.folded:
+            return await i.response.send_message("❌ Вы сбросили", ephemeral=True)
+        if game.players[game.current_player_index] != i.user.id:
+            return await i.response.send_message("❌ Не ваш ход", ephemeral=True)
         user = await get_user(i.user.id, i.guild.id)
-        if self.action=="check":
-            if game.current_bet>game.bets.get(i.user.id,0): return await i.response.send_message("❌ Нужно уравнять", ephemeral=True)
+        if self.action == "check":
+            if game.current_bet > game.bets.get(i.user.id, 0):
+                return await i.response.send_message("❌ Нужно уравнять", ephemeral=True)
             await i.response.send_message(f"✅ {i.user.mention} чекает", ephemeral=False)
-        elif self.action=="call":
-            need = game.current_bet - game.bets.get(i.user.id,0)
-            if need>user[4]: return await i.response.send_message(f"❌ Не хватает {need} 💎", ephemeral=True)
+        elif self.action == "call":
+            need = game.current_bet - game.bets.get(i.user.id, 0)
+            if need > user[4]:
+                return await i.response.send_message(f"❌ Не хватает {need} 💎", ephemeral=True)
             await add_balance(i.user.id, i.guild.id, -need)
-            game.bets[i.user.id] = game.bets.get(i.user.id,0)+need
+            game.bets[i.user.id] = game.bets.get(i.user.id, 0) + need
             game.pot += need
             await i.response.send_message(f"✅ {i.user.mention} уравнял (+{need} 💎)", ephemeral=False)
-        elif self.action=="raise":
+        elif self.action == "raise":
             if not self.amount:
                 modal = RaiseModal(game, i.user.id)
-                await i.response.send_modal(modal); return
+                await i.response.send_modal(modal)
+                return
             amount = self.amount
-            need = game.current_bet - game.bets.get(i.user.id,0) + amount
-            if need>user[4]: return await i.response.send_message(f"❌ Не хватает {need} 💎", ephemeral=True)
+            need = game.current_bet - game.bets.get(i.user.id, 0) + amount
+            if need > user[4]:
+                return await i.response.send_message(f"❌ Не хватает {need} 💎", ephemeral=True)
             await add_balance(i.user.id, i.guild.id, -need)
-            game.bets[i.user.id] = game.bets.get(i.user.id,0)+need
-            game.pot += need; game.current_bet = game.bets[i.user.id]; game.last_raiser = i.user.id
+            game.bets[i.user.id] = game.bets.get(i.user.id, 0) + need
+            game.pot += need
+            game.current_bet = game.bets[i.user.id]
+            game.last_raiser = i.user.id
             await i.response.send_message(f"✅ {i.user.mention} поднял до {game.current_bet} 💎", ephemeral=False)
-        elif self.action=="fold":
+        elif self.action == "fold":
             game.folded.append(i.user.id)
             await i.response.send_message(f"❌ {i.user.mention} сбросил", ephemeral=False)
         next_player = None
         for idx in range(len(game.players)):
-            idx2 = (game.current_player_index+1+idx)%len(game.players)
-            if game.players[idx2] not in game.folded: next_player = idx2; break
+            idx2 = (game.current_player_index + 1 + idx) % len(game.players)
+            if game.players[idx2] not in game.folded:
+                next_player = idx2
+                break
         if next_player is None:
-            await finish_poker_game(i.channel, game); return
+            await finish_poker_game(i.channel, game)
+            return
         game.current_player_index = next_player
-        all_in = all(game.bets.get(p,0)==game.current_bet or p in game.folded for p in game.players)
-        if all_in: await next_poker_stage(i.channel, game)
-        else: await update_poker_display(i.channel, game)
+        all_in = all(game.bets.get(p, 0) == game.current_bet or p in game.folded for p in game.players)
+        if all_in:
+            await next_poker_stage(i.channel, game)
+        else:
+            await update_poker_display(i.channel, game)
 
 class RaiseModal(Modal):
     def __init__(self, game, user_id):
         super().__init__(title="Повысить ставку")
-        self.game = game; self.user_id = user_id
+        self.game = game
+        self.user_id = user_id
         self.amount_input = TextInput(label="Сумма повышения", placeholder="Минимум 50", required=True)
         self.add_item(self.amount_input)
+    
     async def on_submit(self, i):
-        try: amount = int(self.amount_input.value)
-        except: return await i.response.send_message("❌ Введите число", ephemeral=True)
-        if amount<50: return await i.response.send_message("❌ Мин. 50 💎", ephemeral=True)
+        try:
+            amount = int(self.amount_input.value)
+        except:
+            return await i.response.send_message("❌ Введите число", ephemeral=True)
+        if amount < 50:
+            return await i.response.send_message("❌ Мин. 50 💎", ephemeral=True)
         user = await get_user(self.user_id, i.guild.id)
-        need = self.game.current_bet - self.game.bets.get(self.user_id,0) + amount
-        if need>user[4]: return await i.response.send_message(f"❌ Не хватает {need} 💎", ephemeral=True)
+        need = self.game.current_bet - self.game.bets.get(self.user_id, 0) + amount
+        if need > user[4]:
+            return await i.response.send_message(f"❌ Не хватает {need} 💎", ephemeral=True)
         await add_balance(self.user_id, i.guild.id, -need)
-        self.game.bets[self.user_id] = self.game.bets.get(self.user_id,0)+need
-        self.game.pot += need; self.game.current_bet = self.game.bets[self.user_id]; self.game.last_raiser = self.user_id
+        self.game.bets[self.user_id] = self.game.bets.get(self.user_id, 0) + need
+        self.game.pot += need
+        self.game.current_bet = self.game.bets[self.user_id]
+        self.game.last_raiser = self.user_id
         await i.response.send_message(f"✅ {i.user.mention} поднял до {self.game.current_bet} 💎", ephemeral=False)
         self.game.current_player_index = 0
         await update_poker_display(i.channel, self.game)
 
 async def next_poker_stage(channel, game):
-    deck = FULL_DECK.copy(); random.shuffle(deck)
-    if game.stage=="preflop":
-        game.community = [deck.pop(), deck.pop(), deck.pop()]; game.stage="flop"
-        game.current_bet = 0; game.bets = {p:0 for p in game.players}; game.last_raiser = None
-    elif game.stage=="flop":
-        game.community.append(deck.pop()); game.stage="turn"
-        game.current_bet = 0; game.bets = {p:0 for p in game.players}; game.last_raiser = None
-    elif game.stage=="turn":
-        game.community.append(deck.pop()); game.stage="river"
-        game.current_bet = 0; game.bets = {p:0 for p in game.players}; game.last_raiser = None
-    elif game.stage=="river":
-        await finish_poker_game(channel, game); return
+    deck = FULL_DECK.copy()
+    random.shuffle(deck)
+    if game.stage == "preflop":
+        game.community = [deck.pop(), deck.pop(), deck.pop()]
+        game.stage = "flop"
+        game.current_bet = 0
+        game.bets = {p: 0 for p in game.players}
+        game.last_raiser = None
+    elif game.stage == "flop":
+        game.community.append(deck.pop())
+        game.stage = "turn"
+        game.current_bet = 0
+        game.bets = {p: 0 for p in game.players}
+        game.last_raiser = None
+    elif game.stage == "turn":
+        game.community.append(deck.pop())
+        game.stage = "river"
+        game.current_bet = 0
+        game.bets = {p: 0 for p in game.players}
+        game.last_raiser = None
+    elif game.stage == "river":
+        await finish_poker_game(channel, game)
+        return
     game.current_player_index = 0
     while game.current_player_index < len(game.players) and game.players[game.current_player_index] in game.folded:
         game.current_player_index += 1
     await update_poker_display(channel, game)
 
 async def finish_poker_game(channel, game):
-    best_rank = (-1,); winner = None
+    best_rank = (-1,)
+    winner = None
     for uid in game.players:
-        if uid in game.folded: continue
+        if uid in game.folded:
+            continue
         all_cards = game.hands[uid] + game.community
         rank = game.get_hand_rank(all_cards)
-        if rank > best_rank: best_rank = rank; winner = uid
+        if rank > best_rank:
+            best_rank = rank
+            winner = uid
     if winner:
         await add_balance(winner, channel.guild.id, game.pot)
         embed = discord.Embed(title="🃏 ПОКЕР", color=discord.Color.gold())
@@ -2736,23 +3176,31 @@ async def update_poker_display(channel, game):
 
 @bot.command()
 async def poker(ctx, member1: discord.Member = None, member2: discord.Member = None, bet: int = None):
-    if not member1 or not member2 or not bet: return await ctx.send("❌ j.poker @игрок1 @игрок2 100")
+    if not member1 or not member2 or not bet:
+        return await ctx.send("❌ j.poker @игрок1 @игрок2 100")
     players = [ctx.author.id, member1.id, member2.id]
-    if len(set(players))!=3: return await ctx.send("❌ Игроки должны быть разными")
-    if bet<100: return await ctx.send("❌ Мин. 100 💎")
+    if len(set(players)) != 3:
+        return await ctx.send("❌ Игроки должны быть разными")
+    if bet < 100:
+        return await ctx.send("❌ Мин. 100 💎")
     for uid in players:
         bal = (await get_user(uid, ctx.guild.id))[4]
-        if bal<bet: return await ctx.send(f"❌ У <@{uid}> не хватает {bet} 💎")
-    for uid in players: await add_balance(uid, ctx.guild.id, -bet)
-    deck = FULL_DECK.copy(); random.shuffle(deck)
-    game = PokerGame(players, {uid:bet for uid in players}, ctx.channel.id)
+        if bal < bet:
+            return await ctx.send(f"❌ У <@{uid}> не хватает {bet} 💎")
+    for uid in players:
+        await add_balance(uid, ctx.guild.id, -bet)
+    deck = FULL_DECK.copy()
+    random.shuffle(deck)
+    game = PokerGame(players, {uid: bet for uid in players}, ctx.channel.id)
     game.deal(deck)
     poker_games[ctx.channel.id] = game
     for uid in players:
         user = ctx.guild.get_member(uid)
         if user:
-            try: await user.send(f"🃏 Ваши карты: {' '.join(game.hands[uid])}\nКанал: {ctx.channel.mention}")
-            except: pass
+            try:
+                await user.send(f"🃏 Ваши карты: {' '.join(game.hands[uid])}\nКанал: {ctx.channel.mention}")
+            except:
+                pass
     embed = discord.Embed(title="🃏 ПОКЕР", description=f"Игра началась!\nУчастники: <@{players[0]}>, <@{players[1]}>, <@{players[2]}>\n💰 Ставка: {bet} 💎\n🎲 Первый ход: <@{players[0]}>", color=discord.Color.green())
     await ctx.send(embed=embed)
     game.current_player_index = 0
@@ -2761,7 +3209,10 @@ async def poker(ctx, member1: discord.Member = None, member2: discord.Member = N
 # ========== ВИСЕЛИЦА ==========
 class HangmanGame:
     def __init__(self, word):
-        self.word = word.upper(); self.guessed = set(); self.wrong = []; self.max_wrong = 6
+        self.word = word.upper()
+        self.guessed = set()
+        self.wrong = []
+        self.max_wrong = 6
         self.pics = [
             "```\n   +---+\n       |\n       |\n       |\n      ===",
             "```\n   +---+\n   O   |\n       |\n       |\n      ===",
@@ -2771,21 +3222,33 @@ class HangmanGame:
             "```\n   +---+\n   O   |\n  /|\\  |\n  /    |\n      ===",
             "```\n   +---+\n   O   |\n  /|\\  |\n  / \\  |\n      ==="
         ]
-    def get_display(self): return " ".join([c if c in self.guessed else "_" for c in self.word])
+    
+    def get_display(self):
+        return " ".join([c if c in self.guessed else "_" for c in self.word])
+    
     def guess(self, letter):
         letter = letter.upper()
-        if letter in self.guessed or letter in self.wrong: return False, "already"
-        if letter in self.word: self.guessed.add(letter); return True, "correct"
-        else: self.wrong.append(letter); return False, "wrong"
-    def is_won(self): return all(c in self.guessed for c in self.word)
-    def is_lost(self): return len(self.wrong) >= self.max_wrong
+        if letter in self.guessed or letter in self.wrong:
+            return False, "already"
+        if letter in self.word:
+            self.guessed.add(letter)
+            return True, "correct"
+        else:
+            self.wrong.append(letter)
+            return False, "wrong"
+    
+    def is_won(self):
+        return all(c in self.guessed for c in self.word)
+    
+    def is_lost(self):
+        return len(self.wrong) >= self.max_wrong
 
 hangman_words = ["ПИТОН", "ДИСКОРД", "БОТ", "СЕРВЕР", "ПРОГРАММИРОВАНИЕ", "РАЗРАБОТЧИК", "КОМАНДА", "ИГРА", "ПОБЕДА", "УДАЧА"]
-hangman_games = {}
 
 @bot.command()
 async def hangman(ctx):
-    if ctx.channel.id in hangman_games: return await ctx.send("❌ Игра уже идёт!")
+    if ctx.channel.id in hangman_games:
+        return await ctx.send("❌ Игра уже идёт!")
     word = random.choice(hangman_words)
     game = HangmanGame(word)
     hangman_games[ctx.channel.id] = game
@@ -2794,37 +3257,47 @@ async def hangman(ctx):
 
 @bot.command()
 async def guess(ctx, letter: str = None):
-    if ctx.channel.id not in hangman_games: return await ctx.send("❌ Нет игры! `j.hangman`")
-    if not letter or len(letter)!=1: return await ctx.send("❌ Введите одну букву!")
+    if ctx.channel.id not in hangman_games:
+        return await ctx.send("❌ Нет игры! `j.hangman`")
+    if not letter or len(letter) != 1:
+        return await ctx.send("❌ Введите одну букву!")
     game = hangman_games[ctx.channel.id]
     result, status = game.guess(letter)
-    if status=="already": return await ctx.send(f"❌ Буква '{letter.upper()}' уже была!")
+    if status == "already":
+        return await ctx.send(f"❌ Буква '{letter.upper()}' уже была!")
     embed = discord.Embed(title="🔤 ВИСЕЛИЦА", color=discord.Color.blue())
     if game.is_won():
         embed.description = f"{game.pics[len(game.wrong)]}\n\nСлово: {game.get_display()}\n\n🎉 ПОБЕДА!"
         embed.color = discord.Color.green()
         await ctx.send(embed=embed)
-        del hangman_games[ctx.channel.id]; return
+        del hangman_games[ctx.channel.id]
+        return
     if game.is_lost():
         embed.description = f"{game.pics[game.max_wrong]}\n\n💀 ПОРАЖЕНИЕ! Слово: {game.word}"
         embed.color = discord.Color.red()
         await ctx.send(embed=embed)
-        del hangman_games[ctx.channel.id]; return
+        del hangman_games[ctx.channel.id]
+        return
     embed.description = f"{game.pics[len(game.wrong)]}\n\nСлово: {game.get_display()}\nОшибок: {len(game.wrong)}/{game.max_wrong}\nНеправильные: {', '.join(game.wrong) if game.wrong else 'нет'}"
     await ctx.send(embed=embed)
 
 # ========== КОРОТКИЕ ССЫЛКИ ==========
 short_urls = {}
+
 @bot.command()
 async def short(ctx, *, url: str = None):
-    if not url: return await ctx.send("❌ j.short https://example.com")
-    if not url.startswith("http"): url = "https://"+url
+    if not url:
+        return await ctx.send("❌ j.short https://example.com")
+    if not url.startswith("http"):
+        url = "https://" + url
     code = str(hash(url))[:6]
     short_urls[code] = url
     await ctx.send(f"🔗 Короткая ссылка: `j.get {code}`")
+
 @bot.command()
 async def get(ctx, code: str = None):
-    if not code or code not in short_urls: return await ctx.send("❌ Ссылка не найдена!")
+    if not code or code not in short_urls:
+        return await ctx.send("❌ Ссылка не найдена!")
     await ctx.send(f"🔗 {short_urls[code]}")
 
 # ========== КУРСЫ ВАЛЮТ ==========
@@ -2843,27 +3316,26 @@ async def currency(ctx):
                 embed.add_field(name="🇪🇺 Евро", value=f"{eur:.2f} ₽", inline=True)
                 embed.add_field(name="🇨🇳 Юань", value=f"{cny:.2f} ₽", inline=True)
                 await ctx.send(embed=embed)
-        except: await ctx.send("❌ Ошибка получения курсов")
+        except:
+            await ctx.send("❌ Ошибка получения курсов")
 
-# ========== ЕЖЕНЕДЕЛЬНЫЙ ОТЧЁТ ==========
-@tasks.loop(hours=168)
-async def weekly_report():
-    for guild in bot.guilds:
-        channel = guild.get_channel(LOGS_CHANNEL_ID)
-        if not channel: continue
-        week_start = (datetime.now()-timedelta(days=7)).strftime("%Y-%m-%d")
-        async with aiosqlite.connect("justice.db") as db:
-            cur = await db.execute('SELECT user_id, messages, voice_minutes, casino_wins, work_count, fish_caught, crops_harvested FROM weekly_stats WHERE guild_id=? AND week_start=? ORDER BY messages DESC LIMIT 10', (guild.id, week_start))
-            stats = await cur.fetchall()
-        if not stats: continue
-        embed = discord.Embed(title="📊 ЕЖЕНЕДЕЛЬНЫЙ ОТЧЁТ", description=f"Статистика за неделю (с {week_start})", color=discord.Color.blue())
-        text = ""
-        for i, (uid, msgs, voice, casino, work, fish, crops) in enumerate(stats[:5],1):
-            user = guild.get_member(uid)
-            name = user.display_name if user else f"ID:{uid}"
-            text += f"{i}. {name} – {msgs} сообщ., {voice} мин в войсе, {casino} побед в казино\n"
-        embed.add_field(name="🏆 ТОП АКТИВНОСТИ", value=text or "Нет данных", inline=False)
-        await channel.send(embed=embed)
+@bot.command()
+async def currency_full(ctx):
+    async with aiohttp.ClientSession() as session:
+        try:
+            url = "https://www.cbr-xml-daily.ru/daily_json.js"
+            async with session.get(url) as resp:
+                data = await resp.json()
+                embed = discord.Embed(title="💱 КУРСЫ ВАЛЮТ", color=discord.Color.gold(), timestamp=datetime.now())
+                currencies = ["USD", "EUR", "CNY", "GBP", "JPY", "CHF", "TRY", "KZT", "UAH", "BYN"]
+                for code in currencies:
+                    if code in data["Valute"]:
+                        val = data["Valute"][code]
+                        embed.add_field(name=f"{val['CharCode']} - {val['Name']}", value=f"{val['Value']:.2f} ₽", inline=True)
+                embed.set_footer(text="По данным ЦБ РФ")
+                await ctx.send(embed=embed)
+        except Exception as e:
+            await ctx.send(f"❌ Ошибка получения курсов: {str(e)[:100]}")
 
 # ========== STEAM ==========
 class SteamProfileView(discord.ui.View):
@@ -2872,70 +3344,87 @@ class SteamProfileView(discord.ui.View):
         self.target_user = target_user
         self.steam_id = steam_id
         self.add_item(discord.ui.Button(label="Открыть в Steam", style=discord.ButtonStyle.link, url=f"https://steamcommunity.com/profiles/{steam_id}"))
+    
     async def fetch_steam_data(self, action):
-        if not STEAM_API_KEY: return None, "❌ Steam API не настроен"
+        if not STEAM_API_KEY:
+            return None, "❌ Steam API не настроен"
         async with aiohttp.ClientSession() as session:
             if action == "profile":
                 url = f"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={STEAM_API_KEY}&steamids={self.steam_id}"
                 async with session.get(url) as resp:
                     data = await resp.json()
-                    players = data.get('response',{}).get('players',[])
-                    if not players: return None, "❌ Профиль не найден"
+                    players = data.get('response', {}).get('players', [])
+                    if not players:
+                        return None, "❌ Профиль не найден"
                     p = players[0]
-                    status_map = {0:"Офлайн",1:"В сети",2:"Занят",3:"Нет на месте",4:"Спит",5:"Ищет игру",6:"Играет"}
-                    embed = discord.Embed(title=f"🎮 Steam | {self.target_user.display_name}", description=p.get('personaname','Неизвестно'), color=discord.Color.blue())
-                    if p.get('avatarfull'): embed.set_thumbnail(url=p['avatarfull'])
+                    status_map = {0: "Офлайн", 1: "В сети", 2: "Занят", 3: "Нет на месте", 4: "Спит", 5: "Ищет игру", 6: "Играет"}
+                    embed = discord.Embed(title=f"🎮 Steam | {self.target_user.display_name}", description=p.get('personaname', 'Неизвестно'), color=discord.Color.blue())
+                    if p.get('avatarfull'):
+                        embed.set_thumbnail(url=p['avatarfull'])
                     embed.add_field(name="🆔 Steam ID", value=self.steam_id, inline=True)
-                    embed.add_field(name="🎮 Статус", value=status_map.get(p.get('personastate',0),"Неизвестно"), inline=True)
+                    embed.add_field(name="🎮 Статус", value=status_map.get(p.get('personastate', 0), "Неизвестно"), inline=True)
                     games_url = f"https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key={STEAM_API_KEY}&steamid={self.steam_id}&include_appinfo=true"
                     async with session.get(games_url) as gr:
                         games_data = await gr.json()
-                        if games_data.get('response',{}).get('games'):
+                        if games_data.get('response', {}).get('games'):
                             games_list = games_data['response']['games']
                             embed.add_field(name="📚 Игр", value=len(games_list), inline=True)
-                            total_hours = sum(g.get('playtime_forever',0) for g in games_list)/60
+                            total_hours = sum(g.get('playtime_forever', 0) for g in games_list) / 60
                             embed.add_field(name="⏱️ Часов", value=f"{total_hours:.0f}ч", inline=True)
                     return embed, None
             return None, "❌ Неизвестно"
 
 @bot.command()
 async def steam(ctx, action: str = None, *, arg: str = None):
-    if not action: return await ctx.send("🎮 `j.steam set <steam_id>`\n`j.steam profile [@user]`")
+    if not action:
+        return await ctx.send("🎮 `j.steam set <steam_id>`\n`j.steam profile [@user]`")
     if action == "set":
-        if not arg: return await ctx.send("❌ j.steam set <steam_id>")
+        if not arg:
+            return await ctx.send("❌ j.steam set <steam_id>")
         await update_user(ctx.author.id, ctx.guild.id, steam_id=arg)
         return await ctx.send(f"✅ Steam ID привязан: {arg}")
     if action == "profile":
         target = ctx.author
         if arg:
             match = re.match(r'<@!?(\d+)>', arg)
-            if match: target = ctx.guild.get_member(int(match.group(1))) or await bot.fetch_user(int(match.group(1)))
-            else: return await ctx.send("❌ Укажите пользователя через @")
+            if match:
+                target = ctx.guild.get_member(int(match.group(1))) or await bot.fetch_user(int(match.group(1)))
+            else:
+                return await ctx.send("❌ Укажите пользователя через @")
         user_data = await get_user(target.id, ctx.guild.id)
-        steam_id = user_data[25] if len(user_data)>25 else None
-        if not steam_id: return await ctx.send(f"❌ У {target.mention} не привязан Steam ID")
+        steam_id = user_data[25] if len(user_data) > 25 else None
+        if not steam_id:
+            return await ctx.send(f"❌ У {target.mention} не привязан Steam ID")
         view = SteamProfileView(target, steam_id)
         embed, _ = await view.fetch_steam_data("profile")
-        if embed: await ctx.send(embed=embed, view=view)
-        else: await ctx.send("❌ Не удалось загрузить профиль")
+        if embed:
+            await ctx.send(embed=embed, view=view)
+        else:
+            await ctx.send("❌ Не удалось загрузить профиль")
 
 # ========== СТОЛОТО ==========
 async def stoloto_scheduler():
     while True:
         now = datetime.now()
         target = now.replace(hour=14, minute=0, second=0, microsecond=0)
-        if now >= target: target += timedelta(days=1)
-        await asyncio.sleep((target-now).total_seconds())
+        if now >= target:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
         await run_stoloto()
 
 async def run_stoloto():
     global stoloto_active, stoloto_tickets, stoloto_end_time
     ch = bot.get_channel(STOLOTO_CHANNEL_ID)
-    if not ch: return
+    if not ch:
+        return
     stoloto_active = True
     stoloto_tickets = []
-    stoloto_end_time = datetime.now().replace(hour=14, minute=0, second=0) + timedelta(days=1)
-    embed = discord.Embed(title="🎰 СТО ЛОТО", description=f"**Новый розыгрыш!**\n⏰ До: <t:{int(stoloto_end_time.timestamp())}:R>\n💰 Джекпот: **{STOLOTO_TICKET_PRICE*10}** 💎\n🎫 `j.loto_buy` - купить билет ({STOLOTO_TICKET_PRICE}💎)", color=discord.Color.gold())
+    stoloto_end_time = datetime.now() + timedelta(days=1)
+    embed = discord.Embed(
+        title="🎰 СТО ЛОТО",
+        description=f"**Новый розыгрыш!**\n⏰ До: <t:{int(stoloto_end_time.timestamp())}:R>\n💰 Джекпот: **{STOLOTO_TICKET_PRICE * 10}** 💎\n🎫 `j.loto_buy` - купить билет ({STOLOTO_TICKET_PRICE}💎)",
+        color=discord.Color.gold()
+    )
     await ch.send(embed=embed)
     await asyncio.sleep(86400)
     if not stoloto_tickets:
@@ -2951,11 +3440,15 @@ async def run_stoloto():
 @bot.command()
 async def loto_buy(ctx):
     global stoloto_tickets, stoloto_active, stoloto_end_time
-    if not stoloto_active: return await ctx.send("❌ Розыгрыш не активен! Новый каждый день в 14:00 МСК")
-    if datetime.now() >= stoloto_end_time: return await ctx.send("❌ Продажа билетов закончена!")
-    if ctx.author.id in stoloto_tickets: return await ctx.send("❌ У вас уже есть билет!")
+    if not stoloto_active:
+        return await ctx.send("❌ Розыгрыш не активен! Новый каждый день в 14:00 МСК")
+    if datetime.now() >= stoloto_end_time:
+        return await ctx.send("❌ Продажа билетов закончена!")
+    if ctx.author.id in stoloto_tickets:
+        return await ctx.send("❌ У вас уже есть билет!")
     user = await get_user(ctx.author.id, ctx.guild.id)
-    if user[4] < STOLOTO_TICKET_PRICE: return await ctx.send(f"❌ Нужно {STOLOTO_TICKET_PRICE} 💎")
+    if user[4] < STOLOTO_TICKET_PRICE:
+        return await ctx.send(f"❌ Нужно {STOLOTO_TICKET_PRICE} 💎")
     await add_balance(ctx.author.id, ctx.guild.id, -STOLOTO_TICKET_PRICE)
     stoloto_tickets.append(ctx.author.id)
     await ctx.send(f"✅ Билет куплен! Участников: {len(stoloto_tickets)}")
@@ -2982,7 +3475,8 @@ async def accept(ctx, sid: int, *, verdict: str = "Принято"):
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT user_id, suggestion FROM suggestions WHERE id=? AND guild_id=?', (sid, ctx.guild.id))
         row = await cur.fetchone()
-        if not row: return await ctx.send(f"❌ Идея #{sid} не найдена")
+        if not row:
+            return await ctx.send(f"❌ Идея #{sid} не найдена")
         uid, sug = row
         await db.execute('UPDATE suggestions SET status="accepted", verdict=? WHERE id=?', (verdict, sid))
         await db.commit()
@@ -2990,7 +3484,8 @@ async def accept(ctx, sid: int, *, verdict: str = "Принято"):
     try:
         author = await bot.fetch_user(uid)
         await author.send(f"✅ Идея #{sid} принята! Вердикт: {verdict}")
-    except: pass
+    except:
+        pass
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -2998,7 +3493,8 @@ async def deny(ctx, sid: int, *, verdict: str = "Отклонено"):
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT user_id, suggestion FROM suggestions WHERE id=? AND guild_id=?', (sid, ctx.guild.id))
         row = await cur.fetchone()
-        if not row: return await ctx.send(f"❌ Идея #{sid} не найдена")
+        if not row:
+            return await ctx.send(f"❌ Идея #{sid} не найдена")
         uid, sug = row
         await db.execute('UPDATE suggestions SET status="denied", verdict=? WHERE id=?', (verdict, sid))
         await db.commit()
@@ -3006,19 +3502,25 @@ async def deny(ctx, sid: int, *, verdict: str = "Отклонено"):
     try:
         author = await bot.fetch_user(uid)
         await author.send(f"❌ Идея #{sid} отклонена. Причина: {verdict}")
-    except: pass
+    except:
+        pass
 
 # ========== РОЗЫГРЫШИ ==========
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def giveaway(ctx, action: str, channel: discord.TextChannel = None, prize: str = None, winners: int = None, duration: str = None):
-    if action != "create": return await ctx.send("Доступно: create")
-    if not channel or not prize or not winners or not duration: return await ctx.send("❌ j.giveaway create #канал приз кол-во 1д/1ч/10м")
-    units = {"м":60,"ч":3600,"д":86400}
+    if action != "create":
+        return await ctx.send("Доступно: create")
+    if not channel or not prize or not winners or not duration:
+        return await ctx.send("❌ j.giveaway create #канал приз кол-во 1д/1ч/10м")
+    units = {"м": 60, "ч": 3600, "д": 86400}
     unit = duration[-1]
-    if unit not in units: return await ctx.send("❌ м, ч, д")
-    try: sec = int(duration[:-1]) * units[unit]
-    except: return await ctx.send("❌ Неверный формат")
+    if unit not in units:
+        return await ctx.send("❌ м, ч, д")
+    try:
+        sec = int(duration[:-1]) * units[unit]
+    except:
+        return await ctx.send("❌ Неверный формат")
     end = datetime.now() + timedelta(seconds=sec)
     embed = discord.Embed(title="🎉 РОЗЫГРЫШ", description=f"**Приз:** {prize}\n**Победителей:** {winners}\n**До:** <t:{int(end.timestamp())}:R>", color=discord.Color.gold())
     msg = await channel.send(embed=embed)
@@ -3031,12 +3533,14 @@ async def giveaway(ctx, action: str, channel: discord.TextChannel = None, prize:
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT prize, winners, entries FROM giveaways WHERE message_id=? AND ended=0', (msg.id,))
         row = await cur.fetchone()
-        if not row: return
+        if not row:
+            return
         prize, wcount, entries_json = row
         entries = json.loads(entries_json)
         await db.execute('UPDATE giveaways SET ended=1 WHERE message_id=?', (msg.id,))
         await db.commit()
-    if not entries: await channel.send("😔 Никто не участвовал")
+    if not entries:
+        await channel.send("😔 Никто не участвовал")
     else:
         selected = random.sample(entries, min(wcount, len(entries)))
         await channel.send(f"🏆 **ПОБЕДИТЕЛИ:** {', '.join(f'<@{uid}>' for uid in selected)}\n🎁 **Приз:** {prize}")
@@ -3053,18 +3557,24 @@ async def top(ctx, category: str = "balance"):
             cur = await db.execute('SELECT user_id, level, xp FROM users WHERE guild_id=? ORDER BY level DESC, xp DESC LIMIT 10', (ctx.guild.id,))
         elif category == "messages":
             cur = await db.execute('SELECT user_id, total_messages FROM users WHERE guild_id=? ORDER BY total_messages DESC LIMIT 10', (ctx.guild.id,))
-        else: return await ctx.send("❌ balance, reputation, level, messages")
+        else:
+            return await ctx.send("❌ balance, reputation, level, messages")
         rows = await cur.fetchall()
-    if not rows: return await ctx.send("📊 Нет данных")
+    if not rows:
+        return await ctx.send("📊 Нет данных")
     msg = f"🏆 **ТОП {category.upper()}**\n"
-    for i, row in enumerate(rows,1):
+    for i, row in enumerate(rows, 1):
         uid = row[0]
         user = ctx.guild.get_member(uid)
         name = user.display_name if user else f"ID:{uid}"
-        if category == "balance": msg += f"{i}. {name} – {row[1]} 💎\n"
-        elif category == "reputation": msg += f"{i}. {name} – {row[1]} ⭐\n"
-        elif category == "level": msg += f"{i}. {name} – {row[1]} ур. ({row[2]} XP)\n"
-        elif category == "messages": msg += f"{i}. {name} – {row[1]} сообщ.\n"
+        if category == "balance":
+            msg += f"{i}. {name} – {row[1]} 💎\n"
+        elif category == "reputation":
+            msg += f"{i}. {name} – {row[1]} ⭐\n"
+        elif category == "level":
+            msg += f"{i}. {name} – {row[1]} ур. ({row[2]} XP)\n"
+        elif category == "messages":
+            msg += f"{i}. {name} – {row[1]} сообщ.\n"
     await ctx.send(msg[:1900])
 
 @bot.command()
@@ -3072,87 +3582,251 @@ async def top_voice(ctx):
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT user_id, voice_total_seconds FROM users WHERE guild_id=? AND voice_total_seconds>0 ORDER BY voice_total_seconds DESC LIMIT 10', (ctx.guild.id,))
         rows = await cur.fetchall()
-    if not rows: return await ctx.send("📊 Нет данных")
+    if not rows:
+        return await ctx.send("📊 Нет данных")
     msg = "**🏆 ТОП ПО ГОЛОСОВОМУ ОНЛАЙНУ**\n"
-    for i, (uid, sec) in enumerate(rows,1):
+    for i, (uid, sec) in enumerate(rows, 1):
         user = ctx.guild.get_member(uid)
         name = user.display_name if user else f"ID:{uid}"
-        hours = sec//3600
-        minutes = (sec%3600)//60
-        medal = "🥇" if i==1 else "🥈" if i==2 else "🥉" if i==3 else "🔹"
+        hours = sec // 3600
+        minutes = (sec % 3600) // 60
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🔹"
         msg += f"{medal} {i}. {name} – {hours}ч {minutes}мин\n"
     await ctx.send(msg)
+
+@bot.command()
+async def top_weekly(ctx):
+    week_start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT user_id, messages, voice_minutes, casino_wins, work_count, fish_caught, crops_harvested FROM weekly_stats WHERE guild_id=? AND week_start=? ORDER BY messages DESC LIMIT 10', (ctx.guild.id, week_start))
+        stats = await cur.fetchall()
+    if not stats:
+        return await ctx.send("📊 Нет статистики за эту неделю")
+    embed = discord.Embed(title="🏆 ТОП ЗА НЕДЕЛЮ", color=discord.Color.blue())
+    text = ""
+    for i, (uid, msgs, voice, casino, work, fish, crops) in enumerate(stats[:10], 1):
+        user = ctx.guild.get_member(uid)
+        name = user.display_name if user else f"ID:{uid}"
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🔹"
+        text += f"{medal} {i}. {name} – {msgs} сообщ., {voice} мин в войсе\n"
+    embed.description = text
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def top_weekly_voice(ctx):
+    week_start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT user_id, voice_minutes FROM weekly_stats WHERE guild_id=? AND week_start=? AND voice_minutes>0 ORDER BY voice_minutes DESC LIMIT 10', (ctx.guild.id, week_start))
+        stats = await cur.fetchall()
+    if not stats:
+        return await ctx.send("📊 Нет статистики за эту неделю")
+    embed = discord.Embed(title="🏆 ТОП ПО ВОЙСУ ЗА НЕДЕЛЮ", color=discord.Color.blue())
+    text = ""
+    for i, (uid, minutes) in enumerate(stats[:10], 1):
+        user = ctx.guild.get_member(uid)
+        name = user.display_name if user else f"ID:{uid}"
+        hours = minutes // 60
+        mins = minutes % 60
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🔹"
+        text += f"{medal} {i}. {name} – {hours}ч {mins}мин\n"
+    embed.description = text
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def top_weekly_casino(ctx):
+    week_start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT user_id, casino_wins FROM weekly_stats WHERE guild_id=? AND week_start=? AND casino_wins>0 ORDER BY casino_wins DESC LIMIT 10', (ctx.guild.id, week_start))
+        stats = await cur.fetchall()
+    if not stats:
+        return await ctx.send("📊 Нет статистики за эту неделю")
+    embed = discord.Embed(title="🏆 ТОП ПО ВЫИГРЫШАМ В КАЗИНО ЗА НЕДЕЛЮ", color=discord.Color.gold())
+    text = ""
+    for i, (uid, wins) in enumerate(stats[:10], 1):
+        user = ctx.guild.get_member(uid)
+        name = user.display_name if user else f"ID:{uid}"
+        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🔹"
+        text += f"{medal} {i}. {name} – {wins} побед\n"
+    embed.description = text
+    await ctx.send(embed=embed)
 
 # ========== НАСТРОЙКИ ==========
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def settings(ctx, module: str = None, channel: discord.TextChannel = None):
-    if ctx.guild.id not in guild_settings: guild_settings[ctx.guild.id] = {}
+    if ctx.guild.id not in guild_settings:
+        guild_settings[ctx.guild.id] = {}
     if not module:
         s = guild_settings[ctx.guild.id]
         embed = discord.Embed(title="⚙️ НАСТРОЙКИ", color=discord.Color.blue())
-        embed.add_field(name="📢 Приветствия", value=f"<#{s.get('welcome_channel',0)}>" if s.get('welcome_channel') else "❌ Не установлен", inline=False)
-        embed.add_field(name="📝 Логи", value=f"<#{s.get('log_channel',0)}>" if s.get('log_channel') else "❌ Не установлен", inline=False)
-        embed.add_field(name="📊 Уровни", value=f"<#{s.get('levels_channel',0)}>" if s.get('levels_channel') else "❌ Не установлен", inline=False)
+        embed.add_field(name="📢 Приветствия", value=f"<#{s.get('welcome_channel', 0)}>" if s.get('welcome_channel') else "❌ Не установлен", inline=False)
+        embed.add_field(name="📝 Логи", value=f"<#{s.get('log_channel', 0)}>" if s.get('log_channel') else "❌ Не установлен", inline=False)
+        embed.add_field(name="📊 Уровни", value=f"<#{s.get('levels_channel', 0)}>" if s.get('levels_channel') else "❌ Не установлен", inline=False)
         await ctx.send(embed=embed)
         return
-    if not channel: return await ctx.send(f"❌ Укажите канал: `j.settings {module} #канал`")
-    if module == "welcome": guild_settings[ctx.guild.id]["welcome_channel"] = channel.id; await ctx.send(f"✅ Канал приветствий: {channel.mention}")
-    elif module == "logs": guild_settings[ctx.guild.id]["log_channel"] = channel.id; await ctx.send(f"✅ Канал логов: {channel.mention}")
-    elif module == "levels": guild_settings[ctx.guild.id]["levels_channel"] = channel.id; await ctx.send(f"✅ Канал уровней: {channel.mention}")
-    else: await ctx.send("❌ welcome, logs, levels")
+    if not channel:
+        return await ctx.send(f"❌ Укажите канал: `j.settings {module} #канал`")
+    if module == "welcome":
+        guild_settings[ctx.guild.id]["welcome_channel"] = channel.id
+        await ctx.send(f"✅ Канал приветствий: {channel.mention}")
+    elif module == "logs":
+        guild_settings[ctx.guild.id]["log_channel"] = channel.id
+        await ctx.send(f"✅ Канал логов: {channel.mention}")
+    elif module == "levels":
+        guild_settings[ctx.guild.id]["levels_channel"] = channel.id
+        await ctx.send(f"✅ Канал уровней: {channel.mention}")
+    else:
+        await ctx.send("❌ welcome, logs, levels")
 
-# ========== HELP С ВЕЧНЫМИ КНОПКАМИ ==========
+# ========== АВТОМОДЕРАЦИЯ ==========
+async def check_spam(message):
+    user_id = message.author.id
+    content = message.content.strip().lower()
+    now = time.time()
+    settings = guild_settings.get(message.guild.id, {})
+    for word in settings.get("automod_bad_words", []):
+        if word in content:
+            spam_messages_to_delete[user_id].append(message.id)
+            return True, f"запрещённое слово: {word}"
+    if settings.get("automod_invites_enabled", True):
+        if "discord.gg/" in content or "discord.com/invite/" in content:
+            spam_messages_to_delete[user_id].append(message.id)
+            return True, "реклама сервера"
+    if settings.get("automod_phishing_enabled", True):
+        if ("free" in content or "giveaway" in content) and ("nitro" in content or "steam" in content):
+            spam_messages_to_delete[user_id].append(message.id)
+            return True, "подозрение на фишинг"
+    if user_id not in user_message_timestamps:
+        user_message_timestamps[user_id] = []
+    user_message_timestamps[user_id].append(now)
+    spam_messages_to_delete[user_id].append(message.id)
+    cutoff = now - ANTISPAM_WINDOW_SECONDS
+    old_indices = [i for i, t in enumerate(user_message_timestamps[user_id]) if t < cutoff]
+    for i in sorted(old_indices, reverse=True):
+        user_message_timestamps[user_id].pop(i)
+        spam_messages_to_delete[user_id].pop(i)
+    if len(user_message_timestamps[user_id]) > ANTISPAM_MAX_MESSAGES:
+        return True, f"флуд ({len(user_message_timestamps[user_id])} сообщений)"
+    return False, None
+
+async def add_auto_warning(user, reason, channel):
+    user_id = user.id
+    now = time.time()
+    user_warnings[user_id] = [w for w in user_warnings[user_id] if now - w["time"] < ANTISPAM_WARNING_EXPIRE_HOURS * 3600]
+    user_warnings[user_id].append({"reason": reason, "time": now, "moderator": "Automod"})
+    warning_count = len(user_warnings[user_id])
+    embed = discord.Embed(title="⚠️ АВТОМАТИЧЕСКОЕ ПРЕДУПРЕЖДЕНИЕ", color=discord.Color.orange(), timestamp=datetime.now())
+    embed.add_field(name="👤 Пользователь", value=f"{user.mention}\n{user.name}", inline=True)
+    embed.add_field(name="📝 Причина", value=reason, inline=True)
+    embed.add_field(name="📊 Всего варнов", value=f"{warning_count}/{ANTISPAM_MAX_WARNINGS}", inline=True)
+    await send_log(user.guild.id, embed)
+    if warning_count >= ANTISPAM_MAX_WARNINGS:
+        alert = discord.Embed(title="🚨 ПРЕВЫШЕН ЛИМИТ ПРЕДУПРЕЖДЕНИЙ", description=f"{user.mention} получил {warning_count} предупреждений за 24 часа", color=discord.Color.red())
+        await send_log(user.guild.id, alert)
+    return warning_count
+
+async def send_warning_dm(user, reason, wc, channel):
+    try:
+        await user.send(f"⚠️ **Автомодерация**\nВаши сообщения в {channel.mention} удалены\nПричина: {reason}\nПредупреждений: {wc}/{ANTISPAM_MAX_WARNINGS}")
+    except:
+        pass
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def automod(ctx, action: str = None, module: str = None, *args):
+    if ctx.guild.id not in guild_settings:
+        guild_settings[ctx.guild.id] = {}
+    settings = guild_settings[ctx.guild.id]
+    if "automod_enabled" not in settings:
+        settings.update({"automod_enabled": True, "automod_bad_words": [], "automod_invites_enabled": True, "automod_phishing_enabled": True, "automod_exempt_roles": []})
+    if action is None or action == "status":
+        embed = discord.Embed(title="⚙️ АВТОМОДЕРАЦИЯ", color=discord.Color.blue())
+        embed.add_field(name="📊 Статус", value="✅ ВКЛ" if settings["automod_enabled"] else "❌ ВЫКЛ", inline=False)
+        embed.add_field(name="📝 Запрещённые слова", value=f"{len(settings['automod_bad_words'])} слов", inline=True)
+        embed.add_field(name="🚫 Реклама", value="✅ ВКЛ" if settings["automod_invites_enabled"] else "❌ ВЫКЛ", inline=True)
+        embed.add_field(name="🎣 Фишинг", value="✅ ВКЛ" if settings["automod_phishing_enabled"] else "❌ ВЫКЛ", inline=True)
+        roles = [ctx.guild.get_role(rid).mention for rid in settings["automod_exempt_roles"] if ctx.guild.get_role(rid)]
+        embed.add_field(name="👑 Исключённые", value=", ".join(roles) if roles else "Нет", inline=False)
+        await ctx.send(embed=embed)
+        return
+    if action == "enable":
+        settings["automod_enabled"] = True
+        await ctx.send("✅ Автомод ВКЛ")
+    elif action == "disable":
+        settings["automod_enabled"] = False
+        await ctx.send("❌ Автомод ВЫКЛ")
+    elif action == "words":
+        if module == "add" and len(args) >= 2:
+            word = " ".join(args[1:]).lower()
+            if word not in settings["automod_bad_words"]:
+                settings["automod_bad_words"].append(word)
+                await ctx.send(f"✅ Добавлено: {word}")
+        elif module == "remove" and len(args) >= 2:
+            word = " ".join(args[1:]).lower()
+            if word in settings["automod_bad_words"]:
+                settings["automod_bad_words"].remove(word)
+                await ctx.send(f"✅ Удалено: {word}")
+        elif module == "list":
+            await ctx.send(f"📝 Слова: {', '.join(settings['automod_bad_words']) if settings['automod_bad_words'] else 'пусто'}")
+        elif module == "clear":
+            settings["automod_bad_words"] = []
+            await ctx.send("✅ Очищено")
+    elif action == "invites":
+        if args[0] == "on":
+            settings["automod_invites_enabled"] = True
+            await ctx.send("✅ Реклама включена")
+        elif args[0] == "off":
+            settings["automod_invites_enabled"] = False
+            await ctx.send("❌ Реклама выключена")
+    elif action == "phishing":
+        if args[0] == "on":
+            settings["automod_phishing_enabled"] = True
+            await ctx.send("✅ Фишинг включён")
+        elif args[0] == "off":
+            settings["automod_phishing_enabled"] = False
+            await ctx.send("❌ Фишинг выключен")
+    elif action == "exempt":
+        if module == "add" and ctx.message.role_mentions:
+            role = ctx.message.role_mentions[0]
+            if role.id not in settings["automod_exempt_roles"]:
+                settings["automod_exempt_roles"].append(role.id)
+                await ctx.send(f"✅ {role.mention} исключена")
+        elif module == "remove" and ctx.message.role_mentions:
+            role = ctx.message.role_mentions[0]
+            if role.id in settings["automod_exempt_roles"]:
+                settings["automod_exempt_roles"].remove(role.id)
+                await ctx.send(f"✅ {role.mention} удалена")
+        elif module == "list":
+            await ctx.send(f"👑 Исключённые: {', '.join([ctx.guild.get_role(rid).mention for rid in settings['automod_exempt_roles'] if ctx.guild.get_role(rid)]) or 'Нет'}")
+
+# ========== HELP ==========
 class HelpView(View):
     def __init__(self, author_id):
         super().__init__(timeout=None)
         self.author_id = author_id
         self.page = 0
         self.pages = [
-            {"name": "📊 ОСНОВНЫЕ", "content": "`j.profile` - профиль\n`j.balance` - баланс\n`j.work` - работа\n`j.daily` - ежедневный бонус\n`j.weekly` - еженедельный бонус\n`j.monthly` - ежемесячный бонус\n`j.hourly_bonus` - часовой бонус\n`j.pay @user сумма` - перевод\n`j.bank` - банк\n`j.deposit сумма` - вклад\n`j.withdraw сумма` - вывод\n`j.rep` - репутация\n`j.plusrep @user` - +1 репутации\n`j.minusrep @user` - -1 репутации\n`j.rob @user` - ограбить"},
-            
-            {"name": "🎮 ИГРЫ", "content": "`j.casino сумма` - казино\n`j.slots сумма` - слоты\n`j.dice число сумма` - кости\n`j.coinflip сторона сумма` - монетка\n`j.rps выбор сумма` - камень-ножницы-бумага\n`j.blackjack сумма` - блэкджек\n`j.ttt @user сумма` - крестики-нолики\n`j.poker @иг1 @иг2 сумма` - покер\n`j.hangman` - виселица\n`j.guess буква` - угадать букву"},
-            
-            {"name": "🌾 ФЕРМА (Часть 1)", "content": "`j.farm` - ферма\n`j.buy_pot` - купить горшок\n`j.buy_seed семя` - купить семена\n`j.plant номер семя` - посадить\n`j.harvest номер` - собрать урожай\n`j.sell_crop культура редкость` - продать урожай\n`j.sell_all_crops` - продать всё\n`j.farm_time` - время и бонусы фермы"},
-            
-            {"name": "🌾 ФЕРМА (Часть 2)", "content": "`j.buy_animal животное` - купить животное\n`j.feed_animals` - покормить животных\n`j.collect_products` - собрать продукцию\n`j.my_animals` - мои животные\n`j.upgrade_farm тип` - улучшить ферму\n`j.farm_upgrades_info` - инфо об улучшениях"},
-            
-            {"name": "🔨 КРАФТ И ЗАВОД", "content": "`j.craft рецепт` - скрафтить предмет\n`j.recipes` - список рецептов\n`j.factory` - завод (переработка)\n`j.craft_product название` - создать продукт\n`j.factory_status` - статус завода"},
-            
-            {"name": "📈 БИРЖА И ДОСТАВКА", "content": "`j.market` - цены на бирже\n`j.sell_market культура количество` - продать по цене биржи\n`j.delivery` - получить заказ на доставку\n`j.complete_delivery` - выполнить заказ"},
-            
-            {"name": "🎣 РЫБАЛКА", "content": "`j.fish` - ловить рыбу\n`j.buy_rod удочка` - купить удочку\n`j.sell_all` - продать всю рыбу"},
-            
-            {"name": "🛍️ МАГАЗИН", "content": "`j.shop` - магазин\n`j.buy товар` - купить\n`j.use предмет` - использовать\n`j.inventory` - инвентарь"},
-            
-            {"name": "📈 ИНВЕСТИЦИИ", "content": "`j.invest тип сумма` - инвестировать\n`j.claim_invest` - забрать инвестиции\n`j.invest_info` - инфо об инвестициях"},
-            
-            {"name": "🎫 ТИКЕТЫ", "content": "`j.ticket` - создать тикет\n`j.close_ticket` - закрыть тикет\n`j.tickets_list` - список тикетов\n`j.setup_ticket` - настроить кнопку (админ)"},
-            
-            {"name": "🛡️ МОДЕРАЦИЯ", "content": "`j.warn @user причина` - предупреждение\n`j.warns @user` - список варнов\n`j.unwarn @user id` - снять варн\n`j.mute @user время причина` - мут\n`j.unmute @user` - размут\n`j.ban @user причина` - бан\n`j.kick @user причина` - кик\n`j.clear кол-во` - очистка чата\n`j.nickname @user ник` - сменить ник\n`j.automod` - настройка автомода (админ)"},
-            
-            {"name": "🌤️ ПОГОДА", "content": "`j.weather город` - погода на 7 дней\n`j.weather_today город` - на сегодня\n`j.weather_3days город` - на 3 дня\n`j.weather_7days город` - на 7 дней\n`j.weather_hourly город` - почасовой"},
-            
-            {"name": "🎮 STEAM", "content": "`j.steam set <steam_id>` - привязать Steam ID\n`j.steam profile [@user]` - показать Steam профиль"},
-            
+            {"name": "📊 ОСНОВНЫЕ", "content": "`j.profile` - профиль\n`j.balance` - баланс\n`j.work` - работа\n`j.daily` - бонус\n`j.weekly` - бонус\n`j.monthly` - бонус\n`j.hourly_bonus` - часовой бонус\n`j.pay @user сумма` - перевод\n`j.bank` - банк\n`j.deposit сумма` - вклад\n`j.withdraw сумма` - вывод\n`j.rep` - репутация\n`j.plusrep @user` +1 репутации\n`j.rob @user` - ограбить"},
+            {"name": "🎮 ИГРЫ", "content": "`j.casino сумма` - казино\n`j.slots сумма` - слоты\n`j.dice число сумма` - кости\n`j.coinflip сторона сумма` - монетка\n`j.rps выбор сумма` - КНБ\n`j.blackjack сумма` - блэкджек\n`j.ttt @user сумма` - крестики-нолики\n`j.poker @иг1 @иг2 сумма` - покер\n`j.hangman` - виселица\n`j.guess буква` - угадать букву"},
+            {"name": "🌾 ФЕРМА", "content": "`j.farm` - ферма\n`j.buy_pot` - горшок\n`j.buy_seed семя` - семена\n`j.plant номер семя` - посадка\n`j.harvest номер` - сбор\n`j.sell_crop культура редкость` - продать\n`j.sell_all_crops` - продать всё\n`j.buy_animal животное` - животные\n`j.feed_animals` - кормление\n`j.collect_products` - сбор продукции\n`j.my_animals` - мои животные\n`j.upgrade_farm тип` - улучшить\n`j.farm_upgrades_info` - инфо\n`j.craft рецепт` - крафт\n`j.recipes` - рецепты\n`j.farm_time` - время фермы"},
+            {"name": "🎣 РЫБАЛКА", "content": "`j.fish` - рыбалка\n`j.buy_rod удочка` - удочка\n`j.sell_all` - продать всё"},
+            {"name": "🛍️ МАГАЗИН", "content": "`j.shop` - магазин\n`j.buy товар` - купить\n`j.use_decoration украшение` - использовать украшение\n`j.inventory` - инвентарь"},
+            {"name": "📈 ИНВЕСТИЦИИ", "content": "`j.invest тип сумма` - инвестировать\n`j.claim_invest` - забрать\n`j.invest_info` - инфо"},
+            {"name": "🎫 ТИКЕТЫ", "content": "`j.ticket` - создать тикет\n`j.close_ticket` - закрыть\n`j.tickets_list` - список\n`j.setup_ticket` - настройка (админ)"},
+            {"name": "🛡️ МОДЕРАЦИЯ", "content": "`j.warn @user причина` - варн\n`j.warns @user` - список варнов\n`j.unwarn @user id` - снять варн\n`j.mute @user время причина` - мут\n`j.unmute @user` - размут\n`j.ban @user причина` - бан\n`j.kick @user причина` - кик\n`j.clear кол-во` - очистка\n`j.nickname @user ник` - сменить ник\n`j.automod` - настройка (админ)"},
+            {"name": "🌤️ ПОГОДА", "content": "`j.weather город` - погода\n`j.weather_today город` - сегодня\n`j.ai вопрос` - ИИ\n`j.currency` - курсы валют\n`j.currency_full` - все курсы\n`j.short ссылка` - сократить\n`j.get код` - получить\n`j.reminder время текст` - напоминание\n`j.donate` - поддержка"},
+            {"name": "🎮 STEAM", "content": "`j.steam set <steam_id>` - привязать\n`j.steam profile [@user]` - профиль"},
             {"name": "🎰 СТОЛОТО", "content": "`j.loto_buy` - купить билет (розыгрыш в 14:00 МСК)"},
-            
-            {"name": "💡 ИДЕИ", "content": "`j.suggest <идея>` - предложить идею\n`j.accept <id> <вердикт>` - принять идею (админ)\n`j.deny <id> <вердикт>` - отклонить идею (админ)"},
-            
-            {"name": "🎁 РОЗЫГРЫШИ", "content": "`j.giveaway create #канал приз кол-во 1д/1ч/10м` - создать розыгрыш (админ)"},
-            
-            {"name": "🤖 ИИ И РАЗНОЕ", "content": "`j.ai вопрос` - спросить ИИ\n`j.currency` - курсы валют\n`j.currency_full` - все курсы валют\n`j.short ссылка` - сократить ссылку\n`j.get код` - получить ссылку\n`j.reminder время текст` - напоминание\n`j.donate` - поддержать проект\n`j.gender male/female/remove` - выбрать гендер\n`j.bio текст` - изменить биографию\n`j.avatar @user` - аватар\n`j.userinfo @user` - информация о пользователе\n`j.serverinfo` - информация о сервере\n`j.ping` - пинг бота\n`j.about` - о боте\n`j.invite` - пригласить бота\n`j.daily_quests` - ежедневные задания\n`j.bonus_invite` - бонус за приглашения\n`j.invites_info` - статистика приглашений\n`j.achievements [@user]` - список достижений\n`j.stats [@user]` - подробная статистика"},
-            
-            {"name": "🏆 ТОПЫ", "content": "`j.top balance` - топ по балансу\n`j.top reputation` - топ по репутации\n`j.top level` - топ по уровню\n`j.top messages` - топ по сообщениям\n`j.top_voice` - топ по голосовому\n`j.top_weekly` - топ за неделю\n`j.top_weekly_voice` - топ войс за неделю\n`j.top_weekly_casino` - топ казино за неделю"},
-            
-            {"name": "🎭 РЕАКЦИИ", "content": "`j.hug` - обнять\n`j.kiss` - поцеловать\n`j.pat` - погладить\n`j.poke` - ткнуть\n`j.slap` - шлёпнуть\n`j.punch` - ударить\n`j.bite` - укусить\n`j.cry` - плакать\n`j.laugh` - смеяться\n`j.smile` - улыбаться\n`j.blush` - краснеть\n`j.dance` - танцевать\n`j.celebrate` - праздновать\n`j.airkiss` - воздушный поцелуй\n`j.handhold` - держаться за руки\n`j.tickle` - щекотать\n`j.run` - бежать\n`j.sleep` - спать\n`j.shrug` - пожать плечами\n`j.shy` - стесняться\n`j.sorry` - извиниться\n`j.stare` - смотреть\n`j.wink` - подмигнуть"},
-            
-            {"name": "🏆 ДОСТИЖЕНИЯ", "content": "`j.achievements [@user]` - список достижений\n`j.stats [@user]` - подробная статистика"},
-            
-            {"name": "👑 ВЛАДЕЛЬЦА", "content": "`j.admin_help` - помощь владельца\n`j.owner_give @user сумма` - выдать деньги\n`j.owner_take @user сумма` - забрать деньги\n`j.owner_set_balance @user сумма` - установить баланс\n`j.owner_reset_user @user` - сбросить пользователя\n`j.backup_db` - бэкап БД\n`j.download_backup` - скачать БД\n`j.upload_backup` - восстановить БД\n`j.add_shop_item название цена роль_id описание` - добавить товар\n`j.remove_shop_item название` - удалить товар\n`j.settings welcome/logs/levels #канал` - настройка каналов\n`j.owner_stats` - статистика сервера\n`j.reset_db confirm` - сбросить БД"}
+            {"name": "💡 ИДЕИ", "content": "`j.suggest <идея>` - предложить\n`j.accept <id> <вердикт>` - принять (админ)\n`j.deny <id> <вердикт>` - отклонить (админ)"},
+            {"name": "🎁 РОЗЫГРЫШИ", "content": "`j.giveaway create #канал приз кол-во 1д/1ч/10м` - создать (админ)"},
+            {"name": "📈 БИРЖА И ЗАВОД", "content": "`j.market` - цены на бирже\n`j.sell_market культура количество` - продать\n`j.delivery` - получить заказ\n`j.complete_delivery` - выполнить заказ\n`j.factory` - завод\n`j.craft_product продукт` - создать продукт\n`j.factory_status` - статус завода"},
+            {"name": "🎭 РЕАКЦИИ", "content": "`j.hug` `j.kiss` `j.pat` `j.poke` `j.slap` `j.punch` `j.bite` `j.cry` `j.laugh` `j.smile` `j.blush` `j.dance` `j.celebrate` `j.airkiss` `j.handhold` `j.tickle` `j.run` `j.sleep` `j.shrug` `j.shy` `j.sorry` `j.stare` `j.wink`"},
+            {"name": "🎭 ПРОЧЕЕ", "content": "`j.avatar @user` - аватар\n`j.userinfo @user` - инфо\n`j.serverinfo` - инфо сервера\n`j.ping` - пинг\n`j.about` - о боте\n`j.invite` - пригласить\n`j.daily_quests` - задания\n`j.bonus_invite` - бонус за приглашения\n`j.invites_info` - статистика\n`j.gender male/female/remove` - гендер\n`j.bio текст` - био\n`j.achievements [@user]` - достижения\n`j.stats [@user]` - статистика"},
+            {"name": "🏆 ТОПЫ", "content": "`j.top balance` - топ баланс\n`j.top reputation` - топ репутация\n`j.top level` - топ уровень\n`j.top messages` - топ сообщения\n`j.top_voice` - топ войс\n`j.top_weekly` - топ неделя\n`j.top_weekly_voice` - топ войс неделя\n`j.top_weekly_casino` - топ казино неделя"},
+            {"name": "👑 ВЛАДЕЛЬЦА", "content": "`j.admin_help` - помощь\n`j.owner_give @user сумма` - выдать\n`j.owner_take @user сумма` - забрать\n`j.owner_set_balance @user сумма` - установить\n`j.owner_reset_user @user` - сбросить\n`j.backup_db` - бэкап\n`j.download_backup` - скачать\n`j.upload_backup` - восстановить\n`j.add_shop_item название цена роль_id описание` - добавить товар\n`j.remove_shop_item название` - удалить\n`j.settings welcome/logs/levels #канал` - настройка\n`j.owner_stats` - статистика сервера\n`j.reset_db confirm` - сброс БД"}
         ]
     
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, custom_id="help_prev")
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
     async def prev(self, i, b):
         if i.user.id != self.author_id:
             return await i.response.send_message("❌ Не ваша панель!", ephemeral=True)
@@ -3161,7 +3835,7 @@ class HelpView(View):
         embed.set_footer(text=f"Страница {self.page + 1}/{len(self.pages)} | Justice Bot")
         await i.response.edit_message(embed=embed, view=self)
     
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, custom_id="help_next")
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary)
     async def nxt(self, i, b):
         if i.user.id != self.author_id:
             return await i.response.send_message("❌ Не ваша панель!", ephemeral=True)
@@ -3170,7 +3844,7 @@ class HelpView(View):
         embed.set_footer(text=f"Страница {self.page + 1}/{len(self.pages)} | Justice Bot")
         await i.response.edit_message(embed=embed, view=self)
     
-    @discord.ui.button(label="🔒 Закрыть", style=discord.ButtonStyle.danger, custom_id="help_close")
+    @discord.ui.button(label="🔒 Закрыть", style=discord.ButtonStyle.danger)
     async def close(self, i, b):
         if i.user.id != self.author_id:
             return await i.response.send_message("❌ Не ваша панель!", ephemeral=True)
@@ -3181,7 +3855,7 @@ class HelpView(View):
 async def help(ctx):
     view = HelpView(ctx.author.id)
     embed = discord.Embed(title=view.pages[0]["name"], description=view.pages[0]["content"], color=discord.Color.blue())
-    embed.set_footer(text=f"Страница 1/{len(view.pages)} | Justice Bot | Стрелки для навигации")
+    embed.set_footer(text=f"Страница 1/{len(view.pages)} | Justice Bot")
     await ctx.send(embed=embed, view=view)
 
 # ========== ЗАПУСК ==========
@@ -3192,20 +3866,20 @@ async def on_ready():
     print(f"📊 На {len(bot.guilds)} серверах")
     bot.loop.create_task(stoloto_scheduler())
     bot.loop.create_task(update_market_prices())
-    weekly_report.start()
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.playing, name="j.help | Justice Bot"))
     print("✅ Бот готов!")
-    
 
 @bot.event
 async def on_message(message):
-    if message.author.bot: return
+    if message.author.bot:
+        return
     if message.guild:
         await get_user(message.author.id, message.guild.id)
-        level_up, new_level = await add_xp(message.author.id, message.guild.id, random.randint(5,15))
+        level_up, new_level = await add_xp(message.author.id, message.guild.id, random.randint(5, 15))
         if level_up:
             ch = bot.get_channel(LEVEL_CHANNEL_ID)
-            if ch: await ch.send(f"🎉 {message.author.mention} достиг {new_level} уровня!")
+            if ch:
+                await ch.send(f"🎉 {message.author.mention} достиг {new_level} уровня!")
         total_msgs = (await get_user(message.author.id, message.guild.id))[9] or 0
         await check_achievement(message.author.id, message.guild.id, "messages", total_msgs)
         await check_daily_quest(message.author.id, message.guild.id, "messages", 1)
@@ -3217,11 +3891,11 @@ async def on_message(message):
 async def on_member_join(member):
     role = member.guild.get_role(DEFAULT_ROLE_ID)
     if role:
-        try: await member.add_roles(role)
-        except: pass
-    sett = guild_settings.get(member.guild.id, {})
-    wch = sett.get("welcome_channel", WELCOME_CHANNEL_ID)
-    ch = bot.get_channel(wch)
+        try:
+            await member.add_roles(role)
+        except:
+            pass
+    ch = bot.get_channel(WELCOME_CHANNEL_ID)
     if ch:
         embed = discord.Embed(title="🎉 ДОБРО ПОЖАЛОВАТЬ!", description=f"{member.mention} присоединился!", color=discord.Color.green())
         embed.set_thumbnail(url=member.display_avatar.url)
@@ -3229,19 +3903,16 @@ async def on_member_join(member):
 
 @bot.event
 async def on_command_error(ctx, error):
-    if isinstance(error, commands.CommandNotFound): return
+    if isinstance(error, commands.CommandNotFound):
+        return
     await ctx.send(f"❌ Ошибка: {str(error)[:100]}")
 
-# ========== ДОНАТ ==========
 @bot.command()
 async def donate(ctx):
     embed = discord.Embed(title="💝 ПОДДЕРЖАТЬ ПРОЕКТ", description="Спасибо, что помогаете развитию бота!", color=discord.Color.gold())
     embed.add_field(name="💳 Банковские карты", value="Visa / Mastercard / Мир / Maestro / СБП", inline=False)
-    embed.add_field(name="🇷🇺 Российские карты", value="Сбербанк / Тинькофф / ВТБ / Альфа-Банк", inline=False)
-    embed.add_field(name="🔗 Ссылка", value="https://www.donationalerts.com/r/primera_espada", inline=False)
     await ctx.send(embed=embed)
 
-# ========== ГЕНДЕР ==========
 @bot.command()
 async def gender(ctx, choice: str = None):
     if not choice:
@@ -3250,22 +3921,20 @@ async def gender(ctx, choice: str = None):
     male = ctx.guild.get_role(ROLE_BOY)
     female = ctx.guild.get_role(ROLE_GIRL)
     if not male or not female:
-        return await ctx.send("❌ Гендерные роли не настроены! Обратитесь к администратору")
+        return await ctx.send("❌ Гендерные роли не настроены!")
     
-    if choice in ["male", "мужчина", "мужской", "м", "man"]:
+    if choice in ["male", "мужчина", "м", "man"]:
         if female in ctx.author.roles:
             await ctx.author.remove_roles(female)
         await ctx.author.add_roles(male)
         await update_user(ctx.author.id, ctx.guild.id, gender="male")
         await ctx.send(f"✅ {ctx.author.mention} выбрал гендер: Мужчина 👨")
-    
-    elif choice in ["female", "девушка", "женский", "ж", "woman", "girl"]:
+    elif choice in ["female", "девушка", "ж", "woman", "girl"]:
         if male in ctx.author.roles:
             await ctx.author.remove_roles(male)
         await ctx.author.add_roles(female)
         await update_user(ctx.author.id, ctx.guild.id, gender="female")
         await ctx.send(f"✅ {ctx.author.mention} выбрал гендер: Девушка 👩")
-    
     elif choice in ["remove", "убрать", "снять"]:
         if male in ctx.author.roles:
             await ctx.author.remove_roles(male)
@@ -3273,11 +3942,10 @@ async def gender(ctx, choice: str = None):
             await ctx.author.remove_roles(female)
         await update_user(ctx.author.id, ctx.guild.id, gender="")
         await ctx.send(f"✅ {ctx.author.mention} убрал гендерную роль")
-    
     else:
         await ctx.send("❌ Доступные варианты: male, female, remove")
 
-# ========== РОЛЕВЫЕ КОМАНДЫ ==========
+# ========== РЕАКЦИИ ==========
 @bot.command()
 async def hug(ctx, member: discord.Member = None):
     if not member:
@@ -3306,24 +3974,6 @@ async def pat(ctx, member: discord.Member = None):
         await ctx.send(embed=embed)
 
 @bot.command()
-async def poke(ctx, member: discord.Member = None):
-    if not member:
-        await ctx.send(f"{ctx.author.mention} тыкает в воздух! 👉")
-    else:
-        embed = discord.Embed(description=f"{ctx.author.mention} тыкает {member.mention}! 👉", color=discord.Color.pink())
-        embed.set_image(url=REACTION_GIFS.get("poke", ""))
-        await ctx.send(embed=embed)
-
-@bot.command()
-async def slap(ctx, member: discord.Member = None):
-    if not member:
-        await ctx.send(f"{ctx.author.mention} шлёпает воздух! 👋")
-    else:
-        embed = discord.Embed(description=f"{ctx.author.mention} шлёпает {member.mention}! 👋", color=discord.Color.pink())
-        embed.set_image(url=REACTION_GIFS.get("slap", ""))
-        await ctx.send(embed=embed)
-
-@bot.command()
 async def cry(ctx):
     embed = discord.Embed(description=f"{ctx.author.mention} плачет! 😢", color=discord.Color.blue())
     embed.set_image(url=REACTION_GIFS.get("cry", ""))
@@ -3341,381 +3991,26 @@ async def smile(ctx):
     embed.set_image(url=REACTION_GIFS.get("smile", ""))
     await ctx.send(embed=embed)
 
-# ========== ВСЕ ЛОГИ ДЕЙСТВИЙ ==========
+@bot.command()
+async def dance(ctx):
+    embed = discord.Embed(description=f"{ctx.author.mention} танцует! 💃", color=discord.Color.purple())
+    embed.set_image(url=REACTION_GIFS.get("dance", ""))
+    await ctx.send(embed=embed)
 
-async def log_action(title, description, color=discord.Color.blue(), guild=None):
-    """Универсальная функция для отправки логов"""
-    embed = discord.Embed(title=title, description=description, color=color, timestamp=datetime.now())
-    if guild and guild.icon:
-        embed.set_thumbnail(url=guild.icon.url)
-    if LOGS_CHANNEL_ID:
-        ch = bot.get_channel(LOGS_CHANNEL_ID)
-        if ch:
-            await ch.send(embed=embed)
-
-
-# ========== ЛОГИ СООБЩЕНИЙ ==========
-
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-    
-    if message.guild:
-        if message.reference and message.reference.resolved:
-            replied_msg = message.reference.resolved
-            await log_action("💬 ОТВЕТ НА СООБЩЕНИЕ", 
-                            f"**Ответил:** {message.author.mention}\n**Кому:** {replied_msg.author.mention}\n**Канал:** {message.channel.mention}\n**Текст:** {message.content[:300]}\n**Ссылка:** [Перейти]({message.jump_url})", 
-                            discord.Color.green(), message.guild)
-        else:
-            await log_action("💬 СООБЩЕНИЕ", 
-                            f"**Автор:** {message.author.mention}\n**Канал:** {message.channel.mention}\n**Содержание:** {message.content[:500]}", 
-                            discord.Color.blue(), message.guild)
-    
-    if message.guild:
-        await get_user(message.author.id, message.guild.id)
-        level_up, new_level = await add_xp(message.author.id, message.guild.id, random.randint(5,15))
-        if level_up:
-            ch = bot.get_channel(LEVEL_CHANNEL_ID)
-            if ch:
-                await ch.send(f"🎉 {message.author.mention} достиг {new_level} уровня!")
-        total_msgs = (await get_user(message.author.id, message.guild.id))[9] or 0
-        await check_achievement(message.author.id, message.guild.id, "messages", total_msgs)
-        await check_daily_quest(message.author.id, message.guild.id, "messages", 1)
-    
-    if bot.user in message.mentions and not message.mention_everyone:
-        await message.channel.send(f"👋 Привет, {message.author.mention}! Используй `j.help`")
-    await bot.process_commands(message)
-
-
-@bot.event
-async def on_message_delete(message):
-    if message.author and not message.author.bot and message.guild:
-        await log_action("🗑️ УДАЛЕНО СООБЩЕНИЕ", 
-                        f"**Автор:** {message.author.mention}\n**Канал:** {message.channel.mention}\n**Содержание:** {message.content[:500] if message.content else '[Пусто/Медиа]'}", 
-                        discord.Color.orange(), message.guild)
-
-
-@bot.event
-async def on_message_edit(before, after):
-    if before.author and not before.author.bot and before.guild and before.content != after.content:
-        await log_action("✏️ ИЗМЕНЕНО СООБЩЕНИЕ", 
-                        f"**Автор:** {before.author.mention}\n**Канал:** {before.channel.mention}\n**Было:** {before.content[:200]}\n**Стало:** {after.content[:200]}\n**Ссылка:** [Перейти]({before.jump_url})", 
-                        discord.Color.blue(), before.guild)
-
-
-@bot.event
-async def on_bulk_message_delete(messages):
-    if messages:
-        msg_list = list(messages)
-        if msg_list[0].guild:
-            await log_action("🗑️ МАССОВОЕ УДАЛЕНИЕ", 
-                            f"**Канал:** {msg_list[0].channel.mention}\n**Количество сообщений:** {len(messages)}", 
-                            discord.Color.dark_red(), msg_list[0].guild)
-
-
-# ========== ЛОГИ РЕАКЦИЙ ==========
-
-@bot.event
-async def on_reaction_add(reaction, user):
-    if user.bot:
-        return
-    if reaction.message.guild:
-        await log_action("➕ РЕАКЦИЯ ДОБАВЛЕНА", 
-                        f"**Пользователь:** {user.mention}\n**Реакция:** {reaction.emoji}\n**Сообщение от:** {reaction.message.author.mention}\n**Канал:** {reaction.message.channel.mention}\n**Ссылка:** [Перейти]({reaction.message.jump_url})", 
-                        discord.Color.green(), reaction.message.guild)
-
-
-@bot.event
-async def on_reaction_remove(reaction, user):
-    if user.bot:
-        return
-    if reaction.message.guild:
-        await log_action("➖ РЕАКЦИЯ УДАЛЕНА", 
-                        f"**Пользователь:** {user.mention}\n**Реакция:** {reaction.emoji}\n**Сообщение от:** {reaction.message.author.mention}\n**Канал:** {reaction.message.channel.mention}", 
-                        discord.Color.red(), reaction.message.guild)
-
-
-@bot.event
-async def on_reaction_clear(message, reactions):
-    if message.guild:
-        await log_action("🧹 ОЧИСТКА РЕАКЦИЙ", 
-                        f"**Сообщение от:** {message.author.mention}\n**Канал:** {message.channel.mention}\n**Количество реакций:** {len(reactions)}\n**Ссылка:** [Перейти]({message.jump_url})", 
-                        discord.Color.orange(), message.guild)
-
-
-# ========== ЛОГИ ГОЛОСОВЫХ КАНАЛОВ ==========
-
-@bot.event
-async def on_voice_state_update(member, before, after):
-    # Перемещение между каналами
-    if before.channel and after.channel and before.channel != after.channel:
-        mover = None
-        try:
-            async for entry in member.guild.audit_logs(limit=5, action=discord.AuditLogAction.member_move):
-                if entry.target.id == member.id and entry.after.channel.id == after.channel.id:
-                    mover = entry.user
-                    break
-        except:
-            pass
-        if mover:
-            await log_action("🔄 ПЕРЕМЕЩЁН", f"**Участник:** {member.mention}\n**Кто:** {mover.mention}\n**Из:** {before.channel.mention}\n**В:** {after.channel.mention}", discord.Color.orange(), member.guild)
-        else:
-            await log_action("🔄 ПЕРЕМЕЩЁН", f"**Участник:** {member.mention}\n**Из:** {before.channel.mention}\n**В:** {after.channel.mention}", discord.Color.orange(), member.guild)
-    
-    elif after.channel and not before.channel:
-        await log_action("🔊 ЗАШЁЛ В ГОЛОСОВОЙ", f"**Участник:** {member.mention}\n**Канал:** {after.channel.mention}", discord.Color.green(), member.guild)
-    
-    elif before.channel and not after.channel:
-        await log_action("🔇 ВЫШЕЛ ИЗ ГОЛОСОВОГО", f"**Участник:** {member.mention}\n**Канал:** {before.channel.mention}", discord.Color.red(), member.guild)
-    
-    # Микрофон
-    if before.self_mute != after.self_mute:
-        if after.self_mute:
-            await log_action("🎤 ВЫКЛЮЧИЛ МИКРОФОН", f"**Участник:** {member.mention}", discord.Color.orange(), member.guild)
-        else:
-            await log_action("🎤 ВКЛЮЧИЛ МИКРОФОН", f"**Участник:** {member.mention}", discord.Color.green(), member.guild)
-    
-    # Звук
-    if before.self_deaf != after.self_deaf:
-        if after.self_deaf:
-            await log_action("🔇 ОТКЛЮЧИЛ ЗВУК", f"**Участник:** {member.mention}", discord.Color.orange(), member.guild)
-        else:
-            await log_action("🔊 ВКЛЮЧИЛ ЗВУК", f"**Участник:** {member.mention}", discord.Color.green(), member.guild)
-    
-    # Мут от администратора
-    if before.mute != after.mute:
-        muter = None
-        try:
-            async for entry in member.guild.audit_logs(limit=5, action=discord.AuditLogAction.member_update):
-                if entry.target.id == member.id:
-                    muter = entry.user
-                    break
-        except:
-            pass
-        if after.mute:
-            await log_action("🔇 ЗАМУЧЕН", f"**Участник:** {member.mention}\n**Кто:** {muter.mention if muter else 'Неизвестен'}", discord.Color.red(), member.guild)
-        else:
-            await log_action("🔊 РАЗМУЧЕН", f"**Участник:** {member.mention}\n**Кто:** {muter.mention if muter else 'Неизвестен'}", discord.Color.green(), member.guild)
-    
-    # Глушение от администратора
-    if before.deaf != after.deaf:
-        deafer = None
-        try:
-            async for entry in member.guild.audit_logs(limit=5, action=discord.AuditLogAction.member_update):
-                if entry.target.id == member.id:
-                    deafer = entry.user
-                    break
-        except:
-            pass
-        if after.deaf:
-            await log_action("🔇 ЗАГЛУШЕН", f"**Участник:** {member.mention}\n**Кто:** {deafer.mention if deafer else 'Неизвестен'}", discord.Color.red(), member.guild)
-        else:
-            await log_action("🔊 РАЗГЛУШЕН", f"**Участник:** {member.mention}\n**Кто:** {deafer.mention if deafer else 'Неизвестен'}", discord.Color.green(), member.guild)
-    
-    # Приватные каналы
-    if after.channel and after.channel.id == VC_TRIGGER_CHANNEL_ID:
-        cat = member.guild.get_channel(VC_CREATE_CATEGORY_ID)
-        if cat:
-            existing = [c for c in cat.voice_channels if c.name.startswith("Приватный")]
-            num = len(existing) + 1
-            overwrites = {member.guild.default_role: discord.PermissionOverwrite(connect=False), member: discord.PermissionOverwrite(connect=True, manage_channels=True), member.guild.me: discord.PermissionOverwrite(connect=True, manage_channels=True)}
-            for rid in SUPPORT_ROLE_IDS:
-                role = member.guild.get_role(rid)
-                if role:
-                    overwrites[role] = discord.PermissionOverwrite(connect=True)
-            channel = await cat.create_voice_channel(name=f"Приватный #{num}", overwrites=overwrites)
-            await member.move_to(channel)
-            panel = VCControlPanel(channel.id, member.id)
-            await channel.send(f"{member.mention}, панель управления:", view=panel)
-            vc_sessions[channel.id] = {"owner": member.id}
-            await log_action("🎤 СОЗДАН ПРИВАТНЫЙ КАНАЛ", f"**Владелец:** {member.mention}\n**Канал:** {channel.mention}", discord.Color.blue(), member.guild)
-    
-    if before.channel and before.channel.id in vc_sessions and len(before.channel.members) == 0:
-        await asyncio.sleep(10)
-        if len(before.channel.members) == 0:
-            await before.channel.delete()
-            del vc_sessions[before.channel.id]
-            await log_action("🗑️ УДАЛЁН ПРИВАТНЫЙ КАНАЛ", f"Канал {before.channel.name} удалён", discord.Color.dark_red(), member.guild)
-
-
-# ========== ЛОГИ УЧАСТНИКОВ ==========
-
-@bot.event
-async def on_member_join(member):
-    role = member.guild.get_role(DEFAULT_ROLE_ID)
-    if role:
-        try:
-            await member.add_roles(role)
-            await log_action("👋 НОВЫЙ УЧАСТНИК", f"**Участник:** {member.mention}\n**Выдана роль:** {role.mention}\n**ID:** {member.id}\n**Аккаунт создан:** {member.created_at.strftime('%d.%m.%Y %H:%M')}", discord.Color.green(), member.guild)
-        except:
-            await log_action("👋 НОВЫЙ УЧАСТНИК", f"**Участник:** {member.mention}\n**ID:** {member.id}\n**Аккаунт создан:** {member.created_at.strftime('%d.%m.%Y %H:%M')}", discord.Color.green(), member.guild)
-    
-    ch = bot.get_channel(WELCOME_CHANNEL_ID)
-    if ch:
-        embed = discord.Embed(title="🎉 ДОБРО ПОЖАЛОВАТЬ!", description=f"{member.mention} присоединился!", color=discord.Color.green())
-        embed.set_thumbnail(url=member.display_avatar.url)
-        await ch.send(embed=embed)
-
-
-@bot.event
-async def on_member_remove(member):
-    await log_action("👋 УЧАСТНИК ПОКИНУЛ СЕРВЕР", f"**Участник:** {member.mention}\n**ID:** {member.id}\n**Ник:** {member.display_name}\n**Роли:** {', '.join([r.name for r in member.roles[1:]]) if len(member.roles) > 1 else 'Нет'}", discord.Color.red(), member.guild)
-
-
-@bot.event
-async def on_member_update(before, after):
-    # Выдача роли
-    added_roles = [r for r in after.roles if r not in before.roles]
-    for role in added_roles:
-        if role.name != "@everyone":
-            giver = None
-            try:
-                async for entry in after.guild.audit_logs(limit=5, action=discord.AuditLogAction.member_role_update):
-                    if entry.target.id == after.id and role in entry.after.roles:
-                        giver = entry.user
-                        break
-            except:
-                pass
-            await log_action("➕ ВЫДАНА РОЛЬ", f"**Участник:** {after.mention}\n**Роль:** {role.mention}\n**Выдал:** {giver.mention if giver else 'Неизвестен'}", discord.Color.green(), before.guild)
-    
-    # Снятие роли
-    removed_roles = [r for r in before.roles if r not in after.roles]
-    for role in removed_roles:
-        if role.name != "@everyone":
-            taker = None
-            try:
-                async for entry in after.guild.audit_logs(limit=5, action=discord.AuditLogAction.member_role_update):
-                    if entry.target.id == after.id and role in entry.before.roles and role not in entry.after.roles:
-                        taker = entry.user
-                        break
-            except:
-                pass
-            await log_action("➖ СНЯТА РОЛЬ", f"**Участник:** {after.mention}\n**Роль:** {role.mention}\n**Снял:** {taker.mention if taker else 'Неизвестен'}", discord.Color.red(), before.guild)
-    
-    # Смена ника
-    if before.display_name != after.display_name:
-        changer = None
-        try:
-            async for entry in after.guild.audit_logs(limit=5, action=discord.AuditLogAction.member_update):
-                if entry.target.id == after.id:
-                    changer = entry.user
-                    break
-        except:
-            pass
-        if changer and changer != after:
-            await log_action("✏️ СМЕНА НИКА МОДЕРАТОРОМ", f"**Участник:** {after.mention}\n**Изменил:** {changer.mention}\n**Было:** {before.display_name}\n**Стало:** {after.display_name}", discord.Color.blue(), before.guild)
-        else:
-            await log_action("✏️ СМЕНА НИКА", f"**Участник:** {after.mention}\n**Было:** {before.display_name}\n**Стало:** {after.display_name}", discord.Color.blue(), before.guild)
-    
-    # Смена аватара
-    if before.avatar != after.avatar:
-        await log_action("🖼️ СМЕНА АВАТАРА", f"**Участник:** {after.mention}\n[Новый аватар]({after.display_avatar.url})", discord.Color.purple(), before.guild)
-
-
-# ========== ЛОГИ КАНАЛОВ ==========
-
-@bot.event
-async def on_guild_channel_create(channel):
-    await log_action("➕ СОЗДАН КАНАЛ", f"**Название:** {channel.mention}\n**Тип:** {channel.type}\n**Категория:** {channel.category.name if channel.category else 'Нет'}", discord.Color.green(), channel.guild)
-
-
-@bot.event
-async def on_guild_channel_delete(channel):
-    await log_action("➖ УДАЛЁН КАНАЛ", f"**Название:** {channel.name}\n**Тип:** {channel.type}\n**ID:** {channel.id}", discord.Color.red(), channel.guild)
-
-
-@bot.event
-async def on_guild_channel_update(before, after):
-    if before.name != after.name:
-        await log_action("✏️ ПЕРЕИМЕНОВАН КАНАЛ", f"**Было:** {before.name}\n**Стало:** {after.mention}", discord.Color.blue(), before.guild)
-    
-    if before.topic != after.topic:
-        await log_action("📝 ИЗМЕНЁН ТОПИК", f"**Канал:** {after.mention}\n**Было:** {before.topic[:200] if before.topic else 'Пусто'}\n**Стало:** {after.topic[:200] if after.topic else 'Пусто'}", discord.Color.blue(), before.guild)
-
-
-# ========== ЛОГИ РОЛЕЙ ==========
-
-@bot.event
-async def on_guild_role_create(role):
-    await log_action("➕ СОЗДАНА РОЛЬ", f"**Название:** {role.mention}\n**Цвет:** {role.color}\n**ID:** {role.id}", discord.Color.green(), role.guild)
-
-
-@bot.event
-async def on_guild_role_delete(role):
-    await log_action("➖ УДАЛЕНА РОЛЬ", f"**Название:** {role.name}\n**ID:** {role.id}", discord.Color.red(), role.guild)
-
-
-@bot.event
-async def on_guild_role_update(before, after):
-    if before.name != after.name:
-        await log_action("✏️ ПЕРЕИМЕНОВАНА РОЛЬ", f"**Было:** {before.name}\n**Стало:** {after.mention}", discord.Color.blue(), before.guild)
-    
-    if before.color != after.color:
-        await log_action("🎨 ИЗМЕНЁН ЦВЕТ РОЛИ", f"**Роль:** {after.mention}\n**Было:** {before.color}\n**Стало:** {after.color}", discord.Color.blue(), before.guild)
-
-
-# ========== ЛОГИ ПРИГЛАШЕНИЙ ==========
-
-@bot.event
-async def on_invite_create(invite):
-    await log_action("📨 СОЗДАНО ПРИГЛАШЕНИЕ", f"**Создатель:** {invite.inviter.mention}\n**Канал:** {invite.channel.mention}\n**Код:** {invite.code}\n**Макс. использований:** {invite.max_uses if invite.max_uses else '∞'}", discord.Color.blue(), invite.guild)
-
-
-@bot.event
-async def on_invite_delete(invite):
-    await log_action("📨 УДАЛЕНО ПРИГЛАШЕНИЕ", f"**Код:** {invite.code}\n**Канал:** {invite.channel.mention}", discord.Color.red(), invite.guild)
-
-
-# ========== ЛОГИ СЕРВЕРА ==========
-
-@bot.event
-async def on_guild_update(before, after):
-    if before.name != after.name:
-        await log_action("✏️ ИЗМЕНЕНО НАЗВАНИЕ СЕРВЕРА", f"**Было:** {before.name}\n**Стало:** {after.name}", discord.Color.blue(), after)
-    
-    if before.owner != after.owner:
-        await log_action("👑 СМЕНА ВЛАДЕЛЬЦА", f"**Было:** {before.owner.mention}\n**Стало:** {after.owner.mention}", discord.Color.gold(), after)
-    
-    if before.icon != after.icon:
-        await log_action("🖼️ СМЕНА ИКОНКИ", f"[Новая иконка]({after.icon.url})" if after.icon else "Иконка удалена", discord.Color.blue(), after)
-
-
-# ========== ЛОГИ ЭМОДЗИ ==========
-
-@bot.event
-async def on_guild_emojis_update(guild, before, after):
-    added = [e for e in after if e not in before]
-    for emoji in added:
-        await log_action("➕ ДОБАВЛЕН ЭМОДЗИ", f"**Название:** {emoji.name}\n[Эмодзи]({emoji.url})", discord.Color.green(), guild)
-    
-    removed = [e for e in before if e not in after]
-    for emoji in removed:
-        await log_action("➖ УДАЛЁН ЭМОДЗИ", f"**Название:** {emoji.name}", discord.Color.red(), guild)
-
-
-# ========== ЛОГИ ОШИБОК ==========
-
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.CommandNotFound):
-        return
-    await log_action("❌ ОШИБКА КОМАНДЫ", f"**Пользователь:** {ctx.author.mention}\n**Команда:** {ctx.message.content}\n**Ошибка:** {str(error)[:300]}", discord.Color.red(), ctx.guild)
-    await ctx.send(f"❌ Ошибка: {str(error)[:100]}")
-
-# ========== ДОСТИЖЕНИЯ И СТАТИСТИКА ==========
+@bot.command()
+async def celebrate(ctx):
+    embed = discord.Embed(description=f"{ctx.author.mention} празднует! 🎉", color=discord.Color.gold())
+    embed.set_image(url=REACTION_GIFS.get("celebrate", ""))
+    await ctx.send(embed=embed)
 
 @bot.command()
 async def achievements(ctx, member: discord.Member = None):
-    """🏆 Список достижений пользователя"""
     target = member or ctx.author
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT achievement_id, achieved_at FROM achievements WHERE user_id=? AND guild_id=? ORDER BY achieved_at DESC', (target.id, ctx.guild.id))
         earned = await cur.fetchall()
-    
     embed = discord.Embed(title=f"🏆 ДОСТИЖЕНИЯ | {target.display_name}", color=discord.Color.gold())
     embed.set_thumbnail(url=target.display_avatar.url)
-    
     if not earned:
         embed.description = "Нет полученных достижений"
     else:
@@ -3726,22 +4021,17 @@ async def achievements(ctx, member: discord.Member = None):
         embed.description = text[:2000]
         if len(earned) > 25:
             embed.set_footer(text=f"Всего достижений: {len(earned)}")
-    
     await ctx.send(embed=embed)
-
 
 @bot.command()
 async def stats(ctx, member: discord.Member = None):
-    """📊 Подробная статистика пользователя"""
     target = member or ctx.author
     data = await get_user(target.id, ctx.guild.id)
     
-    # Безопасное получение значений
     total_msgs = data[9] if len(data) > 9 and data[9] is not None else 0
     today_msgs = data[21] if len(data) > 21 and data[21] is not None else 0
     week_msgs = data[22] if len(data) > 22 and data[22] is not None else 0
     month_msgs = data[23] if len(data) > 23 and data[23] is not None else 0
-    voice_seconds = data[32] if len(data) > 32 and data[32] is not None else 0
     total_plants = data[40] if len(data) > 40 and data[40] is not None else 0
     total_harvests = data[39] if len(data) > 39 and data[39] is not None else 0
     total_fish = data[36] if len(data) > 36 and data[36] is not None else 0
@@ -3755,18 +4045,11 @@ async def stats(ctx, member: discord.Member = None):
     total_shop_buys = data[44] if len(data) > 44 and data[44] is not None else 0
     total_shop_spent = data[45] if len(data) > 45 and data[45] is not None else 0
     
-    voice_hours = voice_seconds // 3600
-    voice_minutes = (voice_seconds % 3600) // 60
-    
     embed = discord.Embed(title=f"📊 СТАТИСТИКА | {target.display_name}", color=discord.Color.blue())
     embed.set_thumbnail(url=target.display_avatar.url)
     
     embed.add_field(name="💬 СООБЩЕНИЯ", 
                     value=f"📅 Сегодня: **{today_msgs}**\n📆 Неделя: **{week_msgs}**\n📅 Месяц: **{month_msgs}**\n📊 Всего: **{total_msgs}**", 
-                    inline=True)
-    
-    embed.add_field(name="🎤 ГОЛОСОВОЙ ОНЛАЙН", 
-                    value=f"⏱️ **{voice_hours}ч {voice_minutes}мин**", 
                     inline=True)
     
     embed.add_field(name="🌾 ФЕРМА", 
@@ -3789,7 +4072,6 @@ async def stats(ctx, member: discord.Member = None):
                     value=f"📦 Покупок: **{total_shop_buys}**\n💰 Потрачено: **{total_shop_spent}** 💎", 
                     inline=True)
     
-    # Получаем количество достижений
     async with aiosqlite.connect("justice.db") as db:
         cur = await db.execute('SELECT COUNT(*) FROM achievements WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
         ach_count = (await cur.fetchone())[0] or 0
@@ -3801,244 +4083,71 @@ async def stats(ctx, member: discord.Member = None):
     embed.set_footer(text=f"🆔 ID: {target.id}")
     await ctx.send(embed=embed)
 
-# ========== КОМАНДА ДЛЯ ПРОВЕРКИ ВРЕМЕНИ ==========
-
 @bot.command()
-async def farm_time(ctx):
-    """🌙 Показать текущее время и бонусы фермы"""
-    now = datetime.now()
-    hour = now.hour
-    
-    if is_night_time():
-        status = "🌙 **НОЧНОЙ РЕЖИМ** 🌙\n⭐ Звёздные культуры можно сажать!\n⚡ Звёздные культуры растут в 2 раза быстрее"
-    else:
-        status = "☀️ **ДНЕВНОЙ РЕЖИМ** ☀️\n⭐ Звёздные культуры нельзя сажать до ночи"
-    
-    if is_star_hour():
-        status += "\n✨ **ЗВЁЗДНЫЙ ЧАС!** ✨\n🎲 Повышен шанс на эпические и легендарные культуры!"
-    
-    embed = discord.Embed(title="🌙 ФЕРМА | ВРЕМЯ", description=status, color=discord.Color.blue())
-    embed.add_field(name="🕐 Текущее время", value=f"{now.strftime('%H:%M:%S')}", inline=True)
-    embed.add_field(name="🌙 Ночь наступает", value=f"Через {((23 - hour) % 24)}ч" if hour < 23 else "Сейчас ночь!", inline=True)
-    embed.add_field(name="✨ Звёздный час", value="02:00 - 04:00" if not is_star_hour() else "⭐ АКТИВЕН!", inline=True)
-    
+async def daily_quests(ctx):
+    today = datetime.now().strftime("%Y-%m-%d")
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT quest1_id, quest1_progress, quest1_completed, quest2_id, quest2_progress, quest2_completed, quest3_id, quest3_progress, quest3_completed FROM daily_quests WHERE user_id=? AND guild_id=? AND quest_date=?', (ctx.author.id, ctx.guild.id, today))
+        quests = await cur.fetchone()
+        if not quests:
+            return await ctx.send("📋 Сегодняшние задания ещё не сгенерированы! Напишите что-нибудь в чат, и они появятся.")
+    embed = discord.Embed(title="📋 ЕЖЕДНЕВНЫЕ ЗАДАНИЯ", description=f"Задания на {today}", color=discord.Color.blue())
+    for i in range(3):
+        qid = quests[i*3]
+        progress = quests[i*3+1]
+        completed = quests[i*3+2]
+        qdata = DAILY_QUESTS.get(qid, {})
+        status = "✅" if completed else "⏳"
+        embed.add_field(name=f"{status} {qdata.get('name', '???')}", value=f"Прогресс: {progress}/{qdata.get('target', 0)} | Награда: {qdata.get('reward', 0)} 💎", inline=False)
     await ctx.send(embed=embed)
 
-# ========== БИРЖА (ДИНАМИЧЕСКИЕ ЦЕНЫ) ==========
-
-# Хранилище цен (обновляются каждый час)
-market_prices = {}
-
-async def update_market_prices():
-    """Обновление цен на бирже каждый час"""
-    global market_prices
-    while True:
-        for crop in SEEDS.keys():
-            base_price = SEEDS[crop]["base_price"]
-            # Цена меняется случайно от -30% до +50%
-            multiplier = random.uniform(0.7, 1.5)
-            market_prices[crop] = int(base_price * multiplier)
-        await asyncio.sleep(3600)  # каждый час
-
 @bot.command()
-async def market(ctx, crop: str = None):
-    """📈 Биржа - текущие цены на культуры"""
-    if not crop:
-        embed = discord.Embed(title="📈 БИРЖА", description="Текущие цены на культуры", color=discord.Color.gold())
-        for crop_name, price in market_prices.items():
-            base_price = SEEDS[crop_name]["base_price"]
-            change = ((price - base_price) / base_price) * 100
-            emoji = "📈" if change > 0 else "📉" if change < 0 else "➖"
-            embed.add_field(name=f"{crop_name}", value=f"{emoji} {price} 💎 ({change:+.0f}%)", inline=True)
-        await ctx.send(embed=embed)
-    else:
-        crop = crop.lower()
-        if crop not in market_prices:
-            return await ctx.send("❌ Нет такой культуры")
-        price = market_prices[crop]
-        base_price = SEEDS[crop]["base_price"]
-        change = ((price - base_price) / base_price) * 100
-        emoji = "📈" if change > 0 else "📉" if change < 0 else "➖"
-        await ctx.send(f"📊 **{crop}**: {emoji} {price} 💎 (изменение: {change:+.0f}%)")
-
-
-@bot.command()
-async def sell_market(ctx, crop: str = None, amount: int = 1):
-    """💰 Продать культуру по текущей биржевой цене"""
-    if not crop:
-        return await ctx.send("❌ j.sell_market <культура> <количество>")
-    
-    crop = crop.lower()
-    if crop not in market_prices:
-        return await ctx.send("❌ Нет такой культуры")
-    
+async def bonus_invite(ctx):
     async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-        inv = json.loads((await cur.fetchone())[0] or "[]")
-        
-        items_to_sell = [i for i in inv if i.startswith(f"crop_{crop}_")]
-        if len(items_to_sell) < amount:
-            return await ctx.send(f"❌ У вас только {len(items_to_sell)} {crop}")
-        
-        total = 0
-        for i in range(amount):
-            item = items_to_sell[i]
-            inv.remove(item)
-            total += market_prices[crop]
-        
-        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
-        await add_balance(ctx.author.id, ctx.guild.id, total)
-        
-        await ctx.send(f"💰 Продано {amount} {crop} за {total} 💎 (цена: {market_prices[crop]} 💎)")
-
-
-# ========== ДОСТАВКА (ЗАКАЗЫ) ==========
-
-delivery_orders = {}
+        cur = await db.execute('SELECT COUNT(*) FROM invites WHERE inviter_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        count = (await cur.fetchone())[0]
+        if count == 0:
+            return await ctx.send("❌ Вы никого не пригласили!")
+        bonus = count * 500
+        await add_balance(ctx.author.id, ctx.guild.id, bonus)
+        await ctx.send(f"📨 Вы пригласили **{count}** человек!\n💰 Бонус: **{bonus}** 💎")
+        await check_achievement(ctx.author.id, ctx.guild.id, "invite", count)
 
 @bot.command()
-async def delivery(ctx):
-    """🚚 Получить новый заказ на доставку"""
-    if ctx.author.id in delivery_orders and delivery_orders[ctx.author.id]["expires"] > time.time():
-        remaining = int(delivery_orders[ctx.author.id]["expires"] - time.time())
-        return await ctx.send(f"⏰ У вас уже есть активный заказ! Следующий через {remaining//60}мин")
-    
-    # Случайный заказ
-    crops = list(SEEDS.keys())
-    required_crop = random.choice(crops)
-    required_amount = random.randint(3, 15)
-    reward = int(market_prices.get(required_crop, SEEDS[required_crop]["base_price"]) * required_amount * 1.5)
-    
-    delivery_orders[ctx.author.id] = {
-        "crop": required_crop,
-        "amount": required_amount,
-        "reward": reward,
-        "expires": time.time() + 3600  # 1 час на выполнение
-    }
-    
-    embed = discord.Embed(title="🚚 НОВЫЙ ЗАКАЗ НА ДОСТАВКУ", color=discord.Color.blue())
-    embed.add_field(name="🌾 Требуется", value=f"{required_crop} x{required_amount}", inline=True)
-    embed.add_field(name="💰 Награда", value=f"{reward} 💎", inline=True)
-    embed.add_field(name="⏰ Время", value="1 час", inline=True)
+async def invites_info(ctx):
+    async with aiosqlite.connect("justice.db") as db:
+        cur = await db.execute('SELECT COUNT(*) FROM invites WHERE inviter_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
+        count = (await cur.fetchone())[0]
+        cur = await db.execute('SELECT invited_id, invite_date FROM invites WHERE inviter_id=? AND guild_id=? ORDER BY invite_date DESC LIMIT 5', (ctx.author.id, ctx.guild.id))
+        recent = await cur.fetchall()
+    embed = discord.Embed(title="📨 ВАШИ ПРИГЛАШЕНИЯ", color=discord.Color.blue())
+    embed.add_field(name="👥 Всего приглашено", value=f"{count} человек", inline=True)
+    embed.add_field(name="💰 Бонус за приглашения", value=f"{count * 500} 💎", inline=True)
+    if recent:
+        recent_text = ""
+        for invited_id, date in recent:
+            user = ctx.guild.get_member(invited_id)
+            name = user.display_name if user else f"ID:{invited_id}"
+            recent_text += f"• {name} - {datetime.fromisoformat(date).strftime('%d.%m.%Y')}\n"
+        embed.add_field(name="📋 Последние", value=recent_text, inline=False)
+    embed.set_footer(text="j.bonus_invite - получить бонус")
     await ctx.send(embed=embed)
 
-
 @bot.command()
-async def complete_delivery(ctx):
-    """✅ Выполнить заказ на доставку"""
-    if ctx.author.id not in delivery_orders:
-        return await ctx.send("❌ У вас нет активного заказа! Используйте `j.delivery`")
-    
-    order = delivery_orders[ctx.author.id]
-    if order["expires"] < time.time():
-        del delivery_orders[ctx.author.id]
-        return await ctx.send("❌ Время заказа истекло! Создайте новый `j.delivery`")
-    
-    async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-        inv = json.loads((await cur.fetchone())[0] or "[]")
-        
-        needed = f"crop_{order['crop']}_"
-        items = [i for i in inv if i.startswith(needed)]
-        
-        if len(items) < order["amount"]:
-            return await ctx.send(f"❌ Не хватает {order['crop']}! Нужно {order['amount']}, у вас {len(items)}")
-        
-        for i in range(order["amount"]):
-            inv.remove(items[i])
-        
-        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
-        await add_balance(ctx.author.id, ctx.guild.id, order["reward"])
-        
-        del delivery_orders[ctx.author.id]
-        await ctx.send(f"✅ Заказ выполнен! Получено {order['reward']} 💎")
-
-
-# ========== ЗАВОД (ПЕРЕРАБОТКА) ==========
-
-factory_recipes = {
-    "мука": {"ingredients": {"пшеница": 3}, "time": 600, "reward": 200},
-    "хлеб": {"ingredients": {"мука": 2, "вода": 1}, "time": 1200, "reward": 500},
-    "масло": {"ingredients": {"подсолнух": 5}, "time": 900, "reward": 400},
-    "сок": {"ingredients": {"яблоко": 4, "сахар": 2}, "time": 1800, "reward": 800},
-}
-
-factory_queue = defaultdict(list)
-
-@bot.command()
-async def factory(ctx):
-    """🏭 Завод - переработка урожая в продукцию"""
-    embed = discord.Embed(title="🏭 ЗАВОД", description="Рецепты переработки", color=discord.Color.blue())
-    for product, recipe in factory_recipes.items():
-        ingredients = ", ".join([f"{k} x{v}" for k, v in recipe["ingredients"].items()])
-        embed.add_field(name=f"🔧 {product}", value=f"{ingredients}\n⏰ {recipe['time']//60}мин | 💰 {recipe['reward']} 💎", inline=False)
-    await ctx.send(embed=embed)
-
-
-@bot.command()
-async def craft_product(ctx, product: str = None):
-    """🔧 Переработать продукт на заводе"""
-    if not product or product.lower() not in factory_recipes:
-        return await ctx.send("❌ j.craft_product <мука/хлеб/масло/сок>")
-    
-    product = product.lower()
-    recipe = factory_recipes[product]
-    
-    async with aiosqlite.connect("justice.db") as db:
-        cur = await db.execute('SELECT inventory FROM users WHERE user_id=? AND guild_id=?', (ctx.author.id, ctx.guild.id))
-        inv = json.loads((await cur.fetchone())[0] or "[]")
-        
-        missing = []
-        for ing, amount in recipe["ingredients"].items():
-            count = inv.count(f"crop_{ing}") + inv.count(f"product_{ing}")
-            if count < amount:
-                missing.append(f"{ing} ({count}/{amount})")
-        
-        if missing:
-            return await ctx.send(f"❌ Не хватает:\n" + "\n".join(missing))
-        
-        for ing, amount in recipe["ingredients"].items():
-            for _ in range(amount):
-                if f"crop_{ing}" in inv:
-                    inv.remove(f"crop_{ing}")
-                else:
-                    inv.remove(f"product_{ing}")
-        
-        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
-        
-        # Добавляем в очередь производства
-        queue = factory_queue[ctx.author.id]
-        end_time = time.time() + recipe["time"]
-        queue.append({"product": product, "end_time": end_time, "reward": recipe["reward"]})
-        
-        await db.execute('UPDATE users SET inventory=? WHERE user_id=? AND guild_id=?', (json.dumps(inv), ctx.author.id, ctx.guild.id))
-    
-    await ctx.send(f"🏭 Производство **{product}** начато! Готово через {recipe['time']//60} минут")
-
-
-@bot.command()
-async def factory_status(ctx):
-    """📊 Статус завода - готовые продукты"""
-    queue = factory_queue.get(ctx.author.id, [])
-    if not queue:
-        return await ctx.send("🏭 Нет активных производств")
-    
-    embed = discord.Embed(title="🏭 СТАТУС ЗАВОДА", color=discord.Color.blue())
-    now = time.time()
-    ready = []
-    for item in queue:
-        if item["end_time"] <= now:
-            ready.append(item)
-    
-    if ready:
-        total_reward = sum(r["reward"] for r in ready)
-        await add_balance(ctx.author.id, ctx.guild.id, total_reward)
-        factory_queue[ctx.author.id] = [q for q in queue if q["end_time"] > now]
-        await ctx.send(f"✅ Готово! Получено {total_reward} 💎")
-    else:
-        next_ready = min(q["end_time"] for q in queue)
-        remaining = int(next_ready - now)
-        await ctx.send(f"⏳ Производство идёт... Готово через {remaining//60} минут")
+async def reminder(ctx, time_str: str = None, *, text: str = None):
+    if not time_str or not text:
+        return await ctx.send("⏰ **Напоминание**\n`j.reminder 10м Написать отчёт`\nДоступно: м, ч, д")
+    units = {"м": 60, "ч": 3600, "д": 86400}
+    u = time_str[-1]
+    if u not in units:
+        return await ctx.send("❌ Используйте: 10м, 1ч, 1д")
+    try:
+        sec = int(time_str[:-1]) * units[u]
+    except:
+        return await ctx.send("❌ Неверный формат времени")
+    await ctx.send(f"✅ Напоминание установлено! Я напомню через {time_str}")
+    await asyncio.sleep(sec)
+    await ctx.author.send(f"⏰ **НАПОМИНАНИЕ!**\nВы просили напомнить: {text}")
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
