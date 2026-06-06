@@ -13,7 +13,7 @@ app.secret_key = secrets.token_hex(32)
 # ========== ТВОИ КЛЮЧИ ==========
 app.config["DISCORD_CLIENT_ID"] = "1502642822967459912"
 app.config["DISCORD_CLIENT_SECRET"] = "KsAy53aZXkZyh7_DiGz7ltNRIvz601py"
-app.config["DISCORD_REDIRECT_URI"] = "https://justice-bot-production.up.railway.app"
+app.config["DISCORD_REDIRECT_URI"] = "https://justice-bot-production.up.railway.app/callback"
 
 discord_bp = make_discord_blueprint(
     client_id=app.config["DISCORD_CLIENT_ID"],
