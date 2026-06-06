@@ -1713,30 +1713,6 @@ async def profile(ctx, member: discord.Member = None):
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📝 БИОГРАФИЯ", value=bio[:500], inline=False)
     embed.set_footer(text=f"🎨 Цвет профиля | 🆔 ID: {target.id}")
     await ctx.send(embed=embed)
-        cur = await db.execute('SELECT COUNT(*) FROM achievements WHERE user_id=? AND guild_id=?', (target.id, ctx.guild.id))
-        ach_count = (await cur.fetchone())[0]
-    
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n🏆 ДОСТИЖЕНИЯ", value=f"{ach_count}/{len(ACHIEVEMENTS)} получено", inline=True)
-    embed.add_field(name="⚡ БУСТЕРЫ", value=boosters_text, inline=True)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n⚧ ПОЛ", value=gender_text, inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━\n📝 БИОГРАФИЯ", value=bio[:500], inline=False)
-    embed.set_footer(text=f"🎨 Цвет профиля | 🆔 ID: {target.id}")
-    await ctx.send(embed=embed)
-
-@bot.command()
-async def bio(ctx, *, text: str = None):
-    if not text: return await ctx.send("❌ j.bio <текст>")
-    if len(text) > 500: return await ctx.send("❌ Максимум 500 символов")
-    await update_user(ctx.author.id, ctx.guild.id, bio=text)
-    await ctx.send("✅ Био обновлено")
-
-@bot.command()
-async def avatar(ctx, member: discord.Member = None):
-    t = member or ctx.author
-    embed = discord.Embed(title=f"🖼️ Аватар {t.display_name}", color=discord.Color.blue())
-    embed.set_image(url=t.display_avatar.url)
-    await ctx.send(embed=embed)
-
 # ========== ТИКЕТЫ (ВЕЧНЫЕ КНОПКИ) ==========
 class PersistentTicketButton(discord.ui.View):
     def __init__(self):
