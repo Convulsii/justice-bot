@@ -52,7 +52,8 @@ def load_data():
         'warns': {}, 
         'balance': {}, 
         'daily': {},
-        'exchange_rate': 5
+        'exchange_rate': 5,
+        'last_status_message_id': None  # ID последнего сообщения о статусе
     }
 
 def save_data(data):
@@ -64,6 +65,7 @@ data = load_data()
 # ----- ХРАНИЛИЩЕ ПОСЛЕДНЕГО СТАТУСА -----
 last_status = None
 bog_member = None
+last_status_message = None
 
 # ----- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ -----
 async def get_role_by_hierarchy(ctx):
@@ -141,7 +143,7 @@ async def custom_help(ctx, command_name: str = None):
     
     embed.add_field(
         name="📊 Отчеты",
-        value="""**report** - Создать отчет (Владелец/Боженька)\n**backup** - Бэкап данных (Владелец)\n**restore** - Восстановить (Владелец)\n**stats** - Статистика (Владелец/Боженька)\n**find** - Найти пользователя (Владелец/Боженька)""",
+        value="""**report** - Создать отчет (Владелец/Боженька) - придет в ЛС\n**backup** - Бэкап данных (Владелец)\n**restore** - Восстановить (Владелец)\n**stats** - Статистика (Владелец/Боженька)\n**find** - Найти пользователя (Владелец/Боженька)""",
         inline=False
     )
     
@@ -235,13 +237,13 @@ async def clear_channel(ctx, amount: int = None):
     except Exception:
         await ctx.send("❌ Ошибка при удалении!")
 
-# ----- КОМАНДА REPORT -----
+# ----- КОМАНДА REPORT (отправляет в ЛС) -----
 @bot.command(name='report', aliases=['отчет', 'stat'])
 @commands.check(is_owner_or_bog)
 async def create_report(ctx):
-    """Создать отчет в CSV и TXT (Владелец/Боженька)"""
+    """Создать отчет в CSV и TXT - отправляется в ЛС (Владелец/Боженька)"""
     
-    await ctx.send("📊 **Создаю отчет...**")
+    await ctx.send("📊 **Создаю отчет... Ожидайте в личных сообщениях!**")
     
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     rate = data.get('exchange_rate', 5)
@@ -309,22 +311,30 @@ async def create_report(ctx):
             warns_count = len(data['warns'].get(str(user_id), {}))
             f.write(f"{user_id:<20} | {username[:24]:<25} | {balance:<10} | {rubles:<10} | {daily_date:<12} | {warns_count}\n")
     
-    # Отправляем
-    channel = bot.get_channel(REPORT_CHANNEL_ID) or ctx.channel
-    
-    embed = discord.Embed(
-        title="📊 Отчет создан!",
-        description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n**Пользователей:** {total_users}\n**Всего осколков:** {total_shards} 💎",
-        color=0x5865F2
-    )
-    await channel.send(embed=embed)
-    
-    with open(csv_file, 'rb') as f:
-        await channel.send(file=discord.File(f, f"report_{timestamp}.csv"))
-    with open(txt_file, 'rb') as f:
-        await channel.send(file=discord.File(f, f"report_{timestamp}.txt"))
-    
-    await ctx.send(f"✅ **Отчет создан!**")
+    # Отправляем в ЛС
+    try:
+        # Создаем embed
+        embed = discord.Embed(
+            title="📊 Отчет готов!",
+            description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n**Пользователей:** {total_users}\n**Всего осколков:** {total_shards} 💎",
+            color=0x5865F2
+        )
+        
+        # Отправляем embed
+        await ctx.author.send(embed=embed)
+        
+        # Отправляем файлы
+        with open(csv_file, 'rb') as f:
+            await ctx.author.send(file=discord.File(f, f"report_{timestamp}.csv"))
+        with open(txt_file, 'rb') as f:
+            await ctx.author.send(file=discord.File(f, f"report_{timestamp}.txt"))
+        
+        await ctx.send(f"✅ **Отчет отправлен в личные сообщения!**")
+        
+    except discord.Forbidden:
+        await ctx.send("❌ **Не могу отправить отчет в ЛС!** Включите личные сообщения от участников сервера в настройках Discord.")
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка при отправке: {e}")
 
 # ----- КОМАНДА BACKUP -----
 @bot.command(name='backup', aliases=['бэкап'])
@@ -691,10 +701,10 @@ async def daily(ctx):
     embed.add_field(name="Новый баланс", value=f"{data['balance'][user_id]} 💎")
     await ctx.send(embed=embed)
 
-# ----- СЛЕЖЕНИЕ ЗА СТАТУСОМ -----
+# ----- СЛЕЖЕНИЕ ЗА СТАТУСОМ (с удалением старых сообщений) -----
 @tasks.loop(seconds=5)
 async def status_check():
-    global last_status, bog_member
+    global last_status, bog_member, last_status_message
     
     channel = bot.get_channel(LOG_CHANNEL_ID)
     if not channel:
@@ -706,18 +716,39 @@ async def status_check():
             bog_member = guild.get_member(BOG_USER_ID)
             if bog_member:
                 last_status = bog_member.status
-                await send_status_update(channel, bog_member.status)
+                # Отправляем первое сообщение
+                msg = await send_status_update(channel, bog_member.status)
+                if msg:
+                    last_status_message = msg
+                    # Сохраняем ID сообщения в data
+                    data['last_status_message_id'] = msg.id
+                    save_data(data)
         return
     
     try:
         current_status = bog_member.status
         if current_status != last_status:
-            await send_status_update(channel, current_status)
+            # Удаляем старое сообщение
+            if last_status_message:
+                try:
+                    await last_status_message.delete()
+                except Exception as e:
+                    print(f"Не удалось удалить сообщение: {e}")
+            
+            # Отправляем новое
+            msg = await send_status_update(channel, current_status)
+            if msg:
+                last_status_message = msg
+                # Сохраняем ID нового сообщения
+                data['last_status_message_id'] = msg.id
+                save_data(data)
+            
             last_status = current_status
     except Exception as e:
         print(f"Ошибка: {e}")
 
 async def send_status_update(channel, status):
+    """Отправляет сообщение о статусе и возвращает его"""
     embed = discord.Embed(title="👁️ Статус Боженьки")
     
     if status == discord.Status.online:
@@ -738,7 +769,7 @@ async def send_status_update(channel, status):
     if bog_member:
         embed.set_thumbnail(url=bog_member.display_avatar.url)
     
-    await channel.send(embed=embed)
+    return await channel.send(embed=embed)
 
 # ----- ОБРАБОТЧИК ОШИБОК -----
 @bot.event
@@ -758,7 +789,7 @@ async def on_command_error(ctx, error):
 # ----- СОБЫТИЕ ГОТОВНОСТИ -----
 @bot.event
 async def on_ready():
-    global bog_member, last_status
+    global bog_member, last_status, last_status_message
     
     print(f'✅ Бот {bot.user} готов!')
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="за Боженькой"))
@@ -773,13 +804,32 @@ async def on_ready():
             
             channel = bot.get_channel(LOG_CHANNEL_ID)
             if channel:
-                embed = discord.Embed(
-                    title="🟢 Бот запущен!",
-                    description=f"👁️ Начинаю следить за Боженькой <@{BOG_USER_ID}>\nТекущий статус: **{last_status}**\nКурс: 1 ₽ = {data.get('exchange_rate', 5)} 💎",
-                    color=0x00ff00
-                )
-                await channel.send(embed=embed)
-                await send_status_update(channel, last_status)
+                # Проверяем, есть ли сохраненный ID сообщения
+                saved_msg_id = data.get('last_status_message_id')
+                if saved_msg_id:
+                    try:
+                        # Пытаемся получить сообщение
+                        old_msg = await channel.fetch_message(saved_msg_id)
+                        if old_msg:
+                            last_status_message = old_msg
+                            # Обновляем сообщение
+                            await send_status_update(channel, last_status)
+                            print("✅ Восстановлено предыдущее сообщение о статусе")
+                    except Exception as e:
+                        print(f"Не удалось восстановить сообщение: {e}")
+                        # Если не получилось - отправляем новое
+                        msg = await send_status_update(channel, last_status)
+                        if msg:
+                            last_status_message = msg
+                            data['last_status_message_id'] = msg.id
+                            save_data(data)
+                else:
+                    # Если нет сохраненного ID - отправляем новое
+                    msg = await send_status_update(channel, last_status)
+                    if msg:
+                        last_status_message = msg
+                        data['last_status_message_id'] = msg.id
+                        save_data(data)
     
     status_check.start()
     print("✅ Статус-трекер запущен!")
