@@ -6,7 +6,6 @@ import os
 from datetime import datetime, timedelta
 import re
 import csv
-import io
 
 # ----- Настройки -----
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -224,7 +223,7 @@ async def clear_channel(ctx, amount: int = None):
     try:
         deleted = await ctx.channel.purge(limit=amount + 1)
         await ctx.send(f"✅ Удалено {len(deleted) - 1} сообщений!", delete_after=3)
-    except:
+    except Exception:
         await ctx.send("❌ Ошибка при удалении!")
 
 # ----- КОМАНДА REPORT (без pandas) -----
@@ -261,7 +260,7 @@ async def create_report(ctx):
             try:
                 user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
                 username = user.name if user else "Неизвестный"
-            except:
+            except Exception:
                 username = "Неизвестный"
             
             rubles = round(balance / rate, 2) if rate > 0 else 0
@@ -293,7 +292,7 @@ async def create_report(ctx):
             try:
                 user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
                 username = user.name if user else "Неизвестный"
-            except:
+            except Exception:
                 username = "Неизвестный"
             
             rubles = round(balance / rate, 2) if rate > 0 else 0
@@ -408,7 +407,7 @@ async def show_stats(ctx):
         try:
             user = await bot.fetch_user(int(uid))
             name = user.name
-        except:
+        except Exception:
             name = "Неизвестный"
         rub = round(bal / rate, 2) if rate > 0 else 0
         top_text += f"{i}. {name} - {bal} 💎 ({rub} ₽)\n"
@@ -430,7 +429,7 @@ async def find_user(ctx, user_id: int):
     try:
         user = await bot.fetch_user(user_id)
         name = user.name
-    except:
+    except Exception:
         name = "Неизвестный"
     
     balance = data['balance'][uid]
@@ -446,7 +445,7 @@ async def find_user(ctx, user_id: int):
     embed.add_field(name="⚠️ Варнов", value=warns, inline=True)
     await ctx.send(embed=embed)
 
-# ----- АДМИН КОМАНДЫ (мут, бан, кик, варн) -----
+# ----- АДМИН КОМАНДЫ -----
 @bot.command(name='мут')
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -710,4 +709,75 @@ async def status_check():
         print(f"Ошибка: {e}")
 
 async def send_status_update(channel, status):
-    embed = discord.Embed(title="👁️ Статус Бож
+    embed = discord.Embed(title="👁️ Статус Боженьки")
+    
+    if status == discord.Status.online:
+        embed.description = "🌅 **Боженька готов услышать ваши мольбы!**\nОн в сети и ждёт ваши просьбы."
+        embed.color = 0x00ff00
+    elif status == discord.Status.idle:
+        embed.description = "💤 **Боженьку лучше не тревожить!**\nОн отдыхает, иначе навлечёте на себя гнев божий."
+        embed.color = 0xffff00
+    elif status == discord.Status.dnd:
+        embed.description = "🔇 **Боженька занят!**\nНе тревожьте его сейчас, иначе будете наказаны."
+        embed.color = 0xff0000
+    else:
+        embed.description = "🌆 **Боженька не в сети!**\nЕго лучше не тревожить. Похоже, он уехал в Вегас 🎰"
+        embed.color = 0x808080
+    
+    embed.set_footer(text=f"🕐 Обновлено: {datetime.now().strftime('%H:%M:%S')}")
+    
+    if bog_member:
+        embed.set_thumbnail(url=bog_member.display_avatar.url)
+    
+    await channel.send(embed=embed)
+
+# ----- ОБРАБОТЧИК ОШИБОК -----
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.MissingAnyRole):
+        await ctx.send("❌ У вас нет прав для использования этой команды.")
+    elif isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ У вас недостаточно прав.")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send("❌ Неверный аргумент. Проверьте ввод.")
+    elif isinstance(error, commands.CheckFailure):
+        await ctx.send("❌ У вас нет прав для этой команды.")
+    else:
+        await ctx.send(f"❌ Ошибка: {error}")
+        print(f"Ошибка: {error}")
+
+# ----- СОБЫТИЕ ГОТОВНОСТИ -----
+@bot.event
+async def on_ready():
+    global bog_member, last_status
+    
+    print(f'✅ Бот {bot.user} готов!')
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="за Боженькой"))
+    
+    if bot.guilds:
+        guild = bot.guilds[0]
+        bog_member = guild.get_member(BOG_ID)
+        
+        if bog_member:
+            last_status = bog_member.status
+            print(f"📊 Начальный статус Боженьки: {last_status}")
+            
+            channel = bot.get_channel(LOG_CHANNEL_ID)
+            if channel:
+                embed = discord.Embed(
+                    title="🟢 Бот запущен!",
+                    description=f"👁️ Начинаю следить за Боженькой <@{BOG_ID}>\nТекущий статус: **{last_status}**\nКурс: 1 ₽ = {data.get('exchange_rate', 5)} 💎",
+                    color=0x00ff00
+                )
+                await channel.send(embed=embed)
+                await send_status_update(channel, last_status)
+    
+    status_check.start()
+    print("✅ Статус-трекер запущен!")
+
+# ----- ЗАПУСК -----
+if __name__ == "__main__":
+    if not TOKEN:
+        print("❌ ОШИБКА: Токен не найден! Установите переменную DISCORD_TOKEN")
+        exit(1)
+    bot.run(TOKEN)
