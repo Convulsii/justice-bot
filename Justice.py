@@ -31,7 +31,7 @@ REPORT_CHANNEL_ID = 1502637205187723433
 # НАСТРОЙКИ ЭКОНОМИКИ
 MESSAGES_PER_SHARD = 10        # 10 сообщений = 1 осколок
 VOICE_HOUR_SHARDS = 5          # 1 час в войсе = 5 осколков
-COOLDOWN_SECONDS = 60          # Защита от спама (1 минута)
+COOLDOWN_SECONDS = 10          # Защита от спама (10 секунд)
 VOICE_CHECK_INTERVAL = 30      # Проверка голосовых каждые 30 секунд
 
 # ----- ИНИЦИАЛИЗАЦИЯ БОТА -----
@@ -129,6 +129,25 @@ def format_time(seconds):
         return f"{minutes}м {secs}с"
     else:
         return f"{secs}с"
+
+def get_medal(position):
+    """Возвращает эмодзи для места в топе"""
+    if position == 1:
+        return "🥇"
+    elif position == 2:
+        return "🥈"
+    elif position == 3:
+        return "🥉"
+    else:
+        return f"#{position}"
+
+async def get_user_info(user_id):
+    """Получить информацию о пользователе"""
+    try:
+        user = await bot.fetch_user(int(user_id))
+        return user
+    except:
+        return None
 
 # ----- ГОЛОСОВОЙ ТРЕКЕР -----
 @tasks.loop(seconds=VOICE_CHECK_INTERVAL)
@@ -264,6 +283,72 @@ async def on_voice_state_update(member, before, after):
                             pass
             save_data(data)
 
+# ----- КОМАНДА PROFILE -----
+@bot.command(name='profile', aliases=['профиль'])
+async def profile(ctx, member: discord.Member = None):
+    """Показать профиль пользователя"""
+    if member is None:
+        member = ctx.author
+    
+    user_id = str(member.id)
+    
+    # Баланс
+    balance = data['balance'].get(user_id, 0)
+    rate = data.get('exchange_rate', 5)
+    rubles = round(balance / rate, 2) if rate > 0 else 0
+    
+    # Сообщения
+    messages = data['messages_count'].get(user_id, 0)
+    total_messages = messages + ((balance // MESSAGES_PER_SHARD) * MESSAGES_PER_SHARD) if balance > 0 else messages
+    
+    # Голос
+    voice_seconds = data['voice_total_time'].get(user_id, 0)
+    voice_hours = voice_seconds // 3600
+    voice_minutes = (voice_seconds % 3600) // 60
+    
+    # Варны
+    warns = len(data['warns'].get(user_id, {}))
+    
+    # Роли
+    roles = [role.mention for role in member.roles if role.name != "@everyone"]
+    roles_text = ", ".join(roles) if roles else "Нет ролей"
+    
+    embed = discord.Embed(
+        title=f"👤 Профиль {member.display_name}",
+        color=member.color or 0x5865F2,
+        timestamp=datetime.now()
+    )
+    
+    embed.set_thumbnail(url=member.display_avatar.url)
+    
+    embed.add_field(
+        name="📋 Основная информация",
+        value=f"**ID:** {member.id}\n**Имя:** {member.name}\n**Отображаемое имя:** {member.display_name}\n**Аккаунт создан:** {member.created_at.strftime('%d.%m.%Y')}",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="💰 Баланс",
+        value=f"**Осколки:** {balance} 💎\n**Рубли:** {rubles} ₽\n**Курс:** 1 ₽ = {rate} 💎",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="💬 Активность",
+        value=f"**Сообщений:** {total_messages}\n**В голосе:** {voice_hours}ч {voice_minutes}м\n**Варнов:** {warns}",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="🎖️ Роли",
+        value=roles_text[:1024] if len(roles_text) <= 1024 else roles_text[:1021] + "...",
+        inline=False
+    )
+    
+    embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
+    
+    await ctx.send(embed=embed)
+
 # ----- КОМАНДЫ (ВСЕ НА АНГЛИЙСКОМ) -----
 
 # HELP
@@ -298,13 +383,13 @@ async def custom_help(ctx, command_name: str = None):
     
     embed.add_field(
         name="💰 Экономика",
-        value=f"""**balance (bal)** - Баланс\n**daily** - Ежедневный бонус\n**add** - Выдать осколки (Владелец/Боженька)\n**remove** - Снять осколки (Владелец/Боженька)\n**rate** - Курс\n**setrate** - Установить курс (Владелец/Боженька)\n**msgstats** - Статистика сообщений\n**voicestats** - Статистика голоса\n**topvoice** - Топ по голосу (Владелец/Боженька)\n**topmsg** - Топ по сообщениям (Владелец/Боженька)""",
+        value=f"""**balance (bal)** - Баланс\n**daily** - Ежедневный бонус\n**add** - Выдать осколки (Владелец/Боженька)\n**remove** - Снять осколки (Владелец/Боженька)\n**rate** - Курс\n**setrate** - Установить курс (Владелец/Боженька)\n**msgstats** - Статистика сообщений\n**voicestats** - Статистика голоса\n**topvoice** - Топ по голосу\n**topmsg** - Топ по сообщениям""",
         inline=False
     )
     
     embed.add_field(
         name="📊 Отчеты",
-        value="""**report** - Создать отчет (Владелец/Боженька) - придет в ЛС\n**backup** - Бэкап данных (Владелец)\n**restore** - Восстановить (Владелец)\n**stats** - Статистика (Владелец/Боженька)\n**find** - Найти пользователя (Владелец/Боженька)""",
+        value="""**report** - Создать отчет (Владелец/Боженька) - придет в ЛС\n**backup** - Бэкап данных (Владелец)\n**restore** - Восстановить (Владелец)\n**stats** - Статистика (Владелец/Боженька)\n**find** - Найти пользователя (Владелец/Боженька)\n**profile** - Профиль пользователя""",
         inline=False
     )
     
@@ -551,9 +636,8 @@ async def voice_stats(ctx, member: discord.Member = None):
 
 # TOPVOICE
 @bot.command(name='topvoice', aliases=['топвойс'])
-@commands.check(is_owner_or_bog)
 async def top_voice(ctx):
-    """Топ пользователей по времени в голосовых каналах (Владелец/Боженька)"""
+    """Топ пользователей по времени в голосовых каналах"""
     
     if not data['voice_total_time']:
         await ctx.send("📊 Нет данных о голосовой активности!")
@@ -571,21 +655,30 @@ async def top_voice(ctx):
     for i, (user_id, seconds) in enumerate(sorted_users, 1):
         try:
             user = await bot.fetch_user(int(user_id))
-            name = user.name
-        except Exception:
+            if user:
+                # Пытаемся получить ник с сервера
+                guild = ctx.guild
+                member = guild.get_member(int(user_id))
+                display_name = member.display_name if member else user.name
+                name = user.name
+            else:
+                display_name = "Неизвестный"
+                name = "Неизвестный"
+        except:
+            display_name = "Неизвестный"
             name = "Неизвестный"
         
         shards = (seconds // 3600) * VOICE_HOUR_SHARDS
-        text += f"{i}. **{name}** - {format_time(seconds)} ({shards} 💎)\n"
+        medal = get_medal(i)
+        text += f"{medal} **{display_name}** ({name}) - {format_time(seconds)} ({shards} 💎)\n"
     
     embed.description = text if text else "Нет данных"
     await ctx.send(embed=embed)
 
 # TOPMSG
 @bot.command(name='topmsg', aliases=['топсообщений'])
-@commands.check(is_owner_or_bog)
 async def top_messages(ctx):
-    """Топ пользователей по количеству сообщений (Владелец/Боженька)"""
+    """Топ пользователей по количеству сообщений"""
     
     if not data['messages_count']:
         await ctx.send("📊 Нет данных о сообщениях!")
@@ -603,12 +696,21 @@ async def top_messages(ctx):
     for i, (user_id, count) in enumerate(sorted_users, 1):
         try:
             user = await bot.fetch_user(int(user_id))
-            name = user.name
-        except Exception:
+            if user:
+                guild = ctx.guild
+                member = guild.get_member(int(user_id))
+                display_name = member.display_name if member else user.name
+                name = user.name
+            else:
+                display_name = "Неизвестный"
+                name = "Неизвестный"
+        except:
+            display_name = "Неизвестный"
             name = "Неизвестный"
         
         shards_earned = count // MESSAGES_PER_SHARD
-        text += f"{i}. **{name}** - {count} сообщений ({shards_earned} 💎)\n"
+        medal = get_medal(i)
+        text += f"{medal} **{display_name}** ({name}) - {count} сообщений ({shards_earned} 💎)\n"
     
     embed.description = text if text else "Нет данных"
     await ctx.send(embed=embed)
@@ -664,7 +766,7 @@ async def create_report(ctx):
         
         for user_id, balance in sorted(data['balance'].items(), key=lambda x: x[1], reverse=True):
             try:
-                user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
+                user = await bot.fetch_user(int(user_id))
                 username = user.name if user else "Неизвестный"
             except Exception:
                 username = "Неизвестный"
@@ -722,7 +824,7 @@ async def find_user(ctx, user_id: int):
     embed.add_field(name="⚠️ Варнов", value=warns, inline=True)
     await ctx.send(embed=embed)
 
-# ----- АДМИН КОМАНДЫ (ВСЕ НА АНГЛИЙСКОМ) -----
+# ----- АДМИН КОМАНДЫ -----
 
 # MUTE
 @bot.command(name='mute', aliases=['мут'])
@@ -905,11 +1007,15 @@ async def clear_channel(ctx, amount: int = None):
     except Exception:
         await ctx.send("❌ Ошибка при удалении!")
 
-# BACKUP
+# BACKUP - ИСПРАВЛЕНА (теперь работает у владельца)
 @bot.command(name='backup', aliases=['бэкап'])
-@commands.check(is_owner_only)
 async def create_backup(ctx):
     """Создать бэкап данных (Только владелец)"""
+    # Проверяем, что пользователь - владелец
+    if ctx.author.id != OWNER_ID:
+        await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
+        return
+    
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     json_backup = f"{BACKUP_FOLDER}/backup_{timestamp}.json"
     
@@ -932,9 +1038,13 @@ async def create_backup(ctx):
 
 # RESTORE
 @bot.command(name='restore', aliases=['восстановить'])
-@commands.check(is_owner_only)
 async def restore_backup(ctx, backup_name: str = None):
     """Восстановить данные из бэкапа (Только владелец)"""
+    # Проверяем, что пользователь - владелец
+    if ctx.author.id != OWNER_ID:
+        await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
+        return
+    
     if backup_name is None:
         backups = sorted([f for f in os.listdir(BACKUP_FOLDER) if f.endswith('.json')])
         if not backups:
