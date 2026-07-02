@@ -27,6 +27,7 @@ LOG_CHANNEL_ID = 1502637205187723433
 # ----- Инициализация бота -----
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='j.', intents=intents)
+bot.remove_command('help')
 
 # ----- Файлы для хранения -----
 DATA_FILE = 'data.json'
@@ -35,7 +36,12 @@ def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
-    return {'warns': {}, 'balance': {}, 'daily': {}}
+    return {
+        'warns': {}, 
+        'balance': {}, 
+        'daily': {},
+        'exchange_rate': 5  # По умолчанию 5 осколков = 1 рубль
+    }
 
 def save_data(data):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
@@ -45,7 +51,7 @@ data = load_data()
 
 # ----- Хранилище последнего статуса -----
 last_status = None
-bog_member = None  # Будем хранить Member объект
+bog_member = None
 
 # ----- Вспомогательные функции -----
 async def get_role_by_hierarchy(ctx):
@@ -75,113 +81,246 @@ async def check_hierarchy(ctx, target):
                   ROLES['head_admin'], ROLES['admin'], ROLES['moderator'], ROLES['helper']]
     return roles_list.index(author_role) < roles_list.index(target_role)
 
-# ----- Фоновая задача для отслеживания статуса -----
-@tasks.loop(seconds=5)
-async def status_check():
-    global last_status, bog_member
+def is_owner_or_bog(ctx):
+    """Проверка, является ли пользователь владельцем или Боженькой"""
+    return ctx.author.id == ROLES['owner'] or ctx.author.id == BOG_ID
+
+# ----- КАСТОМНАЯ КОМАНДА HELP -----
+@bot.command(name='help', aliases=['хелп', 'помощь'])
+async def custom_help(ctx, command_name: str = None):
+    """Показывает список всех команд с категориями"""
     
-    channel = bot.get_channel(LOG_CHANNEL_ID)
-    if not channel:
-        print(f"❌ Канал {LOG_CHANNEL_ID} не найден!")
-        return
-    
-    # Если у нас нет Member объекта - пытаемся получить
-    if not bog_member:
-        guild = bot.guilds[0]  # Берем первый сервер
-        if guild:
-            bog_member = guild.get_member(BOG_ID)
-            if not bog_member:
-                print(f"❌ Пользователь {BOG_ID} не найден на сервере!")
-                return
-            # Инициализируем статус при первом получении
-            last_status = bog_member.status
-            print(f"📊 Начальный статус Боженьки: {last_status}")
-            await send_status_update(channel, bog_member.status)
+    if command_name:
+        cmd = bot.get_command(command_name.lower())
+        if cmd:
+            embed = discord.Embed(
+                title=f"📖 Команда: j.{cmd.name}",
+                description=cmd.help or "Нет описания",
+                color=0x00ff00
+            )
+            
+            permissions = []
+            for check in cmd.checks:
+                if hasattr(check, '__closure__'):
+                    if 'helper' in str(check.__closure__):
+                        permissions.append("🟢 Helper+")
+                    elif 'moderator' in str(check.__closure__):
+                        permissions.append("🟢 Модератор+")
+                    elif 'admin' in str(check.__closure__):
+                        permissions.append("🟢 Админ+")
+            
+            if permissions:
+                embed.add_field(name="🔒 Права доступа", value="\n".join(permissions), inline=False)
+            
+            embed.add_field(name="Использование", value=f"`j.{cmd.name} {cmd.signature}`" if cmd.signature else f"`j.{cmd.name}`", inline=False)
+            embed.set_footer(text="j.help команда - подробная информация")
+            await ctx.send(embed=embed)
+            return
+        else:
+            await ctx.send(f"❌ Команда `{command_name}` не найдена. Используйте `j.help` для списка команд.")
             return
     
-    if not bog_member:
-        return
+    embed = discord.Embed(
+        title="🌟 Меню помощи бота Justice",
+        description=f"**Префикс: `j.`**\nИспользуйте `j.help команда` для подробной информации\n\n**Курс:** 1 рубль = {data.get('exchange_rate', 5)} осколков 💎",
+        color=0x5865F2
+    )
     
-    try:
-        # Получаем текущий статус
-        current_status = bog_member.status
-        
-        # Если статус изменился
-        if current_status != last_status:
-            print(f"🔄 Статус изменился: {last_status} -> {current_status}")
-            await send_status_update(channel, current_status)
-            
-            # Сохраняем новый статус
-            last_status = current_status
-            
-    except Exception as e:
-        print(f"❌ Ошибка при проверке статуса: {e}")
+    # Категория: Модерация
+    mod_commands = []
+    for cmd in bot.commands:
+        if any(role in str(cmd.checks) for role in ['helper', 'moderator', 'admin', 'head_admin', 'curator', 'co_owner', 'owner']):
+            if cmd.name not in ['help', 'add', 'remove', 'balance', 'daily', 'clear', 'setrate']:
+                mod_commands.append(f"**{cmd.name}** - {cmd.help or 'Нет описания'}")
+    
+    if mod_commands:
+        embed.add_field(
+            name="🛡️ Модерация",
+            value="\n".join(mod_commands[:10]) + ("\n*...и другие*" if len(mod_commands) > 10 else ""),
+            inline=False
+        )
+    
+    # Категория: Экономика
+    embed.add_field(
+        name="💰 Экономика",
+        value=f"""**balance (bal)** - Просмотр баланса
+**daily** - Ежедневный бонус (5 осколков)
+**add** - Выдать осколки (Экономист+)
+**remove** - Снять осколки (Экономист+)
+**setrate** - Установить курс (Владелец/Боженька)
+**clear** - Очистить канал (Helper+)""",
+        inline=False
+    )
+    
+    # Категория: Система
+    embed.add_field(
+        name="⚙️ Система",
+        value="**help** - Это меню помощи\n**status** - Проверить статус бота\n**rate** - Показать текущий курс",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="👑 Иерархия ролей",
+        value="""👑 Владелец
+🤝 Со-владелец
+📚 Куратор
+⭐ Главный админ
+🔰 Админ
+🛡️ Модератор
+🆘 Хелпер
+💎 Экономист""",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="📋 Доступ к командам",
+        value="""🟢 **Helper+**: мут, размут, варн, варны, разварн, clear
+🟡 **Модератор+**: кик
+🔴 **Админ+**: бан
+💎 **Экономист+**: add, remove
+👑 **Владелец/Боженька**: setrate""",
+        inline=True
+    )
+    
+    embed.set_footer(text=f"Запросил: {ctx.author.display_name} | Версия 2.0")
+    embed.set_thumbnail(url=bot.user.display_avatar.url)
+    
+    await ctx.send(embed=embed)
 
-async def send_status_update(channel, status):
-    """Отправляет красивое сообщение о статусе"""
-    embed = discord.Embed(title="👁️ Статус Боженьки")
-    
-    # Красивые сообщения для каждого статуса
-    if status == discord.Status.online:
-        embed.description = "🌅 **Боженька готов услышать ваши мольбы!**\nОн в сети и ждёт ваши просьбы."
-        embed.color = 0x00ff00
-    elif status == discord.Status.idle:
-        embed.description = "💤 **Боженьку лучше не тревожить!**\nОн отдыхает, иначе навлечёте на себя гнев божий."
-        embed.color = 0xffff00
-    elif status == discord.Status.dnd:
-        embed.description = "🔇 **Боженька занят!**\nНе тревожьте его сейчас, иначе будете наказаны."
-        embed.color = 0xff0000
-    else:  # offline или invisible
-        embed.description = "🌆 **Боженька не в сети!**\nЕго лучше не тревожить. Похоже, он уехал в Вегас 🎰"
-        embed.color = 0x808080
-    
-    embed.set_footer(text=f"🕐 Обновлено: {datetime.now().strftime('%H:%M:%S')}")
-    
-    # Пытаемся получить аватарку
-    if bog_member:
-        embed.set_thumbnail(url=bog_member.display_avatar.url)
-    
-    await channel.send(embed=embed)
-
-# ----- Событие готовности -----
-@bot.event
-async def on_ready():
+# ----- КОМАНДА СТАТУС БОТА -----
+@bot.command(name='status', aliases=['статус'])
+async def bot_status(ctx):
+    """Показывает статус бота и отслеживаемого пользователя"""
     global bog_member, last_status
     
-    print(f'✅ Бот {bot.user} готов!')
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="за Боженькой"))
+    embed = discord.Embed(
+        title="📊 Статус бота",
+        color=0x00ff00,
+        timestamp=datetime.now()
+    )
     
-    # Получаем пользователя через первый сервер
-    if bot.guilds:
-        guild = bot.guilds[0]
-        bog_member = guild.get_member(BOG_ID)
+    embed.add_field(
+        name="🤖 Бот",
+        value=f"**Статус:** 🟢 Онлайн\n**Пинг:** {round(bot.latency * 1000)}ms\n**Серверов:** {len(bot.guilds)}",
+        inline=False
+    )
+    
+    if bog_member:
+        status_emoji = {
+            discord.Status.online: "🟢",
+            discord.Status.idle: "🟡",
+            discord.Status.dnd: "🔴",
+            discord.Status.offline: "⚫"
+        }
+        status_text = {
+            discord.Status.online: "В сети",
+            discord.Status.idle: "Отошел",
+            discord.Status.dnd: "Не беспокоить",
+            discord.Status.offline: "Не в сети"
+        }
         
-        if bog_member:
-            last_status = bog_member.status
-            print(f"📊 Начальный статус Боженьки: {last_status}")
-            
-            # Отправляем приветственное сообщение
-            channel = bot.get_channel(LOG_CHANNEL_ID)
-            if channel:
-                embed = discord.Embed(
-                    title="🟢 Бот запущен!",
-                    description=f"👁️ Начинаю следить за Боженькой <@{BOG_ID}>\nТекущий статус: **{last_status}**",
-                    color=0x00ff00
-                )
-                await channel.send(embed=embed)
-                
-                # Отправляем текущий статус
-                await send_status_update(channel, last_status)
-        else:
-            print(f"❌ Пользователь {BOG_ID} не найден на сервере {guild.name}!")
-    else:
-        print("❌ Бот не состоит ни на одном сервере!")
+        embed.add_field(
+            name="👁️ Боженька",
+            value=f"{status_emoji.get(bog_member.status, '❓')} **{status_text.get(bog_member.status, 'Неизвестно')}**\nПоследнее обновление: {datetime.now().strftime('%H:%M:%S')}",
+            inline=False
+        )
     
-    # Запускаем задачу
-    status_check.start()
-    print("✅ Статус-трекер запущен!")
+    total_balance = sum(data['balance'].values()) if data['balance'] else 0
+    embed.add_field(
+        name="💰 Экономика",
+        value=f"**Всего осколков:** {total_balance} 💎\n**Пользователей:** {len(data['balance'])}\n**Курс:** 1 рубль = {data.get('exchange_rate', 5)} осколков",
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
 
-# ----- АДМИН КОМАНДЫ -----
+# ----- КОМАНДА КУРСА -----
+@bot.command(name='rate', aliases=['курс'])
+async def show_rate(ctx):
+    """Показывает текущий курс осколков к рублю"""
+    rate = data.get('exchange_rate', 5)
+    embed = discord.Embed(
+        title="💱 Текущий курс",
+        description=f"**1 рубль = {rate} осколков** 💎\n**1 осколок = {round(1/rate, 2)} рублей**" if rate > 0 else "Курс не установлен",
+        color=0x00ff00
+    )
+    embed.set_footer(text=f"Установлен: {'по умолчанию' if rate == 5 else 'администрацией'}")
+    await ctx.send(embed=embed)
+
+@bot.command(name='setrate', aliases=['установитькурс'])
+@commands.check(is_owner_or_bog)
+async def set_exchange_rate(ctx, rate: int):
+    """Установить курс осколков к рублю (Только владелец/Боженька)"""
+    if rate <= 0:
+        await ctx.send("❌ Курс должен быть положительным числом!")
+        return
+    
+    old_rate = data.get('exchange_rate', 5)
+    data['exchange_rate'] = rate
+    save_data(data)
+    
+    embed = discord.Embed(
+        title="💱 Курс обновлен!",
+        description=f"**Был:** 1 рубль = {old_rate} осколков\n**Стал:** 1 рубль = {rate} осколков",
+        color=0x00ff00
+    )
+    embed.set_footer(text=f"Обновил: {ctx.author.display_name}")
+    await ctx.send(embed=embed)
+
+# ----- КОМАНДА CLEAR (ОЧИСТКА КАНАЛА) -----
+@bot.command(name='clear', aliases=['очистить', 'cls'])
+@commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
+                         ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
+async def clear_channel(ctx, amount: int = None):
+    """Очищает указанное количество сообщений в канале (Helper+)"""
+    
+    # Проверка лимита
+    if amount is None:
+        await ctx.send("❌ Укажите количество сообщений для удаления. Пример: `j.clear 50`")
+        return
+    
+    if amount < 1:
+        await ctx.send("❌ Количество должно быть больше 0!")
+        return
+    
+    if amount > 100:
+        await ctx.send("❌ Нельзя удалить больше 100 сообщений за раз!")
+        return
+    
+    # Удаляем сообщения
+    try:
+        deleted = await ctx.channel.purge(limit=amount + 1)  # +1 для команды
+        await ctx.send(f"✅ Удалено {len(deleted) - 1} сообщений!", delete_after=3)
+    except discord.Forbidden:
+        await ctx.send("❌ У меня нет прав на удаление сообщений в этом канале!")
+    except discord.HTTPException as e:
+        await ctx.send(f"❌ Ошибка при удалении: {e}")
+
+# ----- КОМАНДА CLEAR ПО ID -----
+@bot.command(name='clearbot', aliases=['очиститьбота'])
+@commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
+                         ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
+async def clear_bot_messages(ctx, amount: int = 10):
+    """Очищает только сообщения бота в канале (Helper+)"""
+    
+    if amount < 1:
+        await ctx.send("❌ Количество должно быть больше 0!")
+        return
+    
+    if amount > 50:
+        await ctx.send("❌ Нельзя удалить больше 50 сообщений за раз!")
+        return
+    
+    def is_bot_message(msg):
+        return msg.author == bot.user
+    
+    try:
+        deleted = await ctx.channel.purge(limit=amount, check=is_bot_message)
+        await ctx.send(f"✅ Удалено {len(deleted)} сообщений бота!", delete_after=3)
+    except discord.Forbidden:
+        await ctx.send("❌ У меня нет прав на удаление сообщений в этом канале!")
+
+# ----- ВСЕ АДМИН КОМАНДЫ (мут, бан, кик, варн, и т.д.) -----
 @bot.command(name='мут')
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -359,10 +498,14 @@ async def balance(ctx, member: discord.Member = None):
         member = ctx.author
     
     balance = data['balance'].get(str(member.id), 0)
+    rate = data.get('exchange_rate', 5)
+    rubles = round(balance / rate, 2) if rate > 0 else 0
+    
     embed = discord.Embed(title="💰 Баланс осколков", color=0x00ff00)
     embed.add_field(name="Пользователь", value=member.mention, inline=True)
     embed.add_field(name="Осколки", value=f"{balance} 💎", inline=True)
-    embed.set_footer(text="1 осколок = 0.2 рубля")
+    embed.add_field(name="Рубли", value=f"{rubles} ₽", inline=True)
+    embed.set_footer(text=f"Курс: 1 ₽ = {rate} 💎")
     await ctx.send(embed=embed)
 
 @bot.command(name='add')
@@ -377,9 +520,12 @@ async def add_shards(ctx, member: discord.Member, amount: int):
     data['balance'][str(member.id)] += amount
     save_data(data)
     
+    rate = data.get('exchange_rate', 5)
+    rubles = round(amount / rate, 2)
+    
     embed = discord.Embed(title="➕ Выдача осколков", color=0x00ff00)
     embed.add_field(name="Пользователь", value=member.mention, inline=True)
-    embed.add_field(name="Количество", value=f"+{amount} 💎", inline=True)
+    embed.add_field(name="Количество", value=f"+{amount} 💎 ({rubles} ₽)", inline=True)
     embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎", inline=True)
     embed.set_footer(text=f"Выдал: {ctx.author.display_name}")
     await ctx.send(embed=embed)
@@ -401,9 +547,12 @@ async def remove_shards(ctx, member: discord.Member, amount: int):
     data['balance'][str(member.id)] -= amount
     save_data(data)
     
+    rate = data.get('exchange_rate', 5)
+    rubles = round(amount / rate, 2)
+    
     embed = discord.Embed(title="➖ Снятие осколков", color=0xff0000)
     embed.add_field(name="Пользователь", value=member.mention, inline=True)
-    embed.add_field(name="Количество", value=f"-{amount} 💎", inline=True)
+    embed.add_field(name="Количество", value=f"-{amount} 💎 ({rubles} ₽)", inline=True)
     embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎", inline=True)
     embed.set_footer(text=f"Снял: {ctx.author.display_name}")
     await ctx.send(embed=embed)
@@ -423,12 +572,97 @@ async def daily(ctx):
     data['daily'][user_id] = today
     save_data(data)
     
+    rate = data.get('exchange_rate', 5)
+    rubles = round(5 / rate, 2)
+    
     embed = discord.Embed(title="🎉 Ежедневный бонус", color=0xffd700)
     embed.add_field(name="Пользователь", value=ctx.author.mention, inline=True)
-    embed.add_field(name="Получено", value="+5 💎", inline=True)
+    embed.add_field(name="Получено", value=f"+5 💎 ({rubles} ₽)", inline=True)
     embed.add_field(name="Новый баланс", value=f"{data['balance'][user_id]} 💎", inline=True)
     embed.set_footer(text="Приходите завтра за новым бонусом!")
     await ctx.send(embed=embed)
+
+# ----- Фоновая задача для отслеживания статуса -----
+@tasks.loop(seconds=5)
+async def status_check():
+    global last_status, bog_member
+    
+    channel = bot.get_channel(LOG_CHANNEL_ID)
+    if not channel:
+        return
+    
+    if not bog_member:
+        if bot.guilds:
+            guild = bot.guilds[0]
+            bog_member = guild.get_member(BOG_ID)
+            if bog_member:
+                last_status = bog_member.status
+                await send_status_update(channel, bog_member.status)
+            return
+        return
+    
+    try:
+        current_status = bog_member.status
+        
+        if current_status != last_status:
+            print(f"🔄 Статус изменился: {last_status} -> {current_status}")
+            await send_status_update(channel, current_status)
+            last_status = current_status
+            
+    except Exception as e:
+        print(f"❌ Ошибка при проверке статуса: {e}")
+
+async def send_status_update(channel, status):
+    embed = discord.Embed(title="👁️ Статус Боженьки")
+    
+    if status == discord.Status.online:
+        embed.description = "🌅 **Боженька готов услышать ваши мольбы!**\nОн в сети и ждёт ваши просьбы."
+        embed.color = 0x00ff00
+    elif status == discord.Status.idle:
+        embed.description = "💤 **Боженьку лучше не тревожить!**\nОн отдыхает, иначе навлечёте на себя гнев божий."
+        embed.color = 0xffff00
+    elif status == discord.Status.dnd:
+        embed.description = "🔇 **Боженька занят!**\nНе тревожьте его сейчас, иначе будете наказаны."
+        embed.color = 0xff0000
+    else:
+        embed.description = "🌆 **Боженька не в сети!**\nЕго лучше не тревожить. Похоже, он уехал в Вегас 🎰"
+        embed.color = 0x808080
+    
+    embed.set_footer(text=f"🕐 Обновлено: {datetime.now().strftime('%H:%M:%S')}")
+    
+    if bog_member:
+        embed.set_thumbnail(url=bog_member.display_avatar.url)
+    
+    await channel.send(embed=embed)
+
+# ----- Событие готовности -----
+@bot.event
+async def on_ready():
+    global bog_member, last_status
+    
+    print(f'✅ Бот {bot.user} готов!')
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="за Боженькой"))
+    
+    if bot.guilds:
+        guild = bot.guilds[0]
+        bog_member = guild.get_member(BOG_ID)
+        
+        if bog_member:
+            last_status = bog_member.status
+            print(f"📊 Начальный статус Боженьки: {last_status}")
+            
+            channel = bot.get_channel(LOG_CHANNEL_ID)
+            if channel:
+                embed = discord.Embed(
+                    title="🟢 Бот запущен!",
+                    description=f"👁️ Начинаю следить за Боженькой <@{BOG_ID}>\nТекущий статус: **{last_status}**\nКурс: 1 ₽ = {data.get('exchange_rate', 5)} 💎",
+                    color=0x00ff00
+                )
+                await channel.send(embed=embed)
+                await send_status_update(channel, last_status)
+    
+    status_check.start()
+    print("✅ Статус-трекер запущен!")
 
 # ----- Обработчик ошибок -----
 @bot.event
