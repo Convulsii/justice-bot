@@ -43,6 +43,10 @@ def save_data(data):
 
 data = load_data()
 
+# ----- Хранилище последнего статуса -----
+last_status = None
+bog_member = None  # Будем хранить Member объект
+
 # ----- Вспомогательные функции -----
 async def get_role_by_hierarchy(ctx):
     roles = [ROLES['owner'], ROLES['co_owner'], ROLES['curator'],
@@ -71,53 +75,41 @@ async def check_hierarchy(ctx, target):
                   ROLES['head_admin'], ROLES['admin'], ROLES['moderator'], ROLES['helper']]
     return roles_list.index(author_role) < roles_list.index(target_role)
 
-# ----- Хранилище последнего статуса -----
-last_status = None
-
-# ----- Фоновая задача для отслеживания статуса (исправлена!) -----
-@tasks.loop(seconds=5)  # Проверка каждые 5 секунд для быстрой реакции
+# ----- Фоновая задача для отслеживания статуса -----
+@tasks.loop(seconds=5)
 async def status_check():
-    global last_status
+    global last_status, bog_member
     
     channel = bot.get_channel(LOG_CHANNEL_ID)
     if not channel:
         print(f"❌ Канал {LOG_CHANNEL_ID} не найден!")
         return
     
-    user = bot.get_user(BOG_ID)
-    if not user:
-        print(f"❌ Пользователь {BOG_ID} не найден!")
+    # Если у нас нет Member объекта - пытаемся получить
+    if not bog_member:
+        guild = bot.guilds[0]  # Берем первый сервер
+        if guild:
+            bog_member = guild.get_member(BOG_ID)
+            if not bog_member:
+                print(f"❌ Пользователь {BOG_ID} не найден на сервере!")
+                return
+            # Инициализируем статус при первом получении
+            last_status = bog_member.status
+            print(f"📊 Начальный статус Боженьки: {last_status}")
+            await send_status_update(channel, bog_member.status)
+            return
+    
+    if not bog_member:
         return
     
     try:
         # Получаем текущий статус
-        current_status = user.status
+        current_status = bog_member.status
         
-        # Если статус изменился или это первый запуск
+        # Если статус изменился
         if current_status != last_status:
             print(f"🔄 Статус изменился: {last_status} -> {current_status}")
-            
-            embed = discord.Embed(title="👁️ Статус Боженьки")
-            
-            # Красивые сообщения для каждого статуса
-            if current_status == discord.Status.online:
-                embed.description = "🌅 **Боженька готов услышать ваши мольбы!**\nОн в сети и ждёт ваши просьбы."
-                embed.color = 0x00ff00
-            elif current_status == discord.Status.idle:
-                embed.description = "💤 **Боженьку лучше не тревожить!**\nОн отдыхает, иначе навлечёте на себя гнев божий."
-                embed.color = 0xffff00
-            elif current_status == discord.Status.dnd:
-                embed.description = "🔇 **Боженька занят!**\nНе тревожьте его сейчас, иначе будете наказаны."
-                embed.color = 0xff0000
-            else:  # offline или invisible
-                embed.description = "🌆 **Боженька не в сети!**\nЕго лучше не тревожить. Похоже, он уехал в Вегас 🎰"
-                embed.color = 0x808080
-            
-            embed.set_footer(text=f"🕐 Обновлено: {datetime.now().strftime('%H:%M:%S')}")
-            embed.set_thumbnail(url=user.display_avatar.url)
-            
-            # Отправляем в канал
-            await channel.send(embed=embed)
+            await send_status_update(channel, current_status)
             
             # Сохраняем новый статус
             last_status = current_status
@@ -125,35 +117,71 @@ async def status_check():
     except Exception as e:
         print(f"❌ Ошибка при проверке статуса: {e}")
 
+async def send_status_update(channel, status):
+    """Отправляет красивое сообщение о статусе"""
+    embed = discord.Embed(title="👁️ Статус Боженьки")
+    
+    # Красивые сообщения для каждого статуса
+    if status == discord.Status.online:
+        embed.description = "🌅 **Боженька готов услышать ваши мольбы!**\nОн в сети и ждёт ваши просьбы."
+        embed.color = 0x00ff00
+    elif status == discord.Status.idle:
+        embed.description = "💤 **Боженьку лучше не тревожить!**\nОн отдыхает, иначе навлечёте на себя гнев божий."
+        embed.color = 0xffff00
+    elif status == discord.Status.dnd:
+        embed.description = "🔇 **Боженька занят!**\nНе тревожьте его сейчас, иначе будете наказаны."
+        embed.color = 0xff0000
+    else:  # offline или invisible
+        embed.description = "🌆 **Боженька не в сети!**\nЕго лучше не тревожить. Похоже, он уехал в Вегас 🎰"
+        embed.color = 0x808080
+    
+    embed.set_footer(text=f"🕐 Обновлено: {datetime.now().strftime('%H:%M:%S')}")
+    
+    # Пытаемся получить аватарку
+    if bog_member:
+        embed.set_thumbnail(url=bog_member.display_avatar.url)
+    
+    await channel.send(embed=embed)
+
 # ----- Событие готовности -----
 @bot.event
 async def on_ready():
-    global last_status
+    global bog_member, last_status
     
     print(f'✅ Бот {bot.user} готов!')
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="за Боженькой"))
     
-    # Инициализируем последний статус при запуске
-    user = bot.get_user(BOG_ID)
-    if user:
-        last_status = user.status
-        print(f"📊 Начальный статус Боженьки: {last_status}")
+    # Получаем пользователя через первый сервер
+    if bot.guilds:
+        guild = bot.guilds[0]
+        bog_member = guild.get_member(BOG_ID)
         
-        # Отправляем приветственное сообщение
-        channel = bot.get_channel(LOG_CHANNEL_ID)
-        if channel:
-            embed = discord.Embed(
-                title="🟢 Бот запущен!",
-                description=f"👁️ Начинаю следить за Боженькой <@{BOG_ID}>\nТекущий статус: **{last_status}**",
-                color=0x00ff00
-            )
-            await channel.send(embed=embed)
+        if bog_member:
+            last_status = bog_member.status
+            print(f"📊 Начальный статус Боженьки: {last_status}")
+            
+            # Отправляем приветственное сообщение
+            channel = bot.get_channel(LOG_CHANNEL_ID)
+            if channel:
+                embed = discord.Embed(
+                    title="🟢 Бот запущен!",
+                    description=f"👁️ Начинаю следить за Боженькой <@{BOG_ID}>\nТекущий статус: **{last_status}**",
+                    color=0x00ff00
+                )
+                await channel.send(embed=embed)
+                
+                # Отправляем текущий статус
+                await send_status_update(channel, last_status)
+        else:
+            print(f"❌ Пользователь {BOG_ID} не найден на сервере {guild.name}!")
+    else:
+        print("❌ Бот не состоит ни на одном сервере!")
     
     # Запускаем задачу
     status_check.start()
     print("✅ Статус-трекер запущен!")
 
-# ----- АДМИН КОМАНДЫ (все те же) -----
+# ----- АДМИН КОМАНДЫ -----
 @bot.command(name='мут')
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
