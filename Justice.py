@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import re
 
 # ----- Настройки -----
-TOKEN = os.getenv('DISCORD_TOKEN')  # Токен из переменных окружения
+TOKEN = os.getenv('DISCORD_TOKEN')
 
 # Роли иерархии (ID)
 ROLES = {
@@ -28,7 +28,7 @@ LOG_CHANNEL_ID = 1502637205187723433
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='j.', intents=intents)
 
-# ----- Файлы для хранения данных -----
+# ----- Файлы для хранения -----
 DATA_FILE = 'data.json'
 
 def load_data():
@@ -71,50 +71,89 @@ async def check_hierarchy(ctx, target):
                   ROLES['head_admin'], ROLES['admin'], ROLES['moderator'], ROLES['helper']]
     return roles_list.index(author_role) < roles_list.index(target_role)
 
-# ----- Событие готовности -----
-@bot.event
-async def on_ready():
-    print(f'Бот {bot.user} готов!')
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="за Боженькой"))
-    status_check.start()
-    print("Бот успешно запущен на Railway!")
+# ----- Хранилище последнего статуса -----
+last_status = None
 
-# ----- Фоновая задача для отслеживания статуса -----
-@tasks.loop(seconds=10)
+# ----- Фоновая задача для отслеживания статуса (исправлена!) -----
+@tasks.loop(seconds=5)  # Проверка каждые 5 секунд для быстрой реакции
 async def status_check():
+    global last_status
+    
     channel = bot.get_channel(LOG_CHANNEL_ID)
     if not channel:
+        print(f"❌ Канал {LOG_CHANNEL_ID} не найден!")
         return
+    
     user = bot.get_user(BOG_ID)
     if not user:
+        print(f"❌ Пользователь {BOG_ID} не найден!")
         return
     
     try:
-        status = user.status
-        old_status = getattr(status_check, 'old_status', None)
+        # Получаем текущий статус
+        current_status = user.status
         
-        if status != old_status:
-            embed = discord.Embed(title="👁️ Статус Боженьки", color=0x00ff00)
+        # Если статус изменился или это первый запуск
+        if current_status != last_status:
+            print(f"🔄 Статус изменился: {last_status} -> {current_status}")
             
-            status_messages = {
-                discord.Status.online: ("🌅 **Боженька готов услышать ваши мольбы!**\nОн в сети и ждёт ваши просьбы.", 0x00ff00),
-                discord.Status.idle: ("💤 **Боженьку лучше не тревожить!**\nОн отдыхает, иначе навлечёте на себя гнев божий.", 0xffff00),
-                discord.Status.dnd: ("🔇 **Боженька занят!**\nНе тревожьте его сейчас, иначе будете наказаны.", 0xff0000),
-                discord.Status.offline: ("🌆 **Боженька не в сети!**\nЕго лучше не тревожить. Похоже, он уехал в Вегас 🎰", 0x808080)
-            }
+            embed = discord.Embed(title="👁️ Статус Боженьки")
             
-            if status in status_messages:
-                embed.description, embed.color = status_messages[status]
-            else:
-                embed.description, embed.color = status_messages[discord.Status.offline]
+            # Красивые сообщения для каждого статуса
+            if current_status == discord.Status.online:
+                embed.description = "🌅 **Боженька готов услышать ваши мольбы!**\nОн в сети и ждёт ваши просьбы."
+                embed.color = 0x00ff00
+            elif current_status == discord.Status.idle:
+                embed.description = "💤 **Боженьку лучше не тревожить!**\nОн отдыхает, иначе навлечёте на себя гнев божий."
+                embed.color = 0xffff00
+            elif current_status == discord.Status.dnd:
+                embed.description = "🔇 **Боженька занят!**\nНе тревожьте его сейчас, иначе будете наказаны."
+                embed.color = 0xff0000
+            else:  # offline или invisible
+                embed.description = "🌆 **Боженька не в сети!**\nЕго лучше не тревожить. Похоже, он уехал в Вегас 🎰"
+                embed.color = 0x808080
             
-            embed.set_footer(text=f"ID: {user.id} | Обновлено: {datetime.now().strftime('%H:%M:%S')}")
+            embed.set_footer(text=f"🕐 Обновлено: {datetime.now().strftime('%H:%M:%S')}")
+            embed.set_thumbnail(url=user.display_avatar.url)
+            
+            # Отправляем в канал
             await channel.send(embed=embed)
-            status_check.old_status = status
+            
+            # Сохраняем новый статус
+            last_status = current_status
+            
     except Exception as e:
-        print(f"Ошибка при проверке статуса: {e}")
+        print(f"❌ Ошибка при проверке статуса: {e}")
 
-# ----- Административные команды -----
+# ----- Событие готовности -----
+@bot.event
+async def on_ready():
+    global last_status
+    
+    print(f'✅ Бот {bot.user} готов!')
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="за Боженькой"))
+    
+    # Инициализируем последний статус при запуске
+    user = bot.get_user(BOG_ID)
+    if user:
+        last_status = user.status
+        print(f"📊 Начальный статус Боженьки: {last_status}")
+        
+        # Отправляем приветственное сообщение
+        channel = bot.get_channel(LOG_CHANNEL_ID)
+        if channel:
+            embed = discord.Embed(
+                title="🟢 Бот запущен!",
+                description=f"👁️ Начинаю следить за Боженькой <@{BOG_ID}>\nТекущий статус: **{last_status}**",
+                color=0x00ff00
+            )
+            await channel.send(embed=embed)
+    
+    # Запускаем задачу
+    status_check.start()
+    print("✅ Статус-трекер запущен!")
+
+# ----- АДМИН КОМАНДЫ (все те же) -----
 @bot.command(name='мут')
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -285,7 +324,7 @@ async def unwarn(ctx, member: discord.Member, warn_id: str):
     else:
         await ctx.send(f"❌ Варн с ID `{warn_id}` не найден у {member.mention}")
 
-# ----- Экономические команды -----
+# ----- ЭКОНОМИЧЕСКИЕ КОМАНДЫ -----
 @bot.command(name='balance', aliases=['bal'])
 async def balance(ctx, member: discord.Member = None):
     if member is None:
@@ -376,7 +415,7 @@ async def on_command_error(ctx, error):
         await ctx.send(f"❌ Произошла ошибка: {error}")
         print(f"Ошибка: {error}")
 
-# ----- Запуск бота -----
+# ----- Запуск -----
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ОШИБКА: Токен не найден! Установите переменную DISCORD_TOKEN")
