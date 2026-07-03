@@ -6,9 +6,14 @@ import json
 import os
 from datetime import datetime, timedelta
 import re
+import pytz
+import calendar
 
 # ----- НАСТРОЙКИ -----
 TOKEN = os.getenv('DISCORD_TOKEN')
+
+# Часовой пояс МСК (UTC+3)
+MSK = pytz.timezone('Europe/Moscow')
 
 ROLES = {
     'helper': 1512024218814910524,
@@ -72,7 +77,25 @@ def load_data():
         'referral_count': {},
         'referral_links': {},
         'private_voice_settings': {},
-        'used_referrals': {}
+        'used_referrals': {},
+        # ДНЕВНАЯ СТАТИСТИКА
+        'daily_stats': {
+            'date': None,
+            'messages': {},
+            'voice_time': {}
+        },
+        # НЕДЕЛЬНАЯ СТАТИСТИКА
+        'weekly_stats': {
+            'week_start': None,  # Дата начала недели (понедельник)
+            'messages': {},
+            'voice_time': {}
+        },
+        # МЕСЯЧНАЯ СТАТИСТИКА
+        'monthly_stats': {
+            'month': None,  # Формат: YYYY-MM
+            'messages': {},
+            'voice_time': {}
+        }
     }
 
 def save_data(data):
@@ -87,8 +110,7 @@ last_status_message = None
 private_voice_channels = {}
 voice_settings = {}
 
-
-# ----- КЛАССЫ ДЛЯ КНОПОК И МОДАЛЬНЫХ ОКОН -----
+# ----- КЛАССЫ ДЛЯ КНОПОК -----
 class VoiceControlView(View):
     def __init__(self, channel_id, owner_id):
         super().__init__(timeout=BUTTON_TIMEOUT)
@@ -331,22 +353,374 @@ def get_medal(position):
     else:
         return f"#{position}"
 
-def get_time_filter(times, period):
-    now = datetime.now()
-    if period == "day":
-        cutoff = now - timedelta(days=1)
-    elif period == "week":
-        cutoff = now - timedelta(days=7)
-    elif period == "month":
-        cutoff = now - timedelta(days=30)
-    elif period == "year":
-        cutoff = now - timedelta(days=365)
-    else:
-        return times
-    return [t for t in times if t > cutoff.timestamp()]
+def get_week_start(date):
+    """Возвращает дату начала недели (понедельник)"""
+    return date - timedelta(days=date.weekday())
 
 
-# ----- ОБРАБОТЧИКИ ГОЛОСА -----
+# ----- СБРОС СТАТИСТИКИ -----
+def reset_daily_stats():
+    today = datetime.now(MSK).date().isoformat()
+    
+    if data['daily_stats']['date'] != today:
+        old_stats = data['daily_stats']
+        
+        data['daily_stats'] = {
+            'date': today,
+            'messages': {},
+            'voice_time': {}
+        }
+        save_data(data)
+        
+        print(f"🔄 Дневная статистика сброшена для {today}")
+        
+        channel = bot.get_channel(LOG_CHANNEL_ID)
+        if channel:
+            embed = discord.Embed(
+                title="📊 Дневная статистика сброшена",
+                description=f"Начался новый день **{today}**!",
+                color=0x00ff00,
+                timestamp=datetime.now(MSK)
+            )
+            if old_stats.get('date'):
+                total_msgs = sum(old_stats.get('messages', {}).values())
+                total_voice = sum(old_stats.get('voice_time', {}).values())
+                embed.add_field(
+                    name="📈 Итоги прошлого дня",
+                    value=f"💬 Сообщений: {total_msgs}\n🎙️ В голосе: {format_time(total_voice)}",
+                    inline=False
+                )
+            asyncio.create_task(channel.send(embed=embed))
+
+
+def reset_weekly_stats():
+    now = datetime.now(MSK)
+    week_start = get_week_start(now).date().isoformat()
+    
+    if data['weekly_stats']['week_start'] != week_start:
+        old_stats = data['weekly_stats']
+        
+        data['weekly_stats'] = {
+            'week_start': week_start,
+            'messages': {},
+            'voice_time': {}
+        }
+        save_data(data)
+        
+        print(f"🔄 Недельная статистика сброшена (неделя начинается с {week_start})")
+        
+        channel = bot.get_channel(LOG_CHANNEL_ID)
+        if channel:
+            embed = discord.Embed(
+                title="📊 Недельная статистика сброшена",
+                description=f"Началась новая неделя **{week_start}**!",
+                color=0x00ff00,
+                timestamp=datetime.now(MSK)
+            )
+            if old_stats.get('week_start'):
+                total_msgs = sum(old_stats.get('messages', {}).values())
+                total_voice = sum(old_stats.get('voice_time', {}).values())
+                embed.add_field(
+                    name="📈 Итоги прошлой недели",
+                    value=f"💬 Сообщений: {total_msgs}\n🎙️ В голосе: {format_time(total_voice)}",
+                    inline=False
+                )
+            asyncio.create_task(channel.send(embed=embed))
+
+
+def reset_monthly_stats():
+    now = datetime.now(MSK)
+    month = now.strftime('%Y-%m')
+    
+    if data['monthly_stats']['month'] != month:
+        old_stats = data['monthly_stats']
+        
+        data['monthly_stats'] = {
+            'month': month,
+            'messages': {},
+            'voice_time': {}
+        }
+        save_data(data)
+        
+        print(f"🔄 Месячная статистика сброшена для {month}")
+        
+        channel = bot.get_channel(LOG_CHANNEL_ID)
+        if channel:
+            embed = discord.Embed(
+                title="📊 Месячная статистика сброшена",
+                description=f"Начался новый месяц **{month}**!",
+                color=0x00ff00,
+                timestamp=datetime.now(MSK)
+            )
+            if old_stats.get('month'):
+                total_msgs = sum(old_stats.get('messages', {}).values())
+                total_voice = sum(old_stats.get('voice_time', {}).values())
+                embed.add_field(
+                    name="📈 Итоги прошлого месяца",
+                    value=f"💬 Сообщений: {total_msgs}\n🎙️ В голосе: {format_time(total_voice)}",
+                    inline=False
+                )
+            asyncio.create_task(channel.send(embed=embed))
+
+
+@tasks.loop(minutes=1)
+async def stats_reset_check():
+    now = datetime.now(MSK)
+    
+    # Проверка дня (00:00)
+    if now.hour == 0 and now.minute == 0:
+        reset_daily_stats()
+        await asyncio.sleep(1)
+    
+    # Проверка недели (понедельник 00:00)
+    if now.weekday() == 0 and now.hour == 0 and now.minute == 0:
+        reset_weekly_stats()
+        await asyncio.sleep(1)
+    
+    # Проверка месяца (1-е число 00:00)
+    if now.day == 1 and now.hour == 0 and now.minute == 0:
+        reset_monthly_stats()
+        await asyncio.sleep(1)
+
+
+# ----- ФУНКЦИИ ДЛЯ ДОБАВЛЕНИЯ В СТАТИСТИКУ -----
+def add_daily_message(user_id):
+    today = datetime.now(MSK).date().isoformat()
+    
+    if data['daily_stats']['date'] != today:
+        reset_daily_stats()
+    
+    user_id = str(user_id)
+    if user_id not in data['daily_stats']['messages']:
+        data['daily_stats']['messages'][user_id] = 0
+    data['daily_stats']['messages'][user_id] += 1
+    save_data(data)
+
+
+def add_weekly_message(user_id):
+    now = datetime.now(MSK)
+    week_start = get_week_start(now).date().isoformat()
+    
+    if data['weekly_stats']['week_start'] != week_start:
+        reset_weekly_stats()
+    
+    user_id = str(user_id)
+    if user_id not in data['weekly_stats']['messages']:
+        data['weekly_stats']['messages'][user_id] = 0
+    data['weekly_stats']['messages'][user_id] += 1
+    save_data(data)
+
+
+def add_monthly_message(user_id):
+    now = datetime.now(MSK)
+    month = now.strftime('%Y-%m')
+    
+    if data['monthly_stats']['month'] != month:
+        reset_monthly_stats()
+    
+    user_id = str(user_id)
+    if user_id not in data['monthly_stats']['messages']:
+        data['monthly_stats']['messages'][user_id] = 0
+    data['monthly_stats']['messages'][user_id] += 1
+    save_data(data)
+
+
+def add_daily_voice(user_id, seconds):
+    today = datetime.now(MSK).date().isoformat()
+    
+    if data['daily_stats']['date'] != today:
+        reset_daily_stats()
+    
+    user_id = str(user_id)
+    if user_id not in data['daily_stats']['voice_time']:
+        data['daily_stats']['voice_time'][user_id] = 0
+    data['daily_stats']['voice_time'][user_id] += seconds
+    save_data(data)
+
+
+def add_weekly_voice(user_id, seconds):
+    now = datetime.now(MSK)
+    week_start = get_week_start(now).date().isoformat()
+    
+    if data['weekly_stats']['week_start'] != week_start:
+        reset_weekly_stats()
+    
+    user_id = str(user_id)
+    if user_id not in data['weekly_stats']['voice_time']:
+        data['weekly_stats']['voice_time'][user_id] = 0
+    data['weekly_stats']['voice_time'][user_id] += seconds
+    save_data(data)
+
+
+def add_monthly_voice(user_id, seconds):
+    now = datetime.now(MSK)
+    month = now.strftime('%Y-%m')
+    
+    if data['monthly_stats']['month'] != month:
+        reset_monthly_stats()
+    
+    user_id = str(user_id)
+    if user_id not in data['monthly_stats']['voice_time']:
+        data['monthly_stats']['voice_time'][user_id] = 0
+    data['monthly_stats']['voice_time'][user_id] += seconds
+    save_data(data)
+
+
+# ----- КОМАНДЫ СТАТИСТИКИ -----
+@bot.command(name='daystats', aliases=['день'])
+async def day_stats(ctx):
+    """Показать дневную статистику"""
+    stats = data['daily_stats']
+    
+    if stats['date'] is None or (not stats['messages'] and not stats['voice_time']):
+        await ctx.send(f"📊 **Статистика за сегодня ({datetime.now(MSK).date().isoformat()})**\nПока нет данных!")
+        return
+    
+    embed = discord.Embed(
+        title=f"📊 Дневная статистика",
+        description=f"**Дата:** {stats['date']}",
+        color=0x00ff00,
+        timestamp=datetime.now(MSK)
+    )
+    
+    if stats['messages']:
+        sorted_msgs = sorted(stats['messages'].items(), key=lambda x: x[1], reverse=True)[:5]
+        msgs_text = ""
+        for i, (user_id, count) in enumerate(sorted_msgs, 1):
+            try:
+                user = await bot.fetch_user(int(user_id))
+                name = user.name if user else "Неизвестный"
+            except:
+                name = "Неизвестный"
+            msgs_text += f"{get_medal(i)} {name} - {count} сообщений\n"
+        embed.add_field(name="💬 Топ сообщений", value=msgs_text, inline=True)
+    
+    if stats['voice_time']:
+        sorted_voice = sorted(stats['voice_time'].items(), key=lambda x: x[1], reverse=True)[:5]
+        voice_text = ""
+        for i, (user_id, seconds) in enumerate(sorted_voice, 1):
+            try:
+                user = await bot.fetch_user(int(user_id))
+                name = user.name if user else "Неизвестный"
+            except:
+                name = "Неизвестный"
+            voice_text += f"{get_medal(i)} {name} - {format_time(seconds)}\n"
+        embed.add_field(name="🎙️ Топ голоса", value=voice_text, inline=True)
+    
+    total_msgs = sum(stats['messages'].values())
+    total_voice = sum(stats['voice_time'].values())
+    embed.add_field(
+        name="📈 Итого за день",
+        value=f"💬 Всего сообщений: {total_msgs}\n🎙️ Всего в голосе: {format_time(total_voice)}",
+        inline=False
+    )
+    embed.set_footer(text="Обнуляется в 00:00 по МСК")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='weekstats', aliases=['неделя'])
+async def week_stats(ctx):
+    """Показать недельную статистику"""
+    stats = data['weekly_stats']
+    
+    if stats['week_start'] is None or (not stats['messages'] and not stats['voice_time']):
+        await ctx.send(f"📊 **Статистика за эту неделю (с {stats['week_start']})**\nПока нет данных!")
+        return
+    
+    embed = discord.Embed(
+        title=f"📊 Недельная статистика",
+        description=f"**Неделя начинается:** {stats['week_start']}",
+        color=0x00ff00,
+        timestamp=datetime.now(MSK)
+    )
+    
+    if stats['messages']:
+        sorted_msgs = sorted(stats['messages'].items(), key=lambda x: x[1], reverse=True)[:5]
+        msgs_text = ""
+        for i, (user_id, count) in enumerate(sorted_msgs, 1):
+            try:
+                user = await bot.fetch_user(int(user_id))
+                name = user.name if user else "Неизвестный"
+            except:
+                name = "Неизвестный"
+            msgs_text += f"{get_medal(i)} {name} - {count} сообщений\n"
+        embed.add_field(name="💬 Топ сообщений", value=msgs_text, inline=True)
+    
+    if stats['voice_time']:
+        sorted_voice = sorted(stats['voice_time'].items(), key=lambda x: x[1], reverse=True)[:5]
+        voice_text = ""
+        for i, (user_id, seconds) in enumerate(sorted_voice, 1):
+            try:
+                user = await bot.fetch_user(int(user_id))
+                name = user.name if user else "Неизвестный"
+            except:
+                name = "Неизвестный"
+            voice_text += f"{get_medal(i)} {name} - {format_time(seconds)}\n"
+        embed.add_field(name="🎙️ Топ голоса", value=voice_text, inline=True)
+    
+    total_msgs = sum(stats['messages'].values())
+    total_voice = sum(stats['voice_time'].values())
+    embed.add_field(
+        name="📈 Итого за неделю",
+        value=f"💬 Всего сообщений: {total_msgs}\n🎙️ Всего в голосе: {format_time(total_voice)}",
+        inline=False
+    )
+    embed.set_footer(text="Обнуляется в понедельник 00:00 по МСК")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='monthstats', aliases=['месяц'])
+async def month_stats(ctx):
+    """Показать месячную статистику"""
+    stats = data['monthly_stats']
+    
+    if stats['month'] is None or (not stats['messages'] and not stats['voice_time']):
+        await ctx.send(f"📊 **Статистика за {stats['month']}**\nПока нет данных!")
+        return
+    
+    embed = discord.Embed(
+        title=f"📊 Месячная статистика",
+        description=f"**Месяц:** {stats['month']}",
+        color=0x00ff00,
+        timestamp=datetime.now(MSK)
+    )
+    
+    if stats['messages']:
+        sorted_msgs = sorted(stats['messages'].items(), key=lambda x: x[1], reverse=True)[:5]
+        msgs_text = ""
+        for i, (user_id, count) in enumerate(sorted_msgs, 1):
+            try:
+                user = await bot.fetch_user(int(user_id))
+                name = user.name if user else "Неизвестный"
+            except:
+                name = "Неизвестный"
+            msgs_text += f"{get_medal(i)} {name} - {count} сообщений\n"
+        embed.add_field(name="💬 Топ сообщений", value=msgs_text, inline=True)
+    
+    if stats['voice_time']:
+        sorted_voice = sorted(stats['voice_time'].items(), key=lambda x: x[1], reverse=True)[:5]
+        voice_text = ""
+        for i, (user_id, seconds) in enumerate(sorted_voice, 1):
+            try:
+                user = await bot.fetch_user(int(user_id))
+                name = user.name if user else "Неизвестный"
+            except:
+                name = "Неизвестный"
+            voice_text += f"{get_medal(i)} {name} - {format_time(seconds)}\n"
+        embed.add_field(name="🎙️ Топ голоса", value=voice_text, inline=True)
+    
+    total_msgs = sum(stats['messages'].values())
+    total_voice = sum(stats['voice_time'].values())
+    embed.add_field(
+        name="📈 Итого за месяц",
+        value=f"💬 Всего сообщений: {total_msgs}\n🎙️ Всего в голосе: {format_time(total_voice)}",
+        inline=False
+    )
+    embed.set_footer(text="Обнуляется 1-го числа каждого месяца в 00:00 по МСК")
+    await ctx.send(embed=embed)
+
+
+# ----- ОБРАБОТЧИКИ -----
 @tasks.loop(seconds=VOICE_CHECK_INTERVAL)
 async def voice_tracker():
     for guild in bot.guilds:
@@ -372,6 +746,11 @@ async def voice_tracker():
                     data['voice_total_time'][user_id] += time_delta
                     data['voice_history'][user_id].append(time_delta)
                     data['voice_last_check'][user_id] = current_time
+                    
+                    # Добавляем во все статистики
+                    add_daily_voice(user_id, time_delta)
+                    add_weekly_voice(user_id, time_delta)
+                    add_monthly_voice(user_id, time_delta)
                     
                     if data['voice_time'][user_id] >= 3600:
                         shards_earned = int(data['voice_time'][user_id] // 3600) * VOICE_HOUR_SHARDS
@@ -413,6 +792,11 @@ async def on_message(message):
     if user_id not in data['messages_history']:
         data['messages_history'][user_id] = []
     data['messages_history'][user_id].append(current_time)
+    
+    # Добавляем во все статистики
+    add_daily_message(user_id)
+    add_weekly_message(user_id)
+    add_monthly_message(user_id)
     
     if user_id not in data['messages_count']:
         data['messages_count'][user_id] = 0
@@ -597,7 +981,35 @@ async def show_user_select(interaction, channel_id, action):
     await interaction.response.send_message("👤 **Выберите пользователя:**", view=view, ephemeral=True)
 
 
-# ----- ОСНОВНЫЕ КОМАНДЫ -----
+# ----- КОМАНДА DAILY -----
+@bot.command(name='daily')
+async def daily_bonus(ctx):
+    user_id = str(ctx.author.id)
+    today = datetime.now(MSK).date().isoformat()
+    
+    if user_id in data['daily'] and data['daily'][user_id] == today:
+        await ctx.send("❌ Вы уже получили бонус сегодня! Приходите завтра в 00:00 по МСК.")
+        return
+    
+    if user_id not in data['balance']:
+        data['balance'][user_id] = 0
+    data['balance'][user_id] += DAILY_BONUS
+    data['daily'][user_id] = today
+    save_data(data)
+    
+    rate = data.get('exchange_rate', 5)
+    rubles = round(DAILY_BONUS / rate, 2)
+    
+    embed = discord.Embed(
+        title="🎉 Ежедневный бонус!",
+        description=f"Вы получили **+{DAILY_BONUS} осколков** 💎\n\n**Новый баланс:** {data['balance'][user_id]} 💎 ({rubles} ₽)\n\nБонус доступен раз в день, сброс в 00:00 по МСК!",
+        color=0xffd700
+    )
+    embed.set_footer(text="📅 Боженька заботится о вас ✨")
+    await ctx.send(embed=embed)
+
+
+# ----- КОМАНДА HELP -----
 @bot.command(name='help', aliases=['h'])
 async def custom_help(ctx, command_name: str = None):
     if command_name:
@@ -622,7 +1034,12 @@ async def custom_help(ctx, command_name: str = None):
 💬 **{MESSAGES_PER_SHARD} сообщений = {SHARDS_PER_MESSAGES} осколок**
 🎙️ **1 час в войсе = {VOICE_HOUR_SHARDS} осколков**
 📅 **/daily → +{DAILY_BONUS} осколков каждый день**
-👥 **Приведи друга → +{REFERRAL_BONUS} осколков**""",
+👥 **Приведи друга → +{REFERRAL_BONUS} осколков**
+
+📊 **Сброс статистики:**
+• Дневная: 00:00 каждый день
+• Недельная: Понедельник 00:00
+• Месячная: 1-е число 00:00""",
         color=0x5865F2
     )
     
@@ -640,7 +1057,7 @@ async def custom_help(ctx, command_name: str = None):
     
     embed.add_field(
         name="📊 Статистика",
-        value="""**topmsg [day/week/month/year/all]** - Топ сообщений\n**topvoice [day/week/month/year/all]** - Топ голоса\n**mystats [day/week/month/year/all]** - Моя статистика\n**msgstats** - Прогресс сообщений\n**voicestats** - Прогресс голоса\n**profile** - Профиль пользователя""",
+        value="""**daystats** - Дневная статистика\n**weekstats** - Недельная статистика\n**monthstats** - Месячная статистика\n**topmsg [day/week/month/year/all]** - Топ сообщений\n**topvoice [day/week/month/year/all]** - Топ голоса\n**mystats [day/week/month/year/all]** - Моя статистика\n**msgstats** - Прогресс сообщений\n**voicestats** - Прогресс голоса\n**profile** - Профиль пользователя""",
         inline=False
     )
     
@@ -666,6 +1083,7 @@ async def custom_help(ctx, command_name: str = None):
     await ctx.send(embed=embed)
 
 
+# ----- ОСТАЛЬНЫЕ КОМАНДЫ -----
 @bot.command(name='status', aliases=['stats'])
 async def bot_status(ctx):
     global bog_member
@@ -744,29 +1162,6 @@ async def balance(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 
-@bot.command(name='daily')
-async def daily(ctx):
-    user_id = str(ctx.author.id)
-    today = datetime.now().date().isoformat()
-    if user_id in data['daily'] and data['daily'][user_id] == today:
-        await ctx.send("❌ Вы уже получили бонус сегодня! Завтра приходите за новым.")
-        return
-    if user_id not in data['balance']:
-        data['balance'][user_id] = 0
-    data['balance'][user_id] += DAILY_BONUS
-    data['daily'][user_id] = today
-    save_data(data)
-    rate = data.get('exchange_rate', 5)
-    rubles = round(DAILY_BONUS / rate, 2)
-    embed = discord.Embed(
-        title="🎉 Ежедневный бонус!",
-        description=f"Вы получили **+{DAILY_BONUS} осколков** 💎\n\n**Новый баланс:** {data['balance'][user_id]} 💎 ({rubles} ₽)\n\nПриходите завтра за новым бонусом!",
-        color=0xffd700
-    )
-    embed.set_footer(text="📅 Боженька заботится о вас ✨")
-    await ctx.send(embed=embed)
-
-
 @bot.command(name='profile', aliases=['профиль'])
 async def profile(ctx, member: discord.Member = None):
     if member is None:
@@ -793,7 +1188,7 @@ async def profile(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 
-# ----- СТАТИСТИКА -----
+# ----- TOPMSG, TOPVOICE, MYSTATS, MSGSTATS, VOICESTATS -----
 @bot.command(name='topmsg', aliases=['топсообщений'])
 async def top_messages(ctx, period: str = "all"):
     periods = {
@@ -1169,8 +1564,6 @@ async def clear_channel(ctx, amount: int = None):
 @bot.command(name='clearall', aliases=['очиститьвсе'])
 @commands.has_any_role(*[ROLES['admin'], ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
 async def clear_all(ctx):
-    """Очистить весь чат, кроме закрепленных сообщений (Админ+)"""
-    
     confirm_msg = await ctx.send("⚠️ **ВНИМАНИЕ!** Вы уверены, что хотите удалить **ВСЕ** сообщения в этом канале?\nЗакрепленные сообщения **НЕ будут** удалены.\n\nНапишите `да` в течение 10 секунд для подтверждения.")
     
     def check(m):
@@ -1488,7 +1881,10 @@ async def create_backup(ctx):
         'referral_count': data.get('referral_count', {}),
         'referral_links': data.get('referral_links', {}),
         'private_voice_settings': data.get('private_voice_settings', {}),
-        'used_referrals': data.get('used_referrals', {})
+        'used_referrals': data.get('used_referrals', {}),
+        'daily_stats': data.get('daily_stats', {}),
+        'weekly_stats': data.get('weekly_stats', {}),
+        'monthly_stats': data.get('monthly_stats', {})
     }
     
     json_backup = f"{BACKUP_FOLDER}/backup_{timestamp}.json"
@@ -1527,12 +1923,10 @@ async def create_backup(ctx):
 
 @bot.command(name='restore', aliases=['восстановить'])
 async def restore_backup(ctx, backup_name: str = None):
-    """Восстановить данные из бэкапа (Только владелец)"""
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         return
     
-    # Если указано имя файла - ищем в папке
     if backup_name:
         backup_path = os.path.join(BACKUP_FOLDER, backup_name)
         if not os.path.exists(backup_path):
@@ -1547,13 +1941,59 @@ async def restore_backup(ctx, backup_name: str = None):
             with open(emergency_backup, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
             
-            for key in backup_data:
-                data[key] = backup_data[key]
+            # МЕРЖИМ ДАННЫЕ
+            for user_id, balance in backup_data.get('balance', {}).items():
+                if user_id not in data['balance']:
+                    data['balance'][user_id] = 0
+                data['balance'][user_id] += balance
+            
+            for user_id, warns in backup_data.get('warns', {}).items():
+                if user_id not in data['warns']:
+                    data['warns'][user_id] = {}
+                for warn_id, warn_data in warns.items():
+                    if warn_id not in data['warns'][user_id]:
+                        data['warns'][user_id][warn_id] = warn_data
+            
+            for user_id, history in backup_data.get('messages_history', {}).items():
+                if user_id not in data['messages_history']:
+                    data['messages_history'][user_id] = []
+                data['messages_history'][user_id].extend(history)
+            
+            for user_id, voice_hist in backup_data.get('voice_history', {}).items():
+                if user_id not in data['voice_history']:
+                    data['voice_history'][user_id] = []
+                data['voice_history'][user_id].extend(voice_hist)
+            
+            for user_id, seconds in backup_data.get('voice_total_time', {}).items():
+                if user_id not in data['voice_total_time']:
+                    data['voice_total_time'][user_id] = 0
+                data['voice_total_time'][user_id] += seconds
+            
+            for user_id, count in backup_data.get('messages_count', {}).items():
+                if user_id not in data['messages_count']:
+                    data['messages_count'][user_id] = 0
+                data['messages_count'][user_id] += count
+            
+            for user_id, count in backup_data.get('referral_count', {}).items():
+                if user_id not in data['referral_count']:
+                    data['referral_count'][user_id] = 0
+                data['referral_count'][user_id] += count
+            
+            if 'exchange_rate' in backup_data:
+                data['exchange_rate'] = backup_data['exchange_rate']
+            
+            for user_id, code in backup_data.get('referral_links', {}).items():
+                if user_id not in data['referral_links']:
+                    data['referral_links'][user_id] = code
+            
+            for channel_id, settings in backup_data.get('private_voice_settings', {}).items():
+                if channel_id not in data['private_voice_settings']:
+                    data['private_voice_settings'][channel_id] = settings
             
             save_data(data)
             
             embed = discord.Embed(
-                title="✅ Данные восстановлены!",
+                title="✅ Данные обновлены из бэкапа!",
                 description=f"**Из бэкапа:** {backup_name}\n"
                            f"**Пользователей:** {len(data['balance'])}\n"
                            f"**Всего осколков:** {sum(data['balance'].values())}",
@@ -1566,7 +2006,6 @@ async def restore_backup(ctx, backup_name: str = None):
             await ctx.send(f"❌ Ошибка при восстановлении: {e}")
             return
     
-    # Если имя не указано - ждем файл в чате
     await ctx.send("📤 **Загрузите файл бэкапа (.json) в этот чат**\nИли используйте `j.restore имя_файла`")
 
     def check(msg):
@@ -1574,7 +2013,6 @@ async def restore_backup(ctx, backup_name: str = None):
     
     try:
         msg = await bot.wait_for('message', timeout=30.0, check=check)
-        
         attachment = msg.attachments[0]
         
         if not attachment.filename.endswith('.json'):
@@ -1586,7 +2024,7 @@ async def restore_backup(ctx, backup_name: str = None):
         
         required_keys = ['balance', 'warns', 'daily', 'exchange_rate']
         if not all(key in backup_data for key in required_keys):
-            await ctx.send("❌ Это невалидный файл бэкапа! Отсутствуют необходимые данные.")
+            await ctx.send("❌ Это невалидный файл бэкапа!")
             return
         
         emergency_backup = f"{BACKUP_FOLDER}/pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -1597,13 +2035,59 @@ async def restore_backup(ctx, backup_name: str = None):
         with open(backup_path, 'wb') as f:
             f.write(file_content)
         
-        for key in backup_data:
-            data[key] = backup_data[key]
+        # МЕРЖИМ ДАННЫЕ
+        for user_id, balance in backup_data.get('balance', {}).items():
+            if user_id not in data['balance']:
+                data['balance'][user_id] = 0
+            data['balance'][user_id] += balance
+        
+        for user_id, warns in backup_data.get('warns', {}).items():
+            if user_id not in data['warns']:
+                data['warns'][user_id] = {}
+            for warn_id, warn_data in warns.items():
+                if warn_id not in data['warns'][user_id]:
+                    data['warns'][user_id][warn_id] = warn_data
+        
+        for user_id, history in backup_data.get('messages_history', {}).items():
+            if user_id not in data['messages_history']:
+                data['messages_history'][user_id] = []
+            data['messages_history'][user_id].extend(history)
+        
+        for user_id, voice_hist in backup_data.get('voice_history', {}).items():
+            if user_id not in data['voice_history']:
+                data['voice_history'][user_id] = []
+            data['voice_history'][user_id].extend(voice_hist)
+        
+        for user_id, seconds in backup_data.get('voice_total_time', {}).items():
+            if user_id not in data['voice_total_time']:
+                data['voice_total_time'][user_id] = 0
+            data['voice_total_time'][user_id] += seconds
+        
+        for user_id, count in backup_data.get('messages_count', {}).items():
+            if user_id not in data['messages_count']:
+                data['messages_count'][user_id] = 0
+            data['messages_count'][user_id] += count
+        
+        for user_id, count in backup_data.get('referral_count', {}).items():
+            if user_id not in data['referral_count']:
+                data['referral_count'][user_id] = 0
+            data['referral_count'][user_id] += count
+        
+        if 'exchange_rate' in backup_data:
+            data['exchange_rate'] = backup_data['exchange_rate']
+        
+        for user_id, code in backup_data.get('referral_links', {}).items():
+            if user_id not in data['referral_links']:
+                data['referral_links'][user_id] = code
+        
+        for channel_id, settings in backup_data.get('private_voice_settings', {}).items():
+            if channel_id not in data['private_voice_settings']:
+                data['private_voice_settings'][channel_id] = settings
         
         save_data(data)
         
         embed = discord.Embed(
-            title="✅ Данные восстановлены из файла!",
+            title="✅ Данные обновлены из бэкапа!",
             description=f"**Файл:** {attachment.filename}\n"
                        f"**Пользователей:** {len(data['balance'])}\n"
                        f"**Всего осколков:** {sum(data['balance'].values())}",
@@ -1622,7 +2106,6 @@ async def restore_backup(ctx, backup_name: str = None):
 
 @bot.command(name='backups', aliases=['бэкапы', 'списокбэкапов'])
 async def list_backups(ctx):
-    """Показать список доступных бэкапов (Только владелец)"""
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         return
@@ -1737,6 +2220,15 @@ async def on_ready():
     global bog_member, last_status, last_status_message
     print(f'✅ Бот {bot.user} готов!')
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="за Боженькой"))
+    
+    # Инициализация статистики
+    reset_daily_stats()
+    reset_weekly_stats()
+    reset_monthly_stats()
+    
+    # Запуск проверки сброса
+    stats_reset_check.start()
+    
     if bot.guilds:
         guild = bot.guilds[0]
         bog_member = guild.get_member(BOG_USER_ID)
@@ -1766,9 +2258,13 @@ async def on_ready():
                         last_status_message = msg
                         data['last_status_message_id'] = msg.id
                         save_data(data)
+    
     voice_tracker.start()
     status_check.start()
     print("✅ Статус-трекер и войс-трекер запущены!")
+    print("✅ Дневная статистика активна, сброс в 00:00 по МСК")
+    print("✅ Недельная статистика активна, сброс в понедельник 00:00 по МСК")
+    print("✅ Месячная статистика активна, сброс 1-го числа 00:00 по МСК")
 
 
 if __name__ == "__main__":
