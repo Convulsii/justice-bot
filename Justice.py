@@ -1515,57 +1515,93 @@ async def create_backup(ctx):
 
 @bot.command(name='restore', aliases=['восстановить'])
 async def restore_backup(ctx, backup_name: str = None):
+    """Восстановить данные из бэкапа (Только владелец)"""
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         return
     
-    if backup_name is None:
-        backups = sorted([f for f in os.listdir(BACKUP_FOLDER) if f.endswith('.json')])
-        if not backups:
-            await ctx.send("❌ Нет бэкапов!")
+    # Если указано имя файла - ищем в папке
+    if backup_name:
+        backup_path = os.path.join(BACKUP_FOLDER, backup_name)
+        if not os.path.exists(backup_path):
+            await ctx.send(f"❌ Бэкап `{backup_name}` не найден в папке бэкапов!")
             return
         
-        embed = discord.Embed(
-            title="📋 Доступные бэкапы",
-            description="Используйте `j.restore имя_файла` для восстановления",
-            color=0x5865F2
-        )
-        for i, backup in enumerate(backups[-10:], 1):
-            date_str = backup.replace('backup_', '').replace('.json', '')
-            try:
-                dt = datetime.strptime(date_str, '%Y%m%d_%H%M%S')
-                date_formatted = dt.strftime('%d.%m.%Y %H:%M:%S')
-            except:
-                date_formatted = date_str
-            embed.add_field(
-                name=f"{i}. {date_formatted}",
-                value=f"`{backup}`",
-                inline=False
+        try:
+            with open(backup_path, 'r', encoding='utf-8') as f:
+                backup_data = json.load(f)
+            
+            # Сохраняем текущие данные
+            emergency_backup = f"{BACKUP_FOLDER}/pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(emergency_backup, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+            
+            # Восстанавливаем
+            for key in backup_data:
+                data[key] = backup_data[key]
+            
+            save_data(data)
+            
+            embed = discord.Embed(
+                title="✅ Данные восстановлены!",
+                description=f"**Из бэкапа:** {backup_name}\n"
+                           f"**Пользователей:** {len(data['balance'])}\n"
+                           f"**Всего осколков:** {sum(data['balance'].values())}",
+                color=0x00ff00
             )
-        await ctx.send(embed=embed)
-        return
+            embed.set_footer(text="Старые данные сохранены как резервная копия")
+            await ctx.send(embed=embed)
+            return
+        except Exception as e:
+            await ctx.send(f"❌ Ошибка при восстановлении: {e}")
+            return
     
-    backup_path = os.path.join(BACKUP_FOLDER, backup_name)
-    if not os.path.exists(backup_path):
-        await ctx.send(f"❌ Бэкап `{backup_name}` не найден!")
-        return
+    # Если имя не указано - ждем файл в чате
+    await ctx.send("📤 **Загрузите файл бэкапа (.json) в этот чат**\nИли используйте `j.restore имя_файла`")
+
+    def check(msg):
+        return msg.author == ctx.author and msg.channel == ctx.channel and len(msg.attachments) > 0
     
     try:
+        # Ждем сообщение с файлом (30 секунд)
+        msg = await bot.wait_for('message', timeout=30.0, check=check)
+        
+        attachment = msg.attachments[0]
+        
+        # Проверяем расширение
+        if not attachment.filename.endswith('.json'):
+            await ctx.send("❌ Файл должен быть в формате `.json`!")
+            return
+        
+        # Читаем файл
+        file_content = await attachment.read()
+        backup_data = json.loads(file_content.decode('utf-8'))
+        
+        # Проверяем структуру
+        required_keys = ['balance', 'warns', 'daily', 'exchange_rate']
+        if not all(key in backup_data for key in required_keys):
+            await ctx.send("❌ Это невалидный файл бэкапа! Отсутствуют необходимые данные.")
+            return
+        
+        # Сохраняем текущие данные
         emergency_backup = f"{BACKUP_FOLDER}/pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(emergency_backup, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         
-        with open(backup_path, 'r', encoding='utf-8') as f:
-            backup_data = json.load(f)
+        # Сохраняем загруженный бэкап в папку
+        backup_path = f"{BACKUP_FOLDER}/{attachment.filename}"
+        with open(backup_path, 'wb') as f:
+            f.write(file_content)
         
+        # Восстанавливаем
         for key in backup_data:
             data[key] = backup_data[key]
         
         save_data(data)
         
         embed = discord.Embed(
-            title="✅ Данные восстановлены!",
-            description=f"**Из бэкапа:** {backup_name}\n"
+            title="✅ Данные восстановлены из файла!",
+            description=f"**Файл:** {attachment.filename}\n"
                        f"**Пользователей:** {len(data['balance'])}\n"
                        f"**Всего осколков:** {sum(data['balance'].values())}",
             color=0x00ff00
@@ -1573,63 +1609,119 @@ async def restore_backup(ctx, backup_name: str = None):
         embed.set_footer(text="Старые данные сохранены как резервная копия")
         await ctx.send(embed=embed)
         
+    except asyncio.TimeoutError:
+        await ctx.send("❌ Время ожидания истекло. Отмена.")
+    except json.JSONDecodeError:
+        await ctx.send("❌ Это невалидный JSON файл!")
     except Exception as e:
-        await ctx.send(f"❌ Ошибка при восстановлении: {e}")
+        await ctx.send(f"❌ Ошибка: {e}")
 
-@tasks.loop(seconds=5)
-async def status_check():
-    global last_status, bog_member, last_status_message
-    channel = bot.get_channel(LOG_CHANNEL_ID)
-    if not channel:
+
+@bot.command(name='backup', aliases=['бэкап'])
+async def create_backup(ctx):
+    """Создать полный бэкап всех данных (Только владелец) - отправляется в ЛС"""
+    if not is_owner(ctx):
+        await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         return
-    if not bog_member:
-        if bot.guilds:
-            guild = bot.guilds[0]
-            bog_member = guild.get_member(BOG_USER_ID)
-            if bog_member:
-                last_status = bog_member.status
-                msg = await send_status_update(channel, bog_member.status)
-                if msg:
-                    last_status_message = msg
-                    data['last_status_message_id'] = msg.id
-                    save_data(data)
-        return
+    
+    await ctx.send("🔄 **Создаю полный бэкап... Ожидайте в личных сообщениях!**")
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    backup_data = {
+        'warns': data.get('warns', {}),
+        'balance': data.get('balance', {}),
+        'daily': data.get('daily', {}),
+        'exchange_rate': data.get('exchange_rate', 5.0),
+        'messages_count': data.get('messages_count', {}),
+        'messages_history': data.get('messages_history', {}),
+        'last_message_time': data.get('last_message_time', {}),
+        'voice_time': data.get('voice_time', {}),
+        'voice_last_check': data.get('voice_last_check', {}),
+        'voice_total_time': data.get('voice_total_time', {}),
+        'voice_history': data.get('voice_history', {}),
+        'last_status_message_id': data.get('last_status_message_id', None),
+        'referrals': data.get('referrals', {}),
+        'referral_count': data.get('referral_count', {}),
+        'referral_links': data.get('referral_links', {}),
+        'private_voice_settings': data.get('private_voice_settings', {}),
+        'used_referrals': data.get('used_referrals', {})
+    }
+    
+    # Сохраняем в папку
+    json_backup = f"{BACKUP_FOLDER}/backup_{timestamp}.json"
+    with open(json_backup, 'w', encoding='utf-8') as f:
+        json.dump(backup_data, f, indent=4, ensure_ascii=False)
+    
     try:
-        current_status = bog_member.status
-        if current_status != last_status:
-            if last_status_message:
-                try:
-                    await last_status_message.delete()
-                except Exception as e:
-                    print(f"Не удалось удалить сообщение: {e}")
-            msg = await send_status_update(channel, current_status)
-            if msg:
-                last_status_message = msg
-                data['last_status_message_id'] = msg.id
-                save_data(data)
-            last_status = current_status
+        embed = discord.Embed(
+            title="💾 Полный бэкап создан!",
+            description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
+                       f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB",
+            color=0x00ff00
+        )
+        
+        stats = []
+        stats.append(f"👥 Пользователей: {len(backup_data['balance'])}")
+        stats.append(f"💎 Всего осколков: {sum(backup_data['balance'].values())}")
+        stats.append(f"⚠️ Варнов: {sum(len(w) for w in backup_data['warns'].values())}")
+        stats.append(f"👥 Рефералов: {sum(backup_data['referral_count'].values())}")
+        stats.append(f"🎙️ Приватных войсов: {len(backup_data['private_voice_settings'])}")
+        embed.add_field(name="📊 Статистика", value="\n".join(stats), inline=False)
+        embed.set_footer(text=f"Создал: {ctx.author.display_name}")
+        
+        await ctx.author.send(embed=embed)
+        
+        with open(json_backup, 'rb') as f:
+            await ctx.author.send(file=discord.File(f, f"backup_{timestamp}.json"))
+        
+        await ctx.send(f"✅ **Полный бэкап создан и отправлен в личные сообщения!**")
+        
+    except discord.Forbidden:
+        await ctx.send("❌ **Не могу отправить бэкап в ЛС!** Включите личные сообщения от участников сервера в настройках Discord.")
     except Exception as e:
-        print(f"Ошибка: {e}")
+        await ctx.send(f"❌ Ошибка при отправке: {e}")
 
 
-async def send_status_update(channel, status):
-    embed = discord.Embed(title="👁️ Статус Боженьки")
-    if status == discord.Status.online:
-        embed.description = "🌅 **Боженька готов услышать ваши мольбы!**\nОн в сети и ждёт ваши просьбы."
-        embed.color = 0x00ff00
-    elif status == discord.Status.idle:
-        embed.description = "💤 **Боженьку лучше не тревожить!**\nОн отдыхает, иначе навлечёте на себя гнев божий."
-        embed.color = 0xffff00
-    elif status == discord.Status.dnd:
-        embed.description = "🔇 **Боженька занят!**\nНе тревожьте его сейчас, иначе будете наказаны."
-        embed.color = 0xff0000
-    else:
-        embed.description = "🌆 **Боженька не в сети!**\nЕго лучше не тревожить. Похоже, он уехал в Вегас 🎰"
-        embed.color = 0x808080
-    embed.set_footer(text=f"🕐 Обновлено: {datetime.now().strftime('%H:%M:%S')}")
-    if bog_member:
-        embed.set_thumbnail(url=bog_member.display_avatar.url)
-    return await channel.send(embed=embed)
+@bot.command(name='backups', aliases=['бэкапы', 'списокбэкапов'])
+async def list_backups(ctx):
+    """Показать список доступных бэкапов (Только владелец)"""
+    if not is_owner(ctx):
+        await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
+        return
+    
+    backups = sorted([f for f in os.listdir(BACKUP_FOLDER) if f.endswith('.json')])
+    
+    if not backups:
+        await ctx.send("📁 **В папке бэкапов нет файлов!**")
+        return
+    
+    embed = discord.Embed(
+        title="📋 Список бэкапов",
+        description=f"Всего: {len(backups)} файлов",
+        color=0x5865F2
+    )
+    
+    for i, backup in enumerate(backups[-20:], 1):  # Показываем последние 20
+        date_str = backup.replace('backup_', '').replace('.json', '')
+        try:
+            dt = datetime.strptime(date_str, '%Y%m%d_%H%M%S')
+            date_formatted = dt.strftime('%d.%m.%Y %H:%M:%S')
+        except:
+            date_formatted = date_str
+        
+        # Размер файла
+        size = os.path.getsize(os.path.join(BACKUP_FOLDER, backup)) / 1024
+        size_str = f"{size:.1f} KB"
+        
+        embed.add_field(
+            name=f"{i}. {date_formatted}",
+            value=f"`{backup}` ({size_str})",
+            inline=False
+        )
+    
+    embed.set_footer(text="Используйте j.restore имя_файла для восстановления")
+    await ctx.send(embed=embed)
 
 
 @bot.event
