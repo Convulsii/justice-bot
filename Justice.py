@@ -10,7 +10,6 @@ import re
 # ----- НАСТРОЙКИ -----
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Роли иерархии (ID)
 ROLES = {
     'helper': 1512024218814910524,
     'moderator': 1507478655578673152,
@@ -21,7 +20,6 @@ ROLES = {
     'owner': 1504402262833758228,
 }
 
-# ID
 BOG_ROLE_ID = 1521944293135351829
 OWNER_ROLE_ID = 1504402262833758228
 BOG_USER_ID = 1062336593588912199
@@ -29,28 +27,22 @@ BOG_USER_ID = 1062336593588912199
 LOG_CHANNEL_ID = 1502637205187723433
 REPORT_CHANNEL_ID = 1502637205187723433
 
-# ПРИВАТНЫЕ ВОЙСЫ
 PRIVATE_VOICE_CATEGORY_ID = 1507479787223126036
 VOICE_TRIGGER_ID = 1507485728739688549
 
-# НАСТРОЙКИ ЭКОНОМИКИ
-MESSAGES_PER_SHARD = 2
-SHARDS_PER_MESSAGES = 5
+MESSAGES_PER_SHARD = 10
+SHARDS_PER_MESSAGES = 1
 VOICE_HOUR_SHARDS = 15
 DAILY_BONUS = 15
 REFERRAL_BONUS = 100
 COOLDOWN_SECONDS = 10
 VOICE_CHECK_INTERVAL = 30
+BUTTON_TIMEOUT = 31536000
 
-# КНОПКИ НА 1 ГОД (31536000 СЕКУНД)
-BUTTON_TIMEOUT = 31536000  # 1 год в секундах
-
-# ----- ИНИЦИАЛИЗАЦИЯ БОТА -----
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='j.', intents=intents)
 bot.remove_command('help')
 
-# ----- ФАЙЛЫ ДЛЯ ХРАНЕНИЯ -----
 DATA_FILE = 'data.json'
 BACKUP_FOLDER = 'backups'
 REPORT_FOLDER = 'reports'
@@ -69,10 +61,12 @@ def load_data():
         'daily': {},
         'exchange_rate': 5.0,
         'messages_count': {},
+        'messages_history': {},
         'last_message_time': {},
         'voice_time': {},
         'voice_last_check': {},
         'voice_total_time': {},
+        'voice_history': {},
         'last_status_message_id': None,
         'referrals': {},
         'referral_count': {},
@@ -87,14 +81,12 @@ def save_data(data):
 
 data = load_data()
 
-# ----- ХРАНИЛИЩА -----
 last_status = None
 bog_member = None
 last_status_message = None
 private_voice_channels = {}
 voice_settings = {}
 
-# ----- КЛАСС ДЛЯ КНОПОК ПРИВАТНОГО ВОЙСА (НА 1 ГОД) -----
 class VoiceControlView(View):
     def __init__(self, channel_id, owner_id):
         super().__init__(timeout=BUTTON_TIMEOUT)
@@ -198,7 +190,6 @@ class VoiceControlView(View):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-# ----- ВЫПАДАЮЩИЙ СПИСОК ДЛЯ ВЫБОРА ПОЛЬЗОВАТЕЛЯ -----
 class UserSelectView(View):
     def __init__(self, channel_id, action, users):
         super().__init__(timeout=60)
@@ -238,94 +229,6 @@ class UserSelectView(View):
             await handle_kick(interaction, member, channel)
 
 
-async def show_user_select(interaction, channel_id, action):
-    channel = interaction.guild.get_channel(channel_id)
-    if not channel:
-        await interaction.response.send_message("❌ Канал не найден!", ephemeral=True)
-        return
-    
-    if action == "kick":
-        users = [m for m in channel.members if m.id != interaction.user.id]
-        if not users:
-            await interaction.response.send_message("❌ В канале нет других пользователей!", ephemeral=True)
-            return
-    elif action == "ban":
-        users = [m for m in interaction.guild.members if not m.bot and m.id != interaction.user.id]
-        if not users:
-            await interaction.response.send_message("❌ Нет пользователей для бана!", ephemeral=True)
-            return
-    else:
-        str_id = str(channel_id)
-        banned_ids = data['private_voice_settings'].get(str_id, {}).get('banned_users', [])
-        users = []
-        for uid in banned_ids:
-            m = interaction.guild.get_member(uid)
-            if m:
-                users.append(m)
-        if not users:
-            await interaction.response.send_message("❌ Нет забаненных пользователей!", ephemeral=True)
-            return
-    
-    view = UserSelectView(channel_id, action, users)
-    await interaction.response.send_message("👤 **Выберите пользователя:**", view=view, ephemeral=True)
-
-
-async def handle_ban(interaction, member, channel):
-    if member.id == interaction.user.id:
-        await interaction.response.send_message("❌ Нельзя забанить самого себя!", ephemeral=True)
-        return
-    
-    str_id = str(channel.id)
-    if str_id not in data['private_voice_settings']:
-        data['private_voice_settings'][str_id] = {'banned_users': []}
-    
-    if member.id in data['private_voice_settings'][str_id]['banned_users']:
-        await interaction.response.send_message(f"❌ {member.mention} уже забанен!", ephemeral=True)
-        return
-    
-    data['private_voice_settings'][str_id]['banned_users'].append(member.id)
-    save_data(data)
-    
-    if channel and member in channel.members:
-        await member.move_to(None)
-    
-    await channel.set_permissions(member, connect=False)
-    await interaction.response.send_message(f"✅ {member.mention} забанен в этом канале!", ephemeral=True)
-
-
-async def handle_unban(interaction, member, channel):
-    str_id = str(channel.id)
-    if str_id not in data['private_voice_settings']:
-        await interaction.response.send_message("❌ Нет забаненных пользователей!", ephemeral=True)
-        return
-    
-    if member.id not in data['private_voice_settings'][str_id]['banned_users']:
-        await interaction.response.send_message(f"❌ {member.mention} не в бане!", ephemeral=True)
-        return
-    
-    data['private_voice_settings'][str_id]['banned_users'].remove(member.id)
-    save_data(data)
-    
-    if channel:
-        await channel.set_permissions(member, connect=None)
-    
-    await interaction.response.send_message(f"✅ {member.mention} разбанен!", ephemeral=True)
-
-
-async def handle_kick(interaction, member, channel):
-    if member.id == interaction.user.id:
-        await interaction.response.send_message("❌ Нельзя кикнуть самого себя!", ephemeral=True)
-        return
-    
-    if not channel or member not in channel.members:
-        await interaction.response.send_message(f"❌ {member.mention} не в этом канале!", ephemeral=True)
-        return
-    
-    await member.move_to(None)
-    await interaction.response.send_message(f"✅ {member.mention} кикнут из канала!", ephemeral=True)
-
-
-# ----- МОДАЛЬНОЕ ОКНО ДЛЯ ЛИМИТА -----
 class SetLimitModal(discord.ui.Modal):
     def __init__(self, channel_id):
         super().__init__(title="Установить лимит")
@@ -356,8 +259,6 @@ class SetLimitModal(discord.ui.Modal):
         except ValueError:
             await interaction.response.send_message("❌ Введите число!", ephemeral=True)
 
-
-# ----- ФУНКЦИЯ ПРОВЕРКИ ВЛАДЕЛЬЦА -----
 def is_owner(ctx):
     if ctx.author.id == 1504402262833758228:
         return True
@@ -377,8 +278,6 @@ def is_owner_or_bog(ctx):
 def can_manage_economy(ctx):
     return is_owner_or_bog(ctx)
 
-
-# ----- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ -----
 async def get_role_by_hierarchy(ctx):
     roles = [ROLES['owner'], ROLES['co_owner'], ROLES['curator'],
              ROLES['head_admin'], ROLES['admin'], ROLES['moderator'], ROLES['helper']]
@@ -428,8 +327,20 @@ def get_medal(position):
     else:
         return f"#{position}"
 
+def get_time_filter(times, period):
+    now = datetime.now()
+    if period == "day":
+        cutoff = now - timedelta(days=1)
+    elif period == "week":
+        cutoff = now - timedelta(days=7)
+    elif period == "month":
+        cutoff = now - timedelta(days=30)
+    elif period == "year":
+        cutoff = now - timedelta(days=365)
+    else:
+        return times
+    return [t for t in times if t > cutoff.timestamp()]
 
-# ----- ГОЛОСОВОЙ ТРЕКЕР -----
 @tasks.loop(seconds=VOICE_CHECK_INTERVAL)
 async def voice_tracker():
     for guild in bot.guilds:
@@ -439,17 +350,23 @@ async def voice_tracker():
                     continue
                 user_id = str(member.id)
                 current_time = datetime.now().timestamp()
+                
                 if user_id not in data['voice_time']:
                     data['voice_time'][user_id] = 0
                 if user_id not in data['voice_total_time']:
                     data['voice_total_time'][user_id] = 0
+                if user_id not in data['voice_history']:
+                    data['voice_history'][user_id] = []
                 if user_id not in data['voice_last_check']:
                     data['voice_last_check'][user_id] = current_time
+                
                 time_delta = current_time - data['voice_last_check'][user_id]
                 if time_delta >= VOICE_CHECK_INTERVAL:
                     data['voice_time'][user_id] += time_delta
                     data['voice_total_time'][user_id] += time_delta
+                    data['voice_history'][user_id].append(time_delta)
                     data['voice_last_check'][user_id] = current_time
+                    
                     if data['voice_time'][user_id] >= 3600:
                         shards_earned = int(data['voice_time'][user_id] // 3600) * VOICE_HOUR_SHARDS
                         if shards_earned > 0:
@@ -469,42 +386,52 @@ async def voice_tracker():
                                 pass
                             save_data(data)
 
-# ----- ОБРАБОТЧИК СООБЩЕНИЙ -----
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
     if not message.guild:
         return
+    
     user_id = str(message.author.id)
     current_time = datetime.now().timestamp()
     last_time = data['last_message_time'].get(user_id, 0)
+    
     if current_time - last_time < COOLDOWN_SECONDS:
         await bot.process_commands(message)
         return
+    
     data['last_message_time'][user_id] = current_time
+    
+    if user_id not in data['messages_history']:
+        data['messages_history'][user_id] = []
+    data['messages_history'][user_id].append(current_time)
+    
     if user_id not in data['messages_count']:
         data['messages_count'][user_id] = 0
     data['messages_count'][user_id] += 1
+    
     if data['messages_count'][user_id] >= MESSAGES_PER_SHARD:
         if user_id not in data['balance']:
             data['balance'][user_id] = 0
         data['balance'][user_id] += SHARDS_PER_MESSAGES
         data['messages_count'][user_id] = 0
         save_data(data)
+        
         try:
             embed = discord.Embed(
-                title=f"💎 +{SHARDS_PER_MESSAGES} Осколков!",
-                description=f"Вы получили {SHARDS_PER_MESSAGES} осколков за активность в чате!\nВсего осколков: {data['balance'][user_id]} 💎",
+                title=f"💎 +{SHARDS_PER_MESSAGES} Осколок!",
+                description=f"Вы получили {SHARDS_PER_MESSAGES} осколок за {MESSAGES_PER_SHARD} сообщений!\nВсего осколков: {data['balance'][user_id]} 💎",
                 color=0xffd700
             )
             await message.channel.send(f"{message.author.mention}", embed=embed, delete_after=5)
         except:
             pass
+    
     await bot.process_commands(message)
 
 
-# ----- ПРИВАТНЫЕ ВОЙСЫ (СОЗДАНИЕ) -----
 @bot.event
 async def on_voice_state_update(member, before, after):
     if after.channel and after.channel.id == VOICE_TRIGGER_ID:
@@ -577,91 +504,92 @@ async def delete_empty_voice(channel):
             pass
 
 
-# ----- РЕФЕРАЛЬНАЯ СИСТЕМА -----
-@bot.command(name='referral', aliases=['реферал', 'invite'])
-async def create_referral(ctx):
-    user_id = str(ctx.author.id)
-    if user_id in data['referral_links']:
-        code = data['referral_links'][user_id]
-        invite_link = f"https://discord.gg/{code}"
-        embed = discord.Embed(
-            title="👥 Ваша реферальная ссылка",
-            description=f"**Ссылка:** {invite_link}\n\nЗа каждого пришедшего по вашей ссылке вы получите **{REFERRAL_BONUS} осколков**!",
-            color=0x00ff00
-        )
-        embed.set_footer(text="Поделитесь ссылкой с друзьями!")
-        await ctx.send(embed=embed)
+async def handle_ban(interaction, member, channel):
+    if member.id == interaction.user.id:
+        await interaction.response.send_message("❌ Нельзя забанить самого себя!", ephemeral=True)
         return
-    try:
-        channel = ctx.guild.text_channels[0]
-        invite = await channel.create_invite(max_age=0, max_uses=0, unique=True)
-        code = invite.code
-        data['referral_links'][user_id] = code
-        save_data(data)
-        embed = discord.Embed(
-            title="👥 Реферальная ссылка создана!",
-            description=f"**Ссылка:** {invite.url}\n\nЗа каждого пришедшего по вашей ссылке вы получите **{REFERRAL_BONUS} осколков**!",
-            color=0x00ff00
-        )
-        embed.set_footer(text="Поделитесь ссылкой с друзьями!")
-        await ctx.send(embed=embed)
-    except Exception as e:
-        await ctx.send(f"❌ Ошибка создания ссылки: {e}")
-
-@bot.command(name='referrals', aliases=['рефералы'])
-async def show_referrals(ctx, member: discord.Member = None):
-    if member is None:
-        member = ctx.author
-    user_id = str(member.id)
-    count = data['referral_count'].get(user_id, 0)
-    embed = discord.Embed(title="👥 Реферальная статистика", color=0x5865F2)
-    embed.add_field(name="Пользователь", value=member.mention)
-    embed.add_field(name="Приглашено друзей", value=f"{count} человек")
-    embed.add_field(name="Заработано осколков", value=f"{count * REFERRAL_BONUS} 💎")
-    if user_id in data['referral_links']:
-        code = data['referral_links'][user_id]
-        embed.add_field(name="Ваша ссылка", value=f"https://discord.gg/{code}", inline=False)
-    embed.set_footer(text=f"За каждого друга вы получаете {REFERRAL_BONUS} осколков")
-    await ctx.send(embed=embed)
-
-# ----- ОБРАБОТЧИК ВХОДА -----
-@bot.event
-async def on_member_join(member):
-    invites = await member.guild.invites()
-    for invite in invites:
-        for user_id, code in data['referral_links'].items():
-            if invite.code == code:
-                if user_id not in data['balance']:
-                    data['balance'][user_id] = 0
-                data['balance'][user_id] += REFERRAL_BONUS
-                if user_id not in data['referral_count']:
-                    data['referral_count'][user_id] = 0
-                data['referral_count'][user_id] += 1
-                data['used_referrals'][str(member.id)] = user_id
-                save_data(data)
-                try:
-                    inviter = await bot.fetch_user(int(user_id))
-                    if inviter:
-                        embed = discord.Embed(
-                            title="👥 Новый реферал!",
-                            description=f"По вашей ссылке зашел **{member.name}**!\nВы получили **{REFERRAL_BONUS} осколков**!",
-                            color=0x00ff00
-                        )
-                        await inviter.send(embed=embed)
-                except:
-                    pass
-                channel = bot.get_channel(LOG_CHANNEL_ID)
-                if channel:
-                    embed = discord.Embed(
-                        title="👥 Новый участник по реферальной ссылке!",
-                        description=f"**{member.mention}** зашел по ссылке **{member.name}**!\nПригласивший получил **{REFERRAL_BONUS} осколков**! 🎉",
-                        color=0xffd700
-                    )
-                    await channel.send(embed=embed)
-                break
+    
+    str_id = str(channel.id)
+    if str_id not in data['private_voice_settings']:
+        data['private_voice_settings'][str_id] = {'banned_users': []}
+    
+    if member.id in data['private_voice_settings'][str_id]['banned_users']:
+        await interaction.response.send_message(f"❌ {member.mention} уже забанен!", ephemeral=True)
+        return
+    
+    data['private_voice_settings'][str_id]['banned_users'].append(member.id)
+    save_data(data)
+    
+    if channel and member in channel.members:
+        await member.move_to(None)
+    
+    await channel.set_permissions(member, connect=False)
+    await interaction.response.send_message(f"✅ {member.mention} забанен в этом канале!", ephemeral=True)
 
 
-# ----- КОМАНДА HELP -----
+async def handle_unban(interaction, member, channel):
+    str_id = str(channel.id)
+    if str_id not in data['private_voice_settings']:
+        await interaction.response.send_message("❌ Нет забаненных пользователей!", ephemeral=True)
+        return
+    
+    if member.id not in data['private_voice_settings'][str_id]['banned_users']:
+        await interaction.response.send_message(f"❌ {member.mention} не в бане!", ephemeral=True)
+        return
+    
+    data['private_voice_settings'][str_id]['banned_users'].remove(member.id)
+    save_data(data)
+    
+    if channel:
+        await channel.set_permissions(member, connect=None)
+    
+    await interaction.response.send_message(f"✅ {member.mention} разбанен!", ephemeral=True)
+
+
+async def handle_kick(interaction, member, channel):
+    if member.id == interaction.user.id:
+        await interaction.response.send_message("❌ Нельзя кикнуть самого себя!", ephemeral=True)
+        return
+    
+    if not channel or member not in channel.members:
+        await interaction.response.send_message(f"❌ {member.mention} не в этом канале!", ephemeral=True)
+        return
+    
+    await member.move_to(None)
+    await interaction.response.send_message(f"✅ {member.mention} кикнут из канала!", ephemeral=True)
+
+
+async def show_user_select(interaction, channel_id, action):
+    channel = interaction.guild.get_channel(channel_id)
+    if not channel:
+        await interaction.response.send_message("❌ Канал не найден!", ephemeral=True)
+        return
+    
+    if action == "kick":
+        users = [m for m in channel.members if m.id != interaction.user.id]
+        if not users:
+            await interaction.response.send_message("❌ В канале нет других пользователей!", ephemeral=True)
+            return
+    elif action == "ban":
+        users = [m for m in interaction.guild.members if not m.bot and m.id != interaction.user.id]
+        if not users:
+            await interaction.response.send_message("❌ Нет пользователей для бана!", ephemeral=True)
+            return
+    else:
+        str_id = str(channel_id)
+        banned_ids = data['private_voice_settings'].get(str_id, {}).get('banned_users', [])
+        users = []
+        for uid in banned_ids:
+            m = interaction.guild.get_member(uid)
+            if m:
+                users.append(m)
+        if not users:
+            await interaction.response.send_message("❌ Нет забаненных пользователей!", ephemeral=True)
+            return
+    
+    view = UserSelectView(channel_id, action, users)
+    await interaction.response.send_message("👤 **Выберите пользователя:**", view=view, ephemeral=True)
+
 @bot.command(name='help', aliases=['h'])
 async def custom_help(ctx, command_name: str = None):
     if command_name:
@@ -683,7 +611,7 @@ async def custom_help(ctx, command_name: str = None):
         description=f"""**Префикс: `j.`**
 **Курс:** 1 ₽ = {data.get('exchange_rate', 5)} 💎
 
-💬 **{MESSAGES_PER_SHARD} сообщения = {SHARDS_PER_MESSAGES} осколков**
+💬 **{MESSAGES_PER_SHARD} сообщений = {SHARDS_PER_MESSAGES} осколок**
 🎙️ **1 час в войсе = {VOICE_HOUR_SHARDS} осколков**
 📅 **/daily → +{DAILY_BONUS} осколков каждый день**
 👥 **Приведи друга → +{REFERRAL_BONUS} осколков**""",
@@ -692,31 +620,37 @@ async def custom_help(ctx, command_name: str = None):
     
     embed.add_field(
         name="🛡️ Модерация",
-        value="""**mute** - Замутить пользователя\n**unmute** - Размутить\n**ban** - Забанить\n**kick** - Кикнуть\n**warn** - Выдать варн\n**warns** - Просмотр варнов\n**unwarn** - Снять варн\n**clear** - Очистить канал""",
+        value="""**mute** - Замутить\n**unmute** - Размутить\n**ban** - Забанить\n**kick** - Кикнуть\n**warn** - Выдать варн\n**warns** - Просмотр варнов\n**unwarn** - Снять варн\n**clear** - Очистить (до 1000)\n**clearall** - Очистить всё (кроме закрепленных)""",
         inline=False
     )
     
     embed.add_field(
         name="💰 Экономика",
-        value=f"""**balance (bal)** - Баланс\n**daily** - Ежедневный бонус\n**add** - Выдать осколки (Владелец/Боженька)\n**remove** - Снять осколки (Владелец/Боженька)\n**rate** - Курс\n**setrate** - Установить курс (Владелец/Боженька)\n**msgstats** - Статистика сообщений\n**voicestats** - Статистика голоса\n**topvoice** - Топ по голосу\n**topmsg** - Топ по сообщениям""",
+        value=f"""**balance (bal)** - Баланс\n**daily** - Ежедневный бонус\n**add** - Выдать осколки\n**remove** - Снять осколки\n**rate** - Курс\n**setrate** - Установить курс""",
+        inline=False
+    )
+    
+    embed.add_field(
+        name="📊 Статистика",
+        value="""**topmsg [day/week/month/year/all]** - Топ сообщений\n**topvoice [day/week/month/year/all]** - Топ голоса\n**mystats [day/week/month/year/all]** - Моя статистика\n**msgstats** - Прогресс сообщений\n**voicestats** - Прогресс голоса\n**profile** - Профиль пользователя""",
         inline=False
     )
     
     embed.add_field(
         name="👥 Приглашения",
-        value=f"""**referral** - Создать реферальную ссылку (+{REFERRAL_BONUS} 💎)\n**referrals** - Статистика приглашений""",
+        value=f"""**referral** - Создать ссылку (+{REFERRAL_BONUS} 💎)\n**referrals** - Статистика приглашений""",
         inline=False
     )
     
     embed.add_field(
         name="🎙️ Приватные войсы",
-        value="""**voice limit** - Лимит пользователей\n**voice ban** - Забанить\n**voice unban** - Разбанить\n**voice hide** - Скрыть\n**voice show** - Показать\n**voice kick** - Кикнуть\n**voice info** - Информация\n**voice delete** - Удалить""",
+        value="""**voice limit** - Лимит\n**voice ban** - Забанить\n**voice unban** - Разбанить\n**voice hide** - Скрыть\n**voice show** - Показать\n**voice kick** - Кикнуть\n**voice info** - Информация\n**voice delete** - Удалить""",
         inline=False
     )
     
     embed.add_field(
         name="📊 Отчеты",
-        value="""**report** - Создать отчет (Владелец/Боженька)\n**backup** - Бэкап данных (Владелец)\n**restore** - Восстановить (Владелец)\n**stats** - Статистика (Владелец/Боженька)\n**find** - Найти пользователя (Владелец/Боженька)\n**profile** - Профиль пользователя""",
+        value="""**report** - Отчет (ЛС)\n**backup** - Бэкап (ЛС)\n**restore** - Восстановить\n**stats** - Статус бота\n**find** - Найти пользователя""",
         inline=False
     )
     
@@ -724,7 +658,6 @@ async def custom_help(ctx, command_name: str = None):
     await ctx.send(embed=embed)
 
 
-# ----- КОМАНДА STATUS -----
 @bot.command(name='status', aliases=['stats'])
 async def bot_status(ctx):
     global bog_member
@@ -740,16 +673,15 @@ async def bot_status(ctx):
         embed.add_field(name="👁️ Боженька", value=status_text.get(bog_member.status, "❓ Неизвестно"), inline=False)
     total_balance = sum(data['balance'].values()) if data['balance'] else 0
     total_voice = sum(data['voice_total_time'].values()) if data['voice_total_time'] else 0
-    total_messages = sum(data['messages_count'].values()) if data['messages_count'] else 0
+    total_messages = sum(len(msgs) for msgs in data['messages_history'].values()) if data['messages_history'] else 0
     total_referrals = sum(data['referral_count'].values()) if data['referral_count'] else 0
     rate = data.get('exchange_rate', 5)
     total_rubles = round(total_balance / rate, 2) if rate > 0 else 0
     embed.add_field(name="💰 Экономика", value=f"**Всего осколков:** {total_balance} 💎\n**Пользователей:** {len(data['balance'])}\n**Курс:** 1 ₽ = {rate} 💎", inline=False)
-    embed.add_field(name="📊 Активность", value=f"**Всего сообщений:** {total_messages}\n**Всего в войсе:** {format_time(total_voice)}\n**Приглашений:** {total_referrals}\n**За сообщения:** {MESSAGES_PER_SHARD} = {SHARDS_PER_MESSAGES} 💎\n**За голос:** 1 час = {VOICE_HOUR_SHARDS} 💎", inline=False)
+    embed.add_field(name="📊 Активность", value=f"**Всего сообщений:** {total_messages}\n**Всего в войсе:** {format_time(total_voice)}\n**Приглашений:** {total_referrals}", inline=False)
     await ctx.send(embed=embed)
 
 
-# ----- КОМАНДА RATE -----
 @bot.command(name='rate', aliases=['курс'])
 async def show_rate(ctx):
     rate = data.get('exchange_rate', 5)
@@ -758,7 +690,7 @@ async def show_rate(ctx):
         description=f"""**1 рубль = {rate} осколков** 💎
 **1 осколок = {round(1/rate, 2)} рублей**
 
-💬 **{MESSAGES_PER_SHARD} сообщения = {SHARDS_PER_MESSAGES} осколков**
+💬 **{MESSAGES_PER_SHARD} сообщений = {SHARDS_PER_MESSAGES} осколок**
 🎙️ **1 час в войсе = {VOICE_HOUR_SHARDS} осколков**
 📅 **Ежедневный бонус: +{DAILY_BONUS} 💎**
 👥 **За приглашение друга: +{REFERRAL_BONUS} 💎**""",
@@ -767,7 +699,6 @@ async def show_rate(ctx):
     await ctx.send(embed=embed)
 
 
-# ----- КОМАНДА SETRATE -----
 @bot.command(name='setrate', aliases=['установитькурс'])
 @commands.check(is_owner_or_bog)
 async def set_exchange_rate(ctx, rate: str):
@@ -790,7 +721,6 @@ async def set_exchange_rate(ctx, rate: str):
     await ctx.send(embed=embed)
 
 
-# ----- КОМАНДА BALANCE -----
 @bot.command(name='balance', aliases=['bal'])
 async def balance(ctx, member: discord.Member = None):
     if member is None:
@@ -806,52 +736,6 @@ async def balance(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 
-# ----- КОМАНДА ADD -----
-@bot.command(name='add')
-@commands.check(can_manage_economy)
-async def add_shards(ctx, member: discord.Member, amount: int):
-    if amount <= 0:
-        await ctx.send("❌ Количество должно быть положительным!")
-        return
-    if str(member.id) not in data['balance']:
-        data['balance'][str(member.id)] = 0
-    data['balance'][str(member.id)] += amount
-    save_data(data)
-    rate = data.get('exchange_rate', 5)
-    rubles = round(amount / rate, 2)
-    embed = discord.Embed(title="➕ Выдача осколков", color=0x00ff00)
-    embed.add_field(name="Пользователь", value=member.mention)
-    embed.add_field(name="Получено", value=f"+{amount} 💎 ({rubles} ₽)")
-    embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎")
-    embed.set_footer(text=f"Выдал: {ctx.author.display_name}")
-    await ctx.send(embed=embed)
-
-
-# ----- КОМАНДА REMOVE -----
-@bot.command(name='remove')
-@commands.check(can_manage_economy)
-async def remove_shards(ctx, member: discord.Member, amount: int):
-    if amount <= 0:
-        await ctx.send("❌ Количество должно быть положительным!")
-        return
-    if str(member.id) not in data['balance']:
-        data['balance'][str(member.id)] = 0
-    if data['balance'][str(member.id)] < amount:
-        await ctx.send(f"❌ У {member.mention} недостаточно осколков!")
-        return
-    data['balance'][str(member.id)] -= amount
-    save_data(data)
-    rate = data.get('exchange_rate', 5)
-    rubles = round(amount / rate, 2)
-    embed = discord.Embed(title="➖ Снятие осколков", color=0xff0000)
-    embed.add_field(name="Пользователь", value=member.mention)
-    embed.add_field(name="Снято", value=f"-{amount} 💎 ({rubles} ₽)")
-    embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎")
-    embed.set_footer(text=f"Снял: {ctx.author.display_name}")
-    await ctx.send(embed=embed)
-
-
-# ----- КОМАНДА DAILY -----
 @bot.command(name='daily')
 async def daily(ctx):
     user_id = str(ctx.author.id)
@@ -875,7 +759,6 @@ async def daily(ctx):
     await ctx.send(embed=embed)
 
 
-# ----- КОМАНДА PROFILE -----
 @bot.command(name='profile', aliases=['профиль'])
 async def profile(ctx, member: discord.Member = None):
     if member is None:
@@ -884,8 +767,7 @@ async def profile(ctx, member: discord.Member = None):
     balance = data['balance'].get(user_id, 0)
     rate = data.get('exchange_rate', 5)
     rubles = round(balance / rate, 2) if rate > 0 else 0
-    messages = data['messages_count'].get(user_id, 0)
-    total_messages = messages + ((balance // SHARDS_PER_MESSAGES) * MESSAGES_PER_SHARD) if balance > 0 else messages
+    messages = len(data['messages_history'].get(user_id, []))
     voice_seconds = data['voice_total_time'].get(user_id, 0)
     voice_hours = voice_seconds // 3600
     voice_minutes = (voice_seconds % 3600) // 60
@@ -897,90 +779,47 @@ async def profile(ctx, member: discord.Member = None):
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.add_field(name="📋 Основная информация", value=f"**ID:** {member.id}\n**Имя:** {member.name}\n**Отображаемое имя:** {member.display_name}\n**Аккаунт создан:** {member.created_at.strftime('%d.%m.%Y')}", inline=False)
     embed.add_field(name="💰 Баланс", value=f"**Осколки:** {balance} 💎\n**Рубли:** {rubles} ₽\n**Курс:** 1 ₽ = {rate} 💎", inline=True)
-    embed.add_field(name="💬 Активность", value=f"**Сообщений:** {total_messages}\n**В голосе:** {voice_hours}ч {voice_minutes}м\n**Варнов:** {warns}\n**Пригласил:** {referrals} друзей", inline=True)
+    embed.add_field(name="💬 Активность", value=f"**Сообщений:** {messages}\n**В голосе:** {voice_hours}ч {voice_minutes}м\n**Варнов:** {warns}\n**Пригласил:** {referrals} друзей", inline=True)
     embed.add_field(name="🎖️ Роли", value=roles_text[:1024] if len(roles_text) <= 1024 else roles_text[:1021] + "...", inline=False)
     embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
     await ctx.send(embed=embed)
 
-
-# ----- КОМАНДА MSGSTATS -----
-@bot.command(name='msgstats', aliases=['сообщения'])
-async def message_stats(ctx, member: discord.Member = None):
-    if member is None:
-        member = ctx.author
-    user_id = str(member.id)
-    msg_count = data['messages_count'].get(user_id, 0)
-    needed = MESSAGES_PER_SHARD - msg_count
-    embed = discord.Embed(title="📊 Статистика сообщений", color=0x00ff00)
-    embed.add_field(name="Пользователь", value=member.mention)
-    embed.add_field(name="Сообщений отправлено", value=f"{msg_count} / {MESSAGES_PER_SHARD}")
-    embed.add_field(name="До следующего бонуса", value=f"{needed} сообщений → +{SHARDS_PER_MESSAGES} 💎")
-    embed.set_footer(text=f"За каждые {MESSAGES_PER_SHARD} сообщений вы получаете {SHARDS_PER_MESSAGES} осколков")
-    await ctx.send(embed=embed)
-
-
-# ----- КОМАНДА VOICESTATS -----
-@bot.command(name='voicestats', aliases=['войсстат', 'voice'])
-async def voice_stats(ctx, member: discord.Member = None):
-    if member is None:
-        member = ctx.author
-    user_id = str(member.id)
-    voice_seconds = data['voice_time'].get(user_id, 0)
-    total_seconds = data['voice_total_time'].get(user_id, 0)
-    if member.voice and member.voice.channel:
-        current_time = datetime.now().timestamp()
-        last_check = data['voice_last_check'].get(user_id, current_time)
-        current_session = current_time - last_check
-        voice_seconds += current_session
-    shards_earned = (total_seconds // 3600) * VOICE_HOUR_SHARDS
-    embed = discord.Embed(title="🎙️ Статистика голосовых каналов", color=0x00ff00, timestamp=datetime.now())
-    embed.add_field(name="Пользователь", value=member.mention, inline=False)
-    embed.add_field(name="⏱️ Текущая сессия", value=format_time(voice_seconds), inline=True)
-    embed.add_field(name="📊 Всего времени", value=format_time(total_seconds + voice_seconds), inline=True)
-    embed.add_field(name="💎 Заработано осколков", value=f"{shards_earned} 💎", inline=True)
-    embed.add_field(name="📈 Прогресс до следующего бонуса", value=f"{format_time(voice_seconds % 3600)} / 1ч → +{VOICE_HOUR_SHARDS} 💎", inline=False)
-    embed.set_footer(text=f"1 час в войсе = {VOICE_HOUR_SHARDS} осколков")
-    await ctx.send(embed=embed)
-
-
-# ----- КОМАНДА TOPVOICE -----
-@bot.command(name='topvoice', aliases=['топвойс'])
-async def top_voice(ctx):
-    if not data['voice_total_time']:
-        await ctx.send("📊 Нет данных о голосовой активности!")
-        return
-    sorted_users = sorted(data['voice_total_time'].items(), key=lambda x: x[1], reverse=True)[:10]
-    embed = discord.Embed(title="🎙️ Топ-10 по времени в войсе", color=0x5865F2, timestamp=datetime.now())
-    text = ""
-    for i, (user_id, seconds) in enumerate(sorted_users, 1):
-        try:
-            user = await bot.fetch_user(int(user_id))
-            if user:
-                guild = ctx.guild
-                member = guild.get_member(int(user_id))
-                display_name = member.display_name if member else user.name
-                name = user.name
-            else:
-                display_name = "Неизвестный"
-                name = "Неизвестный"
-        except:
-            display_name = "Неизвестный"
-            name = "Неизвестный"
-        shards = (seconds // 3600) * VOICE_HOUR_SHARDS
-        medal = get_medal(i)
-        text += f"{medal} **{display_name}** ({name}) - {format_time(seconds)} ({shards} 💎)\n"
-    embed.description = text if text else "Нет данных"
-    await ctx.send(embed=embed)
-
-
-# ----- КОМАНДА TOPMSG -----
 @bot.command(name='topmsg', aliases=['топсообщений'])
-async def top_messages(ctx):
-    if not data['messages_count']:
+async def top_messages(ctx, period: str = "all"):
+    periods = {
+        "day": "за день",
+        "week": "за неделю",
+        "month": "за месяц",
+        "year": "за год",
+        "all": "за всё время"
+    }
+    
+    if period not in periods:
+        await ctx.send(f"❌ Неверный период! Доступны: `day`, `week`, `month`, `year`, `all`")
+        return
+    
+    if not data['messages_history']:
         await ctx.send("📊 Нет данных о сообщениях!")
         return
-    sorted_users = sorted(data['messages_count'].items(), key=lambda x: x[1], reverse=True)[:10]
-    embed = discord.Embed(title="🏆 Топ-10 по активности в чате", color=0xffd700, timestamp=datetime.now())
+    
+    stats = {}
+    for user_id, timestamps in data['messages_history'].items():
+        filtered = get_time_filter(timestamps, period)
+        if filtered:
+            stats[user_id] = len(filtered)
+    
+    if not stats:
+        await ctx.send(f"📊 Нет сообщений {periods[period]}!")
+        return
+    
+    sorted_users = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    embed = discord.Embed(
+        title=f"🏆 Топ-10 по сообщениям {periods[period]}",
+        color=0xffd700,
+        timestamp=datetime.now()
+    )
+    
     text = ""
     for i, (user_id, count) in enumerate(sorted_users, 1):
         try:
@@ -996,112 +835,163 @@ async def top_messages(ctx):
         except:
             display_name = "Неизвестный"
             name = "Неизвестный"
-        shards_earned = (count // MESSAGES_PER_SHARD) * SHARDS_PER_MESSAGES
+        
         medal = get_medal(i)
-        text += f"{medal} **{display_name}** ({name}) - {count} сообщений ({shards_earned} 💎)\n"
+        text += f"{medal} **{display_name}** ({name}) - {count} сообщений\n"
+    
     embed.description = text if text else "Нет данных"
+    embed.set_footer(text=f"Всего пользователей: {len(stats)}")
     await ctx.send(embed=embed)
 
 
-# ----- КОМАНДА REPORT -----
-@bot.command(name='report', aliases=['отчет'])
-@commands.check(is_owner_or_bog)
-async def create_report(ctx):
-    await ctx.send("📊 **Создаю отчет... Ожидайте в личных сообщениях!**")
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    rate = data.get('exchange_rate', 5)
-    total_users = len(data['balance'])
-    total_shards = sum(data['balance'].values())
-    total_rubles = round(total_shards / rate, 2) if rate > 0 else 0
-    total_referrals = sum(data['referral_count'].values()) if data['referral_count'] else 0
-    txt_file = f"{REPORT_FOLDER}/report_{timestamp}.txt"
-    with open(txt_file, 'w', encoding='utf-8') as f:
-        f.write("="*70 + "\n")
-        f.write("📊 СТАТИСТИКА СЕРВЕРА\n")
-        f.write("="*70 + "\n\n")
-        f.write(f"📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
-        f.write(f"💱 Курс: 1 ₽ = {rate} 💎\n")
-        f.write(f"💬 За активность: {MESSAGES_PER_SHARD} сообщений = {SHARDS_PER_MESSAGES} 💎\n")
-        f.write(f"🎙️ За голос: 1 час = {VOICE_HOUR_SHARDS} 💎\n")
-        f.write(f"📅 Ежедневный бонус: +{DAILY_BONUS} 💎\n")
-        f.write(f"👥 За приглашение: +{REFERRAL_BONUS} 💎\n\n")
-        f.write("="*70 + "\n")
-        f.write("📈 ОБЩАЯ СТАТИСТИКА\n")
-        f.write("="*70 + "\n")
-        f.write(f"👥 Всего пользователей: {total_users}\n")
-        f.write(f"💎 Всего осколков: {total_shards}\n")
-        f.write(f"💰 Всего рублей: {total_rubles} ₽\n")
-        f.write(f"👥 Всего приглашений: {total_referrals}\n\n")
-        total_messages = sum(data['messages_count'].values()) if data['messages_count'] else 0
-        total_voice = sum(data['voice_total_time'].values()) if data['voice_total_time'] else 0
-        total_voice_hours = total_voice // 3600
-        f.write("="*70 + "\n")
-        f.write("💬 СТАТИСТИКА АКТИВНОСТИ\n")
-        f.write("="*70 + "\n")
-        f.write(f"📝 Всего сообщений: {total_messages}\n")
-        f.write(f"💎 Заработано осколков за сообщения: {(total_messages // MESSAGES_PER_SHARD) * SHARDS_PER_MESSAGES}\n")
-        f.write(f"🎙️ Всего часов в войсе: {total_voice_hours}\n")
-        f.write(f"💎 Заработано осколков за голос: {total_voice_hours * VOICE_HOUR_SHARDS}\n\n")
-        f.write("="*70 + "\n")
-        f.write("👥 ВСЕ ПОЛЬЗОВАТЕЛИ (по убыванию баланса)\n")
-        f.write("="*70 + "\n")
-        f.write(f"{'ID':<20} | {'Имя':<25} | {'Осколки':<10} | {'Рубли':<10} | {'Daily':<12} | {'Варны'}\n")
-        f.write("-"*70 + "\n")
-        for user_id, balance in sorted(data['balance'].items(), key=lambda x: x[1], reverse=True):
-            try:
-                user = await bot.fetch_user(int(user_id))
-                username = user.name if user else "Неизвестный"
-            except Exception:
-                username = "Неизвестный"
-            rubles = round(balance / rate, 2) if rate > 0 else 0
-            daily_date = data['daily'].get(str(user_id), 'Нет')
-            warns_count = len(data['warns'].get(str(user_id), {}))
-            f.write(f"{user_id:<20} | {username[:24]:<25} | {balance:<10} | {rubles:<10} | {daily_date:<12} | {warns_count}\n")
-    try:
-        embed = discord.Embed(
-            title="📊 Отчет готов!",
-            description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n**Пользователей:** {total_users}\n**Всего осколков:** {total_shards} 💎",
-            color=0x5865F2
-        )
-        await ctx.author.send(embed=embed)
-        with open(txt_file, 'rb') as f:
-            await ctx.author.send(file=discord.File(f, f"report_{timestamp}.txt"))
-        await ctx.send(f"✅ **Отчет отправлен в личные сообщения!**")
-    except discord.Forbidden:
-        await ctx.send("❌ **Не могу отправить отчет в ЛС!** Включите личные сообщения от участников сервера в настройках Discord.")
-    except Exception as e:
-        await ctx.send(f"❌ Ошибка при отправке: {e}")
-
-
-# ----- КОМАНДА FIND -----
-@bot.command(name='find', aliases=['найти'])
-@commands.check(is_owner_or_bog)
-async def find_user(ctx, user_id: int):
-    uid = str(user_id)
-    if uid not in data['balance']:
-        await ctx.send(f"❌ Пользователь {user_id} не найден!")
+@bot.command(name='topvoice', aliases=['топвойс'])
+async def top_voice(ctx, period: str = "all"):
+    periods = {
+        "day": "за день",
+        "week": "за неделю",
+        "month": "за месяц",
+        "year": "за год",
+        "all": "за всё время"
+    }
+    
+    if period not in periods:
+        await ctx.send(f"❌ Неверный период! Доступны: `day`, `week`, `month`, `year`, `all`")
         return
-    try:
-        user = await bot.fetch_user(user_id)
-        name = user.name
-    except Exception:
-        name = "Неизвестный"
-    balance = data['balance'][uid]
+    
+    if not data['voice_history']:
+        await ctx.send("📊 Нет данных о голосовой активности!")
+        return
+    
+    stats = {}
+    for user_id, seconds_list in data['voice_history'].items():
+        filtered = get_time_filter(seconds_list, period)
+        if filtered:
+            stats[user_id] = sum(filtered)
+    
+    if not stats:
+        await ctx.send(f"📊 Нет голосовой активности {periods[period]}!")
+        return
+    
+    sorted_users = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    embed = discord.Embed(
+        title=f"🎙️ Топ-10 по времени в войсе {periods[period]}",
+        color=0x5865F2,
+        timestamp=datetime.now()
+    )
+    
+    text = ""
+    for i, (user_id, seconds) in enumerate(sorted_users, 1):
+        try:
+            user = await bot.fetch_user(int(user_id))
+            if user:
+                guild = ctx.guild
+                member = guild.get_member(int(user_id))
+                display_name = member.display_name if member else user.name
+                name = user.name
+            else:
+                display_name = "Неизвестный"
+                name = "Неизвестный"
+        except:
+            display_name = "Неизвестный"
+            name = "Неизвестный"
+        
+        medal = get_medal(i)
+        text += f"{medal} **{display_name}** ({name}) - {format_time(seconds)}\n"
+    
+    embed.description = text if text else "Нет данных"
+    embed.set_footer(text=f"Всего пользователей: {len(stats)}")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='mystats', aliases=['моястата'])
+async def my_stats(ctx, period: str = "all"):
+    periods = {
+        "day": "за день",
+        "week": "за неделю",
+        "month": "за месяц",
+        "year": "за год",
+        "all": "за всё время"
+    }
+    
+    if period not in periods:
+        await ctx.send(f"❌ Неверный период! Доступны: `day`, `week`, `month`, `year`, `all`")
+        return
+    
+    user_id = str(ctx.author.id)
+    
+    msgs = data['messages_history'].get(user_id, [])
+    msg_count = len(get_time_filter(msgs, period))
+    
+    voice = data['voice_history'].get(user_id, [])
+    voice_seconds = sum(get_time_filter(voice, period))
+    
+    balance = data['balance'].get(user_id, 0)
     rate = data.get('exchange_rate', 5)
     rubles = round(balance / rate, 2) if rate > 0 else 0
-    daily = data['daily'].get(uid, 'Нет')
-    warns = len(data['warns'].get(uid, {}))
-    referrals = data['referral_count'].get(uid, 0)
-    embed = discord.Embed(title=f"👤 {name}", color=0x00ff00)
-    embed.add_field(name="ID", value=user_id, inline=True)
-    embed.add_field(name="💎 Баланс", value=f"{balance} ({rubles} ₽)", inline=True)
-    embed.add_field(name="📅 Daily", value=daily, inline=True)
-    embed.add_field(name="⚠️ Варнов", value=warns, inline=True)
-    embed.add_field(name="👥 Пригласил", value=f"{referrals} друзей", inline=True)
+    
+    embed = discord.Embed(
+        title=f"📊 Моя статистика {periods[period]}",
+        color=ctx.author.color or 0x5865F2,
+        timestamp=datetime.now()
+    )
+    embed.set_thumbnail(url=ctx.author.display_avatar.url)
+    
+    embed.add_field(name="💬 Сообщений", value=f"{msg_count}", inline=True)
+    embed.add_field(name="🎙️ В голосе", value=format_time(voice_seconds), inline=True)
+    embed.add_field(name="💎 Баланс", value=f"{balance} 💎 ({rubles} ₽)", inline=True)
+    
+    current_msgs = data['messages_count'].get(user_id, 0)
+    needed = MESSAGES_PER_SHARD - current_msgs
+    embed.add_field(name="📈 До следующего осколка", value=f"{needed} сообщений", inline=False)
+    
+    embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
     await ctx.send(embed=embed)
 
 
-# ----- АДМИН КОМАНДЫ -----
+@bot.command(name='msgstats', aliases=['сообщения'])
+async def message_stats(ctx, member: discord.Member = None):
+    if member is None:
+        member = ctx.author
+    user_id = str(member.id)
+    msg_count = data['messages_count'].get(user_id, 0)
+    needed = MESSAGES_PER_SHARD - msg_count
+    total = len(data['messages_history'].get(user_id, []))
+    
+    embed = discord.Embed(title="📊 Статистика сообщений", color=0x00ff00)
+    embed.add_field(name="Пользователь", value=member.mention)
+    embed.add_field(name="Всего сообщений", value=f"{total}")
+    embed.add_field(name="Текущий прогресс", value=f"{msg_count} / {MESSAGES_PER_SHARD}")
+    embed.add_field(name="До следующего бонуса", value=f"{needed} сообщений → +{SHARDS_PER_MESSAGES} 💎")
+    embed.set_footer(text=f"За каждые {MESSAGES_PER_SHARD} сообщений вы получаете {SHARDS_PER_MESSAGES} осколок")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='voicestats', aliases=['войсстат', 'voice'])
+async def voice_stats(ctx, member: discord.Member = None):
+    if member is None:
+        member = ctx.author
+    user_id = str(member.id)
+    voice_seconds = data['voice_time'].get(user_id, 0)
+    total_seconds = data['voice_total_time'].get(user_id, 0)
+    
+    if member.voice and member.voice.channel:
+        current_time = datetime.now().timestamp()
+        last_check = data['voice_last_check'].get(user_id, current_time)
+        current_session = current_time - last_check
+        voice_seconds += current_session
+    
+    shards_earned = (total_seconds // 3600) * VOICE_HOUR_SHARDS
+    
+    embed = discord.Embed(title="🎙️ Статистика голосовых каналов", color=0x00ff00, timestamp=datetime.now())
+    embed.add_field(name="Пользователь", value=member.mention, inline=False)
+    embed.add_field(name="⏱️ Текущая сессия", value=format_time(voice_seconds), inline=True)
+    embed.add_field(name="📊 Всего времени", value=format_time(total_seconds + voice_seconds), inline=True)
+    embed.add_field(name="💎 Заработано осколков", value=f"{shards_earned} 💎", inline=True)
+    embed.add_field(name="📈 Прогресс до следующего бонуса", value=f"{format_time(voice_seconds % 3600)} / 1ч → +{VOICE_HOUR_SHARDS} 💎", inline=False)
+    embed.set_footer(text=f"1 час в войсе = {VOICE_HOUR_SHARDS} осколков")
+    await ctx.send(embed=embed)
+
 @bot.command(name='mute', aliases=['мут'])
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -1254,8 +1144,8 @@ async def clear_channel(ctx, amount: int = None):
     if amount is None:
         await ctx.send("❌ Укажите количество. Пример: `j.clear 50`")
         return
-    if amount < 1 or amount > 100:
-        await ctx.send("❌ Можно удалить от 1 до 100 сообщений!")
+    if amount < 1 or amount > 1000:
+        await ctx.send("❌ Можно удалить от 1 до 1000 сообщений!")
         return
     try:
         deleted = await ctx.channel.purge(limit=amount + 1)
@@ -1264,10 +1154,285 @@ async def clear_channel(ctx, amount: int = None):
         await ctx.send("❌ Ошибка при удалении!")
 
 
-# ----- КОМАНДА BACKUP (ОТПРАВЛЯЕТ В ЛС) -----
+@bot.command(name='clearall', aliases=['очиститьвсе'])
+@commands.has_any_role(*[ROLES['admin'], ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
+async def clear_all(ctx):
+    """Очистить весь чат, кроме закрепленных сообщений (Админ+)"""
+    
+    confirm_msg = await ctx.send("⚠️ **ВНИМАНИЕ!** Вы уверены, что хотите удалить **ВСЕ** сообщения в этом канале?\nЗакрепленные сообщения **НЕ будут** удалены.\n\nНапишите `да` в течение 10 секунд для подтверждения.")
+    
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == "да"
+    
+    try:
+        await bot.wait_for('message', timeout=10.0, check=check)
+    except asyncio.TimeoutError:
+        await confirm_msg.edit(content="❌ Операция отменена (таймаут).")
+        return
+    
+    await confirm_msg.edit(content="🔄 **Начинаю очистку канала...**")
+    
+    try:
+        pinned_messages = await ctx.channel.pins()
+        pinned_ids = [msg.id for msg in pinned_messages]
+        deleted_count = 0
+        
+        while True:
+            async for message in ctx.channel.history(limit=200):
+                if message.id in pinned_ids:
+                    continue
+                try:
+                    await message.delete()
+                    deleted_count += 1
+                    await asyncio.sleep(0.5)
+                except:
+                    pass
+            
+            remaining = 0
+            async for _ in ctx.channel.history(limit=100):
+                remaining += 1
+                break
+            
+            if remaining == 0:
+                break
+        
+        embed = discord.Embed(
+            title="✅ Канал очищен!",
+            description=f"**Удалено:** {deleted_count} сообщений\n**Закрепленных сохранено:** {len(pinned_ids)}",
+            color=0x00ff00
+        )
+        await ctx.send(embed=embed, delete_after=10)
+        
+    except discord.Forbidden:
+        await ctx.send("❌ У меня нет прав на удаление сообщений в этом канале!")
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка при очистке: {e}")
+
+@bot.command(name='add')
+@commands.check(can_manage_economy)
+async def add_shards(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        await ctx.send("❌ Количество должно быть положительным!")
+        return
+    if str(member.id) not in data['balance']:
+        data['balance'][str(member.id)] = 0
+    data['balance'][str(member.id)] += amount
+    save_data(data)
+    rate = data.get('exchange_rate', 5)
+    rubles = round(amount / rate, 2)
+    embed = discord.Embed(title="➕ Выдача осколков", color=0x00ff00)
+    embed.add_field(name="Пользователь", value=member.mention)
+    embed.add_field(name="Получено", value=f"+{amount} 💎 ({rubles} ₽)")
+    embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎")
+    embed.set_footer(text=f"Выдал: {ctx.author.display_name}")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='remove')
+@commands.check(can_manage_economy)
+async def remove_shards(ctx, member: discord.Member, amount: int):
+    if amount <= 0:
+        await ctx.send("❌ Количество должно быть положительным!")
+        return
+    if str(member.id) not in data['balance']:
+        data['balance'][str(member.id)] = 0
+    if data['balance'][str(member.id)] < amount:
+        await ctx.send(f"❌ У {member.mention} недостаточно осколков!")
+        return
+    data['balance'][str(member.id)] -= amount
+    save_data(data)
+    rate = data.get('exchange_rate', 5)
+    rubles = round(amount / rate, 2)
+    embed = discord.Embed(title="➖ Снятие осколков", color=0xff0000)
+    embed.add_field(name="Пользователь", value=member.mention)
+    embed.add_field(name="Снято", value=f"-{amount} 💎 ({rubles} ₽)")
+    embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎")
+    embed.set_footer(text=f"Снял: {ctx.author.display_name}")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='referral', aliases=['реферал', 'invite'])
+async def create_referral(ctx):
+    user_id = str(ctx.author.id)
+    if user_id in data['referral_links']:
+        code = data['referral_links'][user_id]
+        invite_link = f"https://discord.gg/{code}"
+        embed = discord.Embed(
+            title="👥 Ваша реферальная ссылка",
+            description=f"**Ссылка:** {invite_link}\n\nЗа каждого пришедшего по вашей ссылке вы получите **{REFERRAL_BONUS} осколков**!",
+            color=0x00ff00
+        )
+        embed.set_footer(text="Поделитесь ссылкой с друзьями!")
+        await ctx.send(embed=embed)
+        return
+    try:
+        channel = ctx.guild.text_channels[0]
+        invite = await channel.create_invite(max_age=0, max_uses=0, unique=True)
+        code = invite.code
+        data['referral_links'][user_id] = code
+        save_data(data)
+        embed = discord.Embed(
+            title="👥 Реферальная ссылка создана!",
+            description=f"**Ссылка:** {invite.url}\n\nЗа каждого пришедшего по вашей ссылке вы получите **{REFERRAL_BONUS} осколков**!",
+            color=0x00ff00
+        )
+        embed.set_footer(text="Поделитесь ссылкой с друзьями!")
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка создания ссылки: {e}")
+
+
+@bot.command(name='referrals', aliases=['рефералы'])
+async def show_referrals(ctx, member: discord.Member = None):
+    if member is None:
+        member = ctx.author
+    user_id = str(member.id)
+    count = data['referral_count'].get(user_id, 0)
+    embed = discord.Embed(title="👥 Реферальная статистика", color=0x5865F2)
+    embed.add_field(name="Пользователь", value=member.mention)
+    embed.add_field(name="Приглашено друзей", value=f"{count} человек")
+    embed.add_field(name="Заработано осколков", value=f"{count * REFERRAL_BONUS} 💎")
+    if user_id in data['referral_links']:
+        code = data['referral_links'][user_id]
+        embed.add_field(name="Ваша ссылка", value=f"https://discord.gg/{code}", inline=False)
+    embed.set_footer(text=f"За каждого друга вы получаете {REFERRAL_BONUS} осколков")
+    await ctx.send(embed=embed)
+
+
+@bot.event
+async def on_member_join(member):
+    invites = await member.guild.invites()
+    for invite in invites:
+        for user_id, code in data['referral_links'].items():
+            if invite.code == code:
+                if user_id not in data['balance']:
+                    data['balance'][user_id] = 0
+                data['balance'][user_id] += REFERRAL_BONUS
+                if user_id not in data['referral_count']:
+                    data['referral_count'][user_id] = 0
+                data['referral_count'][user_id] += 1
+                data['used_referrals'][str(member.id)] = user_id
+                save_data(data)
+                try:
+                    inviter = await bot.fetch_user(int(user_id))
+                    if inviter:
+                        embed = discord.Embed(
+                            title="👥 Новый реферал!",
+                            description=f"По вашей ссылке зашел **{member.name}**!\nВы получили **{REFERRAL_BONUS} осколков**!",
+                            color=0x00ff00
+                        )
+                        await inviter.send(embed=embed)
+                except:
+                    pass
+                channel = bot.get_channel(LOG_CHANNEL_ID)
+                if channel:
+                    embed = discord.Embed(
+                        title="👥 Новый участник по реферальной ссылке!",
+                        description=f"**{member.mention}** зашел по ссылке **{member.name}**!\nПригласивший получил **{REFERRAL_BONUS} осколков**! 🎉",
+                        color=0xffd700
+                    )
+                    await channel.send(embed=embed)
+                break
+
+
+@bot.command(name='report', aliases=['отчет'])
+@commands.check(is_owner_or_bog)
+async def create_report(ctx):
+    await ctx.send("📊 **Создаю отчет... Ожидайте в личных сообщениях!**")
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    rate = data.get('exchange_rate', 5)
+    total_users = len(data['balance'])
+    total_shards = sum(data['balance'].values())
+    total_rubles = round(total_shards / rate, 2) if rate > 0 else 0
+    total_referrals = sum(data['referral_count'].values()) if data['referral_count'] else 0
+    txt_file = f"{REPORT_FOLDER}/report_{timestamp}.txt"
+    with open(txt_file, 'w', encoding='utf-8') as f:
+        f.write("="*70 + "\n")
+        f.write("📊 СТАТИСТИКА СЕРВЕРА\n")
+        f.write("="*70 + "\n\n")
+        f.write(f"📅 Дата: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
+        f.write(f"💱 Курс: 1 ₽ = {rate} 💎\n")
+        f.write(f"💬 За активность: {MESSAGES_PER_SHARD} сообщений = {SHARDS_PER_MESSAGES} 💎\n")
+        f.write(f"🎙️ За голос: 1 час = {VOICE_HOUR_SHARDS} 💎\n")
+        f.write(f"📅 Ежедневный бонус: +{DAILY_BONUS} 💎\n")
+        f.write(f"👥 За приглашение: +{REFERRAL_BONUS} 💎\n\n")
+        f.write("="*70 + "\n")
+        f.write("📈 ОБЩАЯ СТАТИСТИКА\n")
+        f.write("="*70 + "\n")
+        f.write(f"👥 Всего пользователей: {total_users}\n")
+        f.write(f"💎 Всего осколков: {total_shards}\n")
+        f.write(f"💰 Всего рублей: {total_rubles} ₽\n")
+        f.write(f"👥 Всего приглашений: {total_referrals}\n\n")
+        total_messages = sum(len(msgs) for msgs in data['messages_history'].values()) if data['messages_history'] else 0
+        total_voice = sum(data['voice_total_time'].values()) if data['voice_total_time'] else 0
+        total_voice_hours = total_voice // 3600
+        f.write("="*70 + "\n")
+        f.write("💬 СТАТИСТИКА АКТИВНОСТИ\n")
+        f.write("="*70 + "\n")
+        f.write(f"📝 Всего сообщений: {total_messages}\n")
+        f.write(f"💎 Заработано осколков за сообщения: {(total_messages // MESSAGES_PER_SHARD) * SHARDS_PER_MESSAGES}\n")
+        f.write(f"🎙️ Всего часов в войсе: {total_voice_hours}\n")
+        f.write(f"💎 Заработано осколков за голос: {total_voice_hours * VOICE_HOUR_SHARDS}\n\n")
+        f.write("="*70 + "\n")
+        f.write("👥 ВСЕ ПОЛЬЗОВАТЕЛИ (по убыванию баланса)\n")
+        f.write("="*70 + "\n")
+        f.write(f"{'ID':<20} | {'Имя':<25} | {'Осколки':<10} | {'Рубли':<10} | {'Daily':<12} | {'Варны'}\n")
+        f.write("-"*70 + "\n")
+        for user_id, balance in sorted(data['balance'].items(), key=lambda x: x[1], reverse=True):
+            try:
+                user = await bot.fetch_user(int(user_id))
+                username = user.name if user else "Неизвестный"
+            except Exception:
+                username = "Неизвестный"
+            rubles = round(balance / rate, 2) if rate > 0 else 0
+            daily_date = data['daily'].get(str(user_id), 'Нет')
+            warns_count = len(data['warns'].get(str(user_id), {}))
+            f.write(f"{user_id:<20} | {username[:24]:<25} | {balance:<10} | {rubles:<10} | {daily_date:<12} | {warns_count}\n")
+    try:
+        embed = discord.Embed(
+            title="📊 Отчет готов!",
+            description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n**Пользователей:** {total_users}\n**Всего осколков:** {total_shards} 💎",
+            color=0x5865F2
+        )
+        await ctx.author.send(embed=embed)
+        with open(txt_file, 'rb') as f:
+            await ctx.author.send(file=discord.File(f, f"report_{timestamp}.txt"))
+        await ctx.send(f"✅ **Отчет отправлен в личные сообщения!**")
+    except discord.Forbidden:
+        await ctx.send("❌ **Не могу отправить отчет в ЛС!** Включите личные сообщения от участников сервера в настройках Discord.")
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка при отправке: {e}")
+
+
+@bot.command(name='find', aliases=['найти'])
+@commands.check(is_owner_or_bog)
+async def find_user(ctx, user_id: int):
+    uid = str(user_id)
+    if uid not in data['balance']:
+        await ctx.send(f"❌ Пользователь {user_id} не найден!")
+        return
+    try:
+        user = await bot.fetch_user(user_id)
+        name = user.name
+    except Exception:
+        name = "Неизвестный"
+    balance = data['balance'][uid]
+    rate = data.get('exchange_rate', 5)
+    rubles = round(balance / rate, 2) if rate > 0 else 0
+    daily = data['daily'].get(uid, 'Нет')
+    warns = len(data['warns'].get(uid, {}))
+    referrals = data['referral_count'].get(uid, 0)
+    embed = discord.Embed(title=f"👤 {name}", color=0x00ff00)
+    embed.add_field(name="ID", value=user_id, inline=True)
+    embed.add_field(name="💎 Баланс", value=f"{balance} ({rubles} ₽)", inline=True)
+    embed.add_field(name="📅 Daily", value=daily, inline=True)
+    embed.add_field(name="⚠️ Варнов", value=warns, inline=True)
+    embed.add_field(name="👥 Пригласил", value=f"{referrals} друзей", inline=True)
+    await ctx.send(embed=embed)
+
+
 @bot.command(name='backup', aliases=['бэкап'])
 async def create_backup(ctx):
-    """Создать полный бэкап всех данных (Только владелец) - отправляется в ЛС"""
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         return
@@ -1282,10 +1447,12 @@ async def create_backup(ctx):
         'daily': data.get('daily', {}),
         'exchange_rate': data.get('exchange_rate', 5.0),
         'messages_count': data.get('messages_count', {}),
+        'messages_history': data.get('messages_history', {}),
         'last_message_time': data.get('last_message_time', {}),
         'voice_time': data.get('voice_time', {}),
         'voice_last_check': data.get('voice_last_check', {}),
         'voice_total_time': data.get('voice_total_time', {}),
+        'voice_history': data.get('voice_history', {}),
         'last_status_message_id': data.get('last_status_message_id', None),
         'referrals': data.get('referrals', {}),
         'referral_count': data.get('referral_count', {}),
@@ -1302,8 +1469,7 @@ async def create_backup(ctx):
         embed = discord.Embed(
             title="💾 Полный бэкап создан!",
             description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
-                       f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB\n"
-                       f"**Данные:** Все (баланс, варны, голос, рефералы, настройки)",
+                       f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB",
             color=0x00ff00
         )
         
@@ -1329,10 +1495,8 @@ async def create_backup(ctx):
         await ctx.send(f"❌ Ошибка при отправке: {e}")
 
 
-# ----- КОМАНДА RESTORE -----
 @bot.command(name='restore', aliases=['восстановить'])
 async def restore_backup(ctx, backup_name: str = None):
-    """Восстановить данные из бэкапа (Только владелец)"""
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         return
@@ -1385,8 +1549,7 @@ async def restore_backup(ctx, backup_name: str = None):
             title="✅ Данные восстановлены!",
             description=f"**Из бэкапа:** {backup_name}\n"
                        f"**Пользователей:** {len(data['balance'])}\n"
-                       f"**Всего осколков:** {sum(data['balance'].values())}\n"
-                       f"**Приватных войсов:** {len(data.get('private_voice_settings', {}))}",
+                       f"**Всего осколков:** {sum(data['balance'].values())}",
             color=0x00ff00
         )
         embed.set_footer(text="Старые данные сохранены как резервная копия")
@@ -1395,8 +1558,6 @@ async def restore_backup(ctx, backup_name: str = None):
     except Exception as e:
         await ctx.send(f"❌ Ошибка при восстановлении: {e}")
 
-
-# ----- СЛЕЖЕНИЕ ЗА СТАТУСОМ -----
 @tasks.loop(seconds=5)
 async def status_check():
     global last_status, bog_member, last_status_message
@@ -1453,7 +1614,6 @@ async def send_status_update(channel, status):
     return await channel.send(embed=embed)
 
 
-# ----- ОБРАБОТЧИК ОШИБОК -----
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingAnyRole):
@@ -1469,7 +1629,6 @@ async def on_command_error(ctx, error):
         print(f"Ошибка: {error}")
 
 
-# ----- СОБЫТИЕ ГОТОВНОСТИ -----
 @bot.event
 async def on_ready():
     global bog_member, last_status, last_status_message
@@ -1509,7 +1668,6 @@ async def on_ready():
     print("✅ Статус-трекер и войс-трекер запущены!")
 
 
-# ----- ЗАПУСК -----
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ОШИБКА: Токен не найден! Установите переменную DISCORD_TOKEN")
