@@ -1177,65 +1177,54 @@ async def clear_all(ctx):
         pinned_messages = await ctx.channel.pins()
         pinned_ids = [msg.id for msg in pinned_messages]
         
-        total_deleted = 0
-        batch_size = 50  # Размер пачки для удаления
+        # Функция-фильтр: удаляем ВСЕ, кроме закрепленных
+        def is_not_pinned(msg):
+            return msg.id not in pinned_ids
         
-        while True:
-            # Собираем пачку сообщений (до 50 штук)
-            to_delete = []
-            async for message in ctx.channel.history(limit=200):
-                # Пропускаем закрепленные
-                if message.id in pinned_ids:
-                    continue
-                to_delete.append(message)
-                if len(to_delete) >= batch_size:
-                    break
-            
-            # Если больше нет сообщений - выходим
-            if not to_delete:
-                break
-            
-            # Удаляем пачку
-            try:
-                if len(to_delete) == 1:
-                    await to_delete[0].delete()
-                else:
-                    await ctx.channel.delete_messages(to_delete)
-                
-                total_deleted += len(to_delete)
-                
-                # Обновляем статус каждые 100 сообщений
-                if total_deleted % 100 == 0 or total_deleted <= 100:
-                    await status_msg.edit(content=f"🔄 **Удалено {total_deleted} сообщений...**")
-                
-                # Маленькая задержка между пачками чтобы не поймать rate limit
-                await asyncio.sleep(0.3)
-                
-            except discord.HTTPException as e:
-                # Если не получается удалить пачкой (сообщения старше 14 дней)
-                if "Bulk delete" in str(e) or "14 days" in str(e):
-                    # Удаляем по одному
-                    for msg in to_delete:
-                        try:
-                            await msg.delete()
-                            total_deleted += 1
-                            await asyncio.sleep(0.2)
-                        except:
-                            pass
-                else:
-                    raise e
+        # ВОТ ЭТОТ КОД - ОСНОВНАЯ МАГИЯ
+        deleted = await ctx.channel.purge(
+            limit=None,          # Все сообщения
+            check=is_not_pinned, # Фильтр
+            bulk=True            # Массовое удаление
+        )
         
         embed = discord.Embed(
             title="✅ Канал очищен!",
-            description=f"**Удалено:** {total_deleted} сообщений\n**Закрепленных сохранено:** {len(pinned_ids)}",
+            description=f"**Удалено:** {len(deleted)} сообщений\n**Закрепленных сохранено:** {len(pinned_ids)}",
             color=0x00ff00
         )
         await ctx.send(embed=embed, delete_after=10)
         
     except discord.Forbidden:
         await status_msg.edit(content="❌ У меня нет прав на удаление сообщений в этом канале!")
+    except discord.HTTPException as e:
+        if "14 days" in str(e) or "Bulk delete" in str(e):
+            # Если purge не справился (старые сообщения) - удаляем по одному
+            await status_msg.edit(content="⚠️ **Есть сообщения старше 14 дней, удаляю по одному...**")
+            
+            deleted_count = 0
+            async for message in ctx.channel.history(limit=None):
+                if message.id in pinned_ids:
+                    continue
+                try:
+                    await message.delete()
+                    deleted_count += 1
+                    if deleted_count % 50 == 0:
+                        await status_msg.edit(content=f"🔄 **Удалено {deleted_count} сообщений...**")
+                    await asyncio.sleep(0.2)
+                except:
+                    pass
+            
+            embed = discord.Embed(
+                title="✅ Канал очищен!",
+                description=f"**Удалено:** {deleted_count} сообщений\n**Закрепленных сохранено:** {len(pinned_ids)}",
+                color=0x00ff00
+            )
+            await ctx.send(embed=embed, delete_after=10)
+        else:
+            await status_msg.edit(content=f"❌ Ошибка: {e}")
     except Exception as e:
-        await status_msg.edit(content=f"❌ Ошибка при очистке: {e}")
+        await status_msg.edit(content=f"❌ Ошибка: {e}")
 
 @bot.command(name='add')
 @commands.check(can_manage_economy)
