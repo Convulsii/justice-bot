@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-from discord.ui import Button, View
+from discord.ui import Button, View, Select
 import asyncio
 import json
 import os
@@ -41,6 +41,9 @@ DAILY_BONUS = 15
 REFERRAL_BONUS = 100
 COOLDOWN_SECONDS = 10
 VOICE_CHECK_INTERVAL = 30
+
+# КНОПКИ НА 1 ГОД (31536000 СЕКУНД)
+BUTTON_TIMEOUT = 31536000  # 1 год в секундах
 
 # ----- ИНИЦИАЛИЗАЦИЯ БОТА -----
 intents = discord.Intents.all()
@@ -91,34 +94,13 @@ last_status_message = None
 private_voice_channels = {}
 voice_settings = {}
 
-# ----- КЛАСС ДЛЯ КНОПОК ПРИВАТНОГО ВОЙСА -----
+# ----- КЛАСС ДЛЯ КНОПОК ПРИВАТНОГО ВОЙСА (НА 1 ГОД) -----
 class VoiceControlView(View):
-    def __init__(self, channel_id, owner_id, timeout=600):
-        super().__init__(timeout=timeout)
+    def __init__(self, channel_id, owner_id):
+        super().__init__(timeout=BUTTON_TIMEOUT)
         self.channel_id = channel_id
         self.owner_id = owner_id
         self.message = None
-        self.update_task = None
-        
-    async def start_update(self):
-        async def update_loop():
-            while True:
-                await asyncio.sleep(20)
-                if self.message:
-                    try:
-                        await self.update_buttons()
-                    except:
-                        break
-        self.update_task = asyncio.create_task(update_loop())
-    
-    async def update_buttons(self):
-        if self.message:
-            new_view = VoiceControlView(self.channel_id, self.owner_id, timeout=600)
-            new_view.message = self.message
-            for item in self.children:
-                if isinstance(item, Button):
-                    new_view.add_item(item)
-            await self.message.edit(view=new_view)
     
     async def interaction_check(self, interaction):
         if interaction.user.id != self.owner_id:
@@ -126,19 +108,19 @@ class VoiceControlView(View):
             return False
         return True
     
-    @discord.ui.button(label="👥 Лимит", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="👥 Лимит", style=discord.ButtonStyle.primary, custom_id="voice_limit")
     async def limit_button(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(SetLimitModal(self.channel_id))
 
-    @discord.ui.button(label="🚫 Бан", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🚫 Бан", style=discord.ButtonStyle.danger, custom_id="voice_ban")
     async def ban_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(BanUserModal(self.channel_id))
+        await show_user_select(interaction, self.channel_id, "ban")
 
-    @discord.ui.button(label="✅ Разбан", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="✅ Разбан", style=discord.ButtonStyle.success, custom_id="voice_unban")
     async def unban_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(UnbanUserModal(self.channel_id))
+        await show_user_select(interaction, self.channel_id, "unban")
 
-    @discord.ui.button(label="👁️ Скрыть", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="👁️ Скрыть", style=discord.ButtonStyle.secondary, custom_id="voice_hide")
     async def hide_button(self, interaction: discord.Interaction, button: Button):
         channel = interaction.guild.get_channel(self.channel_id)
         if channel:
@@ -149,7 +131,7 @@ class VoiceControlView(View):
                 data['private_voice_settings'][str_id]['hidden'] = True
                 save_data(data)
 
-    @discord.ui.button(label="👁️ Показать", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="👁️ Показать", style=discord.ButtonStyle.secondary, custom_id="voice_show")
     async def show_button(self, interaction: discord.Interaction, button: Button):
         channel = interaction.guild.get_channel(self.channel_id)
         if channel:
@@ -160,11 +142,11 @@ class VoiceControlView(View):
                 data['private_voice_settings'][str_id]['hidden'] = False
                 save_data(data)
 
-    @discord.ui.button(label="👢 Кик", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="👢 Кик", style=discord.ButtonStyle.danger, custom_id="voice_kick")
     async def kick_button(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(KickUserModal(self.channel_id))
+        await show_user_select(interaction, self.channel_id, "kick")
 
-    @discord.ui.button(label="🗑️ Удалить", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="🗑️ Удалить", style=discord.ButtonStyle.danger, custom_id="voice_delete")
     async def delete_button(self, interaction: discord.Interaction, button: Button):
         channel = interaction.guild.get_channel(self.channel_id)
         if channel:
@@ -186,7 +168,7 @@ class VoiceControlView(View):
             except Exception as e:
                 await interaction.response.send_message(f"❌ Ошибка: {e}", ephemeral=True)
 
-    @discord.ui.button(label="📊 Инфо", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="📊 Инфо", style=discord.ButtonStyle.secondary, custom_id="voice_info")
     async def info_button(self, interaction: discord.Interaction, button: Button):
         channel = interaction.guild.get_channel(self.channel_id)
         if not channel:
@@ -215,7 +197,135 @@ class VoiceControlView(View):
         embed.add_field(name="Сейчас в канале", value=f"{len(channel.members)} участников")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-# ----- МОДАЛЬНЫЕ ОКНА -----
+
+# ----- ВЫПАДАЮЩИЙ СПИСОК ДЛЯ ВЫБОРА ПОЛЬЗОВАТЕЛЯ -----
+class UserSelectView(View):
+    def __init__(self, channel_id, action, users):
+        super().__init__(timeout=60)
+        self.channel_id = channel_id
+        self.action = action
+        
+        select = Select(
+            placeholder="Выберите пользователя...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=user.name[:100],
+                    value=str(user.id),
+                    emoji="👤"
+                ) for user in users[:25]
+            ]
+        )
+        select.callback = self.select_callback
+        self.add_item(select)
+    
+    async def select_callback(self, interaction: discord.Interaction):
+        user_id = int(interaction.data['values'][0])
+        member = interaction.guild.get_member(user_id)
+        
+        if not member:
+            await interaction.response.send_message("❌ Пользователь не найден!", ephemeral=True)
+            return
+        
+        channel = interaction.guild.get_channel(self.channel_id)
+        
+        if self.action == "ban":
+            await handle_ban(interaction, member, channel)
+        elif self.action == "unban":
+            await handle_unban(interaction, member, channel)
+        elif self.action == "kick":
+            await handle_kick(interaction, member, channel)
+
+
+async def show_user_select(interaction, channel_id, action):
+    channel = interaction.guild.get_channel(channel_id)
+    if not channel:
+        await interaction.response.send_message("❌ Канал не найден!", ephemeral=True)
+        return
+    
+    if action == "kick":
+        users = [m for m in channel.members if m.id != interaction.user.id]
+        if not users:
+            await interaction.response.send_message("❌ В канале нет других пользователей!", ephemeral=True)
+            return
+    elif action == "ban":
+        users = [m for m in interaction.guild.members if not m.bot and m.id != interaction.user.id]
+        if not users:
+            await interaction.response.send_message("❌ Нет пользователей для бана!", ephemeral=True)
+            return
+    else:
+        str_id = str(channel_id)
+        banned_ids = data['private_voice_settings'].get(str_id, {}).get('banned_users', [])
+        users = []
+        for uid in banned_ids:
+            m = interaction.guild.get_member(uid)
+            if m:
+                users.append(m)
+        if not users:
+            await interaction.response.send_message("❌ Нет забаненных пользователей!", ephemeral=True)
+            return
+    
+    view = UserSelectView(channel_id, action, users)
+    await interaction.response.send_message("👤 **Выберите пользователя:**", view=view, ephemeral=True)
+
+
+async def handle_ban(interaction, member, channel):
+    if member.id == interaction.user.id:
+        await interaction.response.send_message("❌ Нельзя забанить самого себя!", ephemeral=True)
+        return
+    
+    str_id = str(channel.id)
+    if str_id not in data['private_voice_settings']:
+        data['private_voice_settings'][str_id] = {'banned_users': []}
+    
+    if member.id in data['private_voice_settings'][str_id]['banned_users']:
+        await interaction.response.send_message(f"❌ {member.mention} уже забанен!", ephemeral=True)
+        return
+    
+    data['private_voice_settings'][str_id]['banned_users'].append(member.id)
+    save_data(data)
+    
+    if channel and member in channel.members:
+        await member.move_to(None)
+    
+    await channel.set_permissions(member, connect=False)
+    await interaction.response.send_message(f"✅ {member.mention} забанен в этом канале!", ephemeral=True)
+
+
+async def handle_unban(interaction, member, channel):
+    str_id = str(channel.id)
+    if str_id not in data['private_voice_settings']:
+        await interaction.response.send_message("❌ Нет забаненных пользователей!", ephemeral=True)
+        return
+    
+    if member.id not in data['private_voice_settings'][str_id]['banned_users']:
+        await interaction.response.send_message(f"❌ {member.mention} не в бане!", ephemeral=True)
+        return
+    
+    data['private_voice_settings'][str_id]['banned_users'].remove(member.id)
+    save_data(data)
+    
+    if channel:
+        await channel.set_permissions(member, connect=None)
+    
+    await interaction.response.send_message(f"✅ {member.mention} разбанен!", ephemeral=True)
+
+
+async def handle_kick(interaction, member, channel):
+    if member.id == interaction.user.id:
+        await interaction.response.send_message("❌ Нельзя кикнуть самого себя!", ephemeral=True)
+        return
+    
+    if not channel or member not in channel.members:
+        await interaction.response.send_message(f"❌ {member.mention} не в этом канале!", ephemeral=True)
+        return
+    
+    await member.move_to(None)
+    await interaction.response.send_message(f"✅ {member.mention} кикнут из канала!", ephemeral=True)
+
+
+# ----- МОДАЛЬНОЕ ОКНО ДЛЯ ЛИМИТА -----
 class SetLimitModal(discord.ui.Modal):
     def __init__(self, channel_id):
         super().__init__(title="Установить лимит")
@@ -246,106 +356,27 @@ class SetLimitModal(discord.ui.Modal):
         except ValueError:
             await interaction.response.send_message("❌ Введите число!", ephemeral=True)
 
-class BanUserModal(discord.ui.Modal):
-    def __init__(self, channel_id):
-        super().__init__(title="Забанить пользователя")
-        self.channel_id = channel_id
-        self.user_input = discord.ui.TextInput(
-            label="ID пользователя",
-            placeholder="Введите ID пользователя",
-            required=True
-        )
-        self.add_item(self.user_input)
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            user_id = int(self.user_input.value)
-            member = interaction.guild.get_member(user_id)
-            if not member:
-                await interaction.response.send_message("❌ Пользователь не найден!", ephemeral=True)
-                return
-            if member.id == interaction.user.id:
-                await interaction.response.send_message("❌ Нельзя забанить самого себя!", ephemeral=True)
-                return
-            channel = interaction.guild.get_channel(self.channel_id)
-            str_id = str(self.channel_id)
-            if str_id not in data['private_voice_settings']:
-                data['private_voice_settings'][str_id] = {'banned_users': []}
-            if member.id in data['private_voice_settings'][str_id]['banned_users']:
-                await interaction.response.send_message(f"❌ {member.mention} уже забанен!", ephemeral=True)
-                return
-            data['private_voice_settings'][str_id]['banned_users'].append(member.id)
-            save_data(data)
-            if channel and member in channel.members:
-                await member.move_to(None)
-            await channel.set_permissions(member, connect=False)
-            await interaction.response.send_message(f"✅ {member.mention} забанен в этом канале!", ephemeral=True)
-        except ValueError:
-            await interaction.response.send_message("❌ Введите корректный ID!", ephemeral=True)
 
-class UnbanUserModal(discord.ui.Modal):
-    def __init__(self, channel_id):
-        super().__init__(title="Разбанить пользователя")
-        self.channel_id = channel_id
-        self.user_input = discord.ui.TextInput(
-            label="ID пользователя",
-            placeholder="Введите ID пользователя",
-            required=True
-        )
-        self.add_item(self.user_input)
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            user_id = int(self.user_input.value)
-            member = interaction.guild.get_member(user_id)
-            if not member:
-                await interaction.response.send_message("❌ Пользователь не найден!", ephemeral=True)
-                return
-            str_id = str(self.channel_id)
-            if str_id not in data['private_voice_settings']:
-                await interaction.response.send_message("❌ Нет забаненных пользователей!", ephemeral=True)
-                return
-            if member.id not in data['private_voice_settings'][str_id]['banned_users']:
-                await interaction.response.send_message(f"❌ {member.mention} не в бане!", ephemeral=True)
-                return
-            data['private_voice_settings'][str_id]['banned_users'].remove(member.id)
-            save_data(data)
-            channel = interaction.guild.get_channel(self.channel_id)
-            if channel:
-                await channel.set_permissions(member, connect=None)
-            await interaction.response.send_message(f"✅ {member.mention} разбанен!", ephemeral=True)
-        except ValueError:
-            await interaction.response.send_message("❌ Введите корректный ID!", ephemeral=True)
+# ----- ФУНКЦИЯ ПРОВЕРКИ ВЛАДЕЛЬЦА -----
+def is_owner(ctx):
+    if ctx.author.id == 1504402262833758228:
+        return True
+    if discord.utils.get(ctx.author.roles, id=OWNER_ROLE_ID):
+        return True
+    return False
 
-class KickUserModal(discord.ui.Modal):
-    def __init__(self, channel_id):
-        super().__init__(title="Кикнуть пользователя")
-        self.channel_id = channel_id
-        self.user_input = discord.ui.TextInput(
-            label="ID пользователя",
-            placeholder="Введите ID пользователя",
-            required=True
-        )
-        self.add_item(self.user_input)
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            user_id = int(self.user_input.value)
-            member = interaction.guild.get_member(user_id)
-            if not member:
-                await interaction.response.send_message("❌ Пользователь не найден!", ephemeral=True)
-                return
-            if member.id == interaction.user.id:
-                await interaction.response.send_message("❌ Нельзя кикнуть самого себя!", ephemeral=True)
-                return
-            channel = interaction.guild.get_channel(self.channel_id)
-            if not channel or member not in channel.members:
-                await interaction.response.send_message(f"❌ {member.mention} не в этом канале!", ephemeral=True)
-                return
-            await member.move_to(None)
-            await interaction.response.send_message(f"✅ {member.mention} кикнут из канала!", ephemeral=True)
-        except ValueError:
-            await interaction.response.send_message("❌ Введите корректный ID!", ephemeral=True)
+def is_owner_or_bog(ctx):
+    if ctx.author.id == 1504402262833758228:
+        return True
+    if discord.utils.get(ctx.author.roles, id=OWNER_ROLE_ID):
+        return True
+    if discord.utils.get(ctx.author.roles, id=BOG_ROLE_ID):
+        return True
+    return False
+
+def can_manage_economy(ctx):
+    return is_owner_or_bog(ctx)
+
 
 # ----- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ -----
 async def get_role_by_hierarchy(ctx):
@@ -375,25 +406,6 @@ async def check_hierarchy(ctx, target):
                   ROLES['head_admin'], ROLES['admin'], ROLES['moderator'], ROLES['helper']]
     return roles_list.index(author_role) < roles_list.index(target_role)
 
-def is_owner(ctx):
-    if ctx.author.id == 1504402262833758228:
-        return True
-    if discord.utils.get(ctx.author.roles, id=OWNER_ROLE_ID):
-        return True
-    return False
-
-def is_owner_or_bog(ctx):
-    if ctx.author.id == 1504402262833758228:
-        return True
-    if discord.utils.get(ctx.author.roles, id=OWNER_ROLE_ID):
-        return True
-    if discord.utils.get(ctx.author.roles, id=BOG_ROLE_ID):
-        return True
-    return False
-
-def can_manage_economy(ctx):
-    return is_owner_or_bog(ctx)
-
 def format_time(seconds):
     seconds = int(seconds)
     hours = seconds // 3600
@@ -415,6 +427,7 @@ def get_medal(position):
         return "🥉"
     else:
         return f"#{position}"
+
 
 # ----- ГОЛОСОВОЙ ТРЕКЕР -----
 @tasks.loop(seconds=VOICE_CHECK_INTERVAL)
@@ -490,7 +503,8 @@ async def on_message(message):
             pass
     await bot.process_commands(message)
 
-# ----- ПРИВАТНЫЕ ВОЙСЫ -----
+
+# ----- ПРИВАТНЫЕ ВОЙСЫ (СОЗДАНИЕ) -----
 @bot.event
 async def on_voice_state_update(member, before, after):
     if after.channel and after.channel.id == VOICE_TRIGGER_ID:
@@ -499,18 +513,22 @@ async def on_voice_state_update(member, before, after):
         if len(before.channel.members) == 0:
             await delete_empty_voice(before.channel)
 
+
 async def create_private_voice(member):
     guild = member.guild
     category = guild.get_channel(PRIVATE_VOICE_CATEGORY_ID)
     if not category:
         return
+    
     voice_channel = await guild.create_voice_channel(
         name=f"🔒 {member.display_name}'s Voice",
         category=category,
         user_limit=0
     )
+    
     await voice_channel.set_permissions(member, connect=True, manage_channels=True, mute_members=True, deafen_members=True)
     await voice_channel.set_permissions(guild.default_role, connect=False, view_channel=False)
+    
     private_voice_channels[voice_channel.id] = member.id
     voice_settings[voice_channel.id] = {
         'owner_id': member.id,
@@ -519,6 +537,7 @@ async def create_private_voice(member):
         'hidden': False,
         'created_at': datetime.now().timestamp()
     }
+    
     str_id = str(voice_channel.id)
     data['private_voice_settings'][str_id] = {
         'owner_id': member.id,
@@ -528,16 +547,19 @@ async def create_private_voice(member):
         'created_at': datetime.now().timestamp()
     }
     save_data(data)
+    
     await member.move_to(voice_channel)
-    view = VoiceControlView(voice_channel.id, member.id, timeout=600)
+    
+    view = VoiceControlView(voice_channel.id, member.id)
     embed = discord.Embed(
         title="🔒 Приватный войс создан!",
         description="**Управляйте своим каналом через кнопки ниже:**\n\n👥 **Лимит** - установить максимум пользователей\n🚫 **Бан** - запретить вход пользователю\n✅ **Разбан** - разрешить вход\n👁️ **Скрыть/Показать** - скрыть канал от всех\n👢 **Кик** - выгнать из канала\n🗑️ **Удалить** - удалить канал\n📊 **Инфо** - информация о канале",
         color=0x00ff00
     )
+    
     msg = await voice_channel.send(embed=embed, view=view)
     view.message = msg
-    await view.start_update()
+
 
 async def delete_empty_voice(channel):
     await asyncio.sleep(10)
@@ -553,6 +575,7 @@ async def delete_empty_voice(channel):
             await channel.delete()
         except:
             pass
+
 
 # ----- РЕФЕРАЛЬНАЯ СИСТЕМА -----
 @bot.command(name='referral', aliases=['реферал', 'invite'])
@@ -637,6 +660,7 @@ async def on_member_join(member):
                     await channel.send(embed=embed)
                 break
 
+
 # ----- КОМАНДА HELP -----
 @bot.command(name='help', aliases=['h'])
 async def custom_help(ctx, command_name: str = None):
@@ -699,6 +723,7 @@ async def custom_help(ctx, command_name: str = None):
     embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
     await ctx.send(embed=embed)
 
+
 # ----- КОМАНДА STATUS -----
 @bot.command(name='status', aliases=['stats'])
 async def bot_status(ctx):
@@ -723,6 +748,7 @@ async def bot_status(ctx):
     embed.add_field(name="📊 Активность", value=f"**Всего сообщений:** {total_messages}\n**Всего в войсе:** {format_time(total_voice)}\n**Приглашений:** {total_referrals}\n**За сообщения:** {MESSAGES_PER_SHARD} = {SHARDS_PER_MESSAGES} 💎\n**За голос:** 1 час = {VOICE_HOUR_SHARDS} 💎", inline=False)
     await ctx.send(embed=embed)
 
+
 # ----- КОМАНДА RATE -----
 @bot.command(name='rate', aliases=['курс'])
 async def show_rate(ctx):
@@ -739,6 +765,7 @@ async def show_rate(ctx):
         color=0x00ff00
     )
     await ctx.send(embed=embed)
+
 
 # ----- КОМАНДА SETRATE -----
 @bot.command(name='setrate', aliases=['установитькурс'])
@@ -762,6 +789,7 @@ async def set_exchange_rate(ctx, rate: str):
     )
     await ctx.send(embed=embed)
 
+
 # ----- КОМАНДА BALANCE -----
 @bot.command(name='balance', aliases=['bal'])
 async def balance(ctx, member: discord.Member = None):
@@ -776,6 +804,7 @@ async def balance(ctx, member: discord.Member = None):
     embed.add_field(name="Рубли", value=f"{rubles} ₽")
     embed.set_footer(text=f"Курс: 1 ₽ = {rate} 💎")
     await ctx.send(embed=embed)
+
 
 # ----- КОМАНДА ADD -----
 @bot.command(name='add')
@@ -796,6 +825,7 @@ async def add_shards(ctx, member: discord.Member, amount: int):
     embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎")
     embed.set_footer(text=f"Выдал: {ctx.author.display_name}")
     await ctx.send(embed=embed)
+
 
 # ----- КОМАНДА REMOVE -----
 @bot.command(name='remove')
@@ -820,6 +850,7 @@ async def remove_shards(ctx, member: discord.Member, amount: int):
     embed.set_footer(text=f"Снял: {ctx.author.display_name}")
     await ctx.send(embed=embed)
 
+
 # ----- КОМАНДА DAILY -----
 @bot.command(name='daily')
 async def daily(ctx):
@@ -842,6 +873,7 @@ async def daily(ctx):
     )
     embed.set_footer(text="📅 Боженька заботится о вас ✨")
     await ctx.send(embed=embed)
+
 
 # ----- КОМАНДА PROFILE -----
 @bot.command(name='profile', aliases=['профиль'])
@@ -870,6 +902,7 @@ async def profile(ctx, member: discord.Member = None):
     embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
     await ctx.send(embed=embed)
 
+
 # ----- КОМАНДА MSGSTATS -----
 @bot.command(name='msgstats', aliases=['сообщения'])
 async def message_stats(ctx, member: discord.Member = None):
@@ -884,6 +917,7 @@ async def message_stats(ctx, member: discord.Member = None):
     embed.add_field(name="До следующего бонуса", value=f"{needed} сообщений → +{SHARDS_PER_MESSAGES} 💎")
     embed.set_footer(text=f"За каждые {MESSAGES_PER_SHARD} сообщений вы получаете {SHARDS_PER_MESSAGES} осколков")
     await ctx.send(embed=embed)
+
 
 # ----- КОМАНДА VOICESTATS -----
 @bot.command(name='voicestats', aliases=['войсстат', 'voice'])
@@ -907,6 +941,7 @@ async def voice_stats(ctx, member: discord.Member = None):
     embed.add_field(name="📈 Прогресс до следующего бонуса", value=f"{format_time(voice_seconds % 3600)} / 1ч → +{VOICE_HOUR_SHARDS} 💎", inline=False)
     embed.set_footer(text=f"1 час в войсе = {VOICE_HOUR_SHARDS} осколков")
     await ctx.send(embed=embed)
+
 
 # ----- КОМАНДА TOPVOICE -----
 @bot.command(name='topvoice', aliases=['топвойс'])
@@ -937,6 +972,7 @@ async def top_voice(ctx):
     embed.description = text if text else "Нет данных"
     await ctx.send(embed=embed)
 
+
 # ----- КОМАНДА TOPMSG -----
 @bot.command(name='topmsg', aliases=['топсообщений'])
 async def top_messages(ctx):
@@ -965,6 +1001,7 @@ async def top_messages(ctx):
         text += f"{medal} **{display_name}** ({name}) - {count} сообщений ({shards_earned} 💎)\n"
     embed.description = text if text else "Нет данных"
     await ctx.send(embed=embed)
+
 
 # ----- КОМАНДА REPORT -----
 @bot.command(name='report', aliases=['отчет'])
@@ -1035,6 +1072,7 @@ async def create_report(ctx):
     except Exception as e:
         await ctx.send(f"❌ Ошибка при отправке: {e}")
 
+
 # ----- КОМАНДА FIND -----
 @bot.command(name='find', aliases=['найти'])
 @commands.check(is_owner_or_bog)
@@ -1061,6 +1099,7 @@ async def find_user(ctx, user_id: int):
     embed.add_field(name="⚠️ Варнов", value=warns, inline=True)
     embed.add_field(name="👥 Пригласил", value=f"{referrals} друзей", inline=True)
     await ctx.send(embed=embed)
+
 
 # ----- АДМИН КОМАНДЫ -----
 @bot.command(name='mute', aliases=['мут'])
@@ -1092,6 +1131,7 @@ async def mute(ctx, member: discord.Member, time: str, *, reason="Не указ�
     embed.add_field(name="Причина", value=reason)
     await ctx.send(embed=embed)
 
+
 @bot.command(name='unmute', aliases=['размут'])
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -1101,6 +1141,7 @@ async def unmute(ctx, member: discord.Member):
         return
     await member.timeout(None)
     await ctx.send(f"✅ {member.mention} размучен!")
+
 
 @bot.command(name='ban', aliases=['бан'])
 @commands.has_any_role(*[ROLES['admin'], ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -1114,6 +1155,7 @@ async def ban(ctx, member: discord.Member, *, reason="Не указана"):
     await member.ban(reason=reason)
     await ctx.send(f"✅ {member.mention} забанен! Причина: {reason}")
 
+
 @bot.command(name='kick', aliases=['кик'])
 @commands.has_any_role(*[ROLES['moderator'], ROLES['admin'], ROLES['head_admin'], 
                          ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -1126,6 +1168,7 @@ async def kick(ctx, member: discord.Member, *, reason="Не указана"):
         return
     await member.kick(reason=reason)
     await ctx.send(f"✅ {member.mention} кикнут! Причина: {reason}")
+
 
 @bot.command(name='warn', aliases=['варн'])
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
@@ -1166,6 +1209,7 @@ async def warn(ctx, member: discord.Member, time: str, *, reason="Не указ�
     embed.add_field(name="Причина", value=reason)
     await ctx.send(embed=embed)
 
+
 @bot.command(name='warns', aliases=['варны'])
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -1187,6 +1231,7 @@ async def warns(ctx, member: discord.Member):
     else:
         await ctx.send(embed=embed)
 
+
 @bot.command(name='unwarn', aliases=['разварн'])
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -1200,6 +1245,7 @@ async def unwarn(ctx, member: discord.Member, warn_id: str):
         await ctx.send(f"✅ Варн снят с {member.mention}")
     else:
         await ctx.send(f"❌ Варн не найден!")
+
 
 @bot.command(name='clear', aliases=['очистить', 'cls'])
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
@@ -1217,15 +1263,16 @@ async def clear_channel(ctx, amount: int = None):
     except Exception:
         await ctx.send("❌ Ошибка при удалении!")
 
-# ----- КОМАНДА BACKUP (ПОЛНЫЙ БЭКАП) -----
+
+# ----- КОМАНДА BACKUP (ОТПРАВЛЯЕТ В ЛС) -----
 @bot.command(name='backup', aliases=['бэкап'])
 async def create_backup(ctx):
-    """Создать полный бэкап всех данных (Только владелец)"""
+    """Создать полный бэкап всех данных (Только владелец) - отправляется в ЛС"""
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         return
     
-    await ctx.send("🔄 **Создаю полный бэкап всех данных...**")
+    await ctx.send("🔄 **Создаю полный бэкап... Ожидайте в личных сообщениях!**")
     
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
@@ -1251,32 +1298,36 @@ async def create_backup(ctx):
     with open(json_backup, 'w', encoding='utf-8') as f:
         json.dump(backup_data, f, indent=4, ensure_ascii=False)
     
-    channel = bot.get_channel(LOG_CHANNEL_ID) or ctx.channel
-    
-    embed = discord.Embed(
-        title="💾 Полный бэкап создан!",
-        description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
-                   f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB\n"
-                   f"**Данные:** Все (баланс, варны, голос, рефералы, настройки)",
-        color=0x00ff00
-    )
-    
-    stats = []
-    stats.append(f"👥 Пользователей: {len(backup_data['balance'])}")
-    stats.append(f"💎 Всего осколков: {sum(backup_data['balance'].values())}")
-    stats.append(f"⚠️ Варнов: {sum(len(w) for w in backup_data['warns'].values())}")
-    stats.append(f"👥 Рефералов: {sum(backup_data['referral_count'].values())}")
-    stats.append(f"🎙️ Приватных войсов: {len(backup_data['private_voice_settings'])}")
-    embed.add_field(name="📊 Статистика", value="\n".join(stats), inline=False)
-    
-    embed.set_footer(text=f"Создал: {ctx.author.display_name}")
-    
-    await channel.send(embed=embed)
-    
-    with open(json_backup, 'rb') as f:
-        await channel.send(file=discord.File(f, f"backup_{timestamp}.json"))
-    
-    await ctx.send(f"✅ **Полный бэкап создан!** Файл отправлен в канал <#{channel.id}>")
+    try:
+        embed = discord.Embed(
+            title="💾 Полный бэкап создан!",
+            description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
+                       f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB\n"
+                       f"**Данные:** Все (баланс, варны, голос, рефералы, настройки)",
+            color=0x00ff00
+        )
+        
+        stats = []
+        stats.append(f"👥 Пользователей: {len(backup_data['balance'])}")
+        stats.append(f"💎 Всего осколков: {sum(backup_data['balance'].values())}")
+        stats.append(f"⚠️ Варнов: {sum(len(w) for w in backup_data['warns'].values())}")
+        stats.append(f"👥 Рефералов: {sum(backup_data['referral_count'].values())}")
+        stats.append(f"🎙️ Приватных войсов: {len(backup_data['private_voice_settings'])}")
+        embed.add_field(name="📊 Статистика", value="\n".join(stats), inline=False)
+        embed.set_footer(text=f"Создал: {ctx.author.display_name}")
+        
+        await ctx.author.send(embed=embed)
+        
+        with open(json_backup, 'rb') as f:
+            await ctx.author.send(file=discord.File(f, f"backup_{timestamp}.json"))
+        
+        await ctx.send(f"✅ **Полный бэкап создан и отправлен в личные сообщения!**")
+        
+    except discord.Forbidden:
+        await ctx.send("❌ **Не могу отправить бэкап в ЛС!** Включите личные сообщения от участников сервера в настройках Discord.")
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка при отправке: {e}")
+
 
 # ----- КОМАНДА RESTORE -----
 @bot.command(name='restore', aliases=['восстановить'])
@@ -1344,6 +1395,7 @@ async def restore_backup(ctx, backup_name: str = None):
     except Exception as e:
         await ctx.send(f"❌ Ошибка при восстановлении: {e}")
 
+
 # ----- СЛЕЖЕНИЕ ЗА СТАТУСОМ -----
 @tasks.loop(seconds=5)
 async def status_check():
@@ -1380,6 +1432,7 @@ async def status_check():
     except Exception as e:
         print(f"Ошибка: {e}")
 
+
 async def send_status_update(channel, status):
     embed = discord.Embed(title="👁️ Статус Боженьки")
     if status == discord.Status.online:
@@ -1399,6 +1452,7 @@ async def send_status_update(channel, status):
         embed.set_thumbnail(url=bog_member.display_avatar.url)
     return await channel.send(embed=embed)
 
+
 # ----- ОБРАБОТЧИК ОШИБОК -----
 @bot.event
 async def on_command_error(ctx, error):
@@ -1413,6 +1467,7 @@ async def on_command_error(ctx, error):
     else:
         await ctx.send(f"❌ Ошибка: {error}")
         print(f"Ошибка: {error}")
+
 
 # ----- СОБЫТИЕ ГОТОВНОСТИ -----
 @bot.event
@@ -1452,6 +1507,7 @@ async def on_ready():
     voice_tracker.start()
     status_check.start()
     print("✅ Статус-трекер и войс-трекер запущены!")
+
 
 # ----- ЗАПУСК -----
 if __name__ == "__main__":
