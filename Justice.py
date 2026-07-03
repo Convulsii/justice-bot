@@ -376,7 +376,6 @@ async def check_hierarchy(ctx, target):
     return roles_list.index(author_role) < roles_list.index(target_role)
 
 def is_owner(ctx):
-    """Проверяет, является ли пользователь владельцем (по роли или по ID)"""
     if ctx.author.id == 1504402262833758228:
         return True
     if discord.utils.get(ctx.author.roles, id=OWNER_ROLE_ID):
@@ -1230,22 +1229,6 @@ async def create_backup(ctx):
     
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
-    # Сохраняем ВСЕ данные
-    backup_data = {
-        'warns': data.get('warns', {}),
-        'balance': data.ge# ----- КОМАНДА BACKUP (ПОЛНЫЙ БЭКАП) -----
-@bot.command(name='backup', aliases=['бэкап'])
-async def create_backup(ctx):
-    """Создать полный бэкап всех данных (Только владелец)"""
-    if not is_owner(ctx):
-        await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
-        return
-    
-    await ctx.send("🔄 **Создаю полный бэкап всех данных...**")
-    
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    
-    # Сохраняем ВСЕ данные (используем глобальную data)
     backup_data = {
         'warns': data.get('warns', {}),
         'balance': data.get('balance', {}),
@@ -1335,16 +1318,13 @@ async def restore_backup(ctx, backup_name: str = None):
         return
     
     try:
-        # Сохраняем текущие данные как резервную копию
         emergency_backup = f"{BACKUP_FOLDER}/pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(emergency_backup, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         
-        # Загружаем данные из бэкапа
         with open(backup_path, 'r', encoding='utf-8') as f:
             backup_data = json.load(f)
         
-        # Восстанавливаем ВСЕ данные (без global data)
         for key in backup_data:
             data[key] = backup_data[key]
         
