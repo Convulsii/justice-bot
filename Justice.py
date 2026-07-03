@@ -1233,6 +1233,21 @@ async def create_backup(ctx):
     # Сохраняем ВСЕ данные
     backup_data = {
         'warns': data.get('warns', {}),
+        'balance': data.ge# ----- КОМАНДА BACKUP (ПОЛНЫЙ БЭКАП) -----
+@bot.command(name='backup', aliases=['бэкап'])
+async def create_backup(ctx):
+    """Создать полный бэкап всех данных (Только владелец)"""
+    if not is_owner(ctx):
+        await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
+        return
+    
+    await ctx.send("🔄 **Создаю полный бэкап всех данных...**")
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    # Сохраняем ВСЕ данные (используем глобальную data)
+    backup_data = {
+        'warns': data.get('warns', {}),
         'balance': data.get('balance', {}),
         'daily': data.get('daily', {}),
         'exchange_rate': data.get('exchange_rate', 5.0),
@@ -1329,8 +1344,7 @@ async def restore_backup(ctx, backup_name: str = None):
         with open(backup_path, 'r', encoding='utf-8') as f:
             backup_data = json.load(f)
         
-        # Восстанавливаем ВСЕ данные
-        global data
+        # Восстанавливаем ВСЕ данные (без global data)
         for key in backup_data:
             data[key] = backup_data[key]
         
