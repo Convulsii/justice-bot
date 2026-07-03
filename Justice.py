@@ -87,6 +87,8 @@ last_status_message = None
 private_voice_channels = {}
 voice_settings = {}
 
+
+# ----- КЛАССЫ ДЛЯ КНОПОК И МОДАЛЬНЫХ ОКОН -----
 class VoiceControlView(View):
     def __init__(self, channel_id, owner_id):
         super().__init__(timeout=BUTTON_TIMEOUT)
@@ -259,6 +261,8 @@ class SetLimitModal(discord.ui.Modal):
         except ValueError:
             await interaction.response.send_message("❌ Введите число!", ephemeral=True)
 
+
+# ----- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ -----
 def is_owner(ctx):
     if ctx.author.id == 1504402262833758228:
         return True
@@ -341,6 +345,8 @@ def get_time_filter(times, period):
         return times
     return [t for t in times if t > cutoff.timestamp()]
 
+
+# ----- ОБРАБОТЧИКИ ГОЛОСА -----
 @tasks.loop(seconds=VOICE_CHECK_INTERVAL)
 async def voice_tracker():
     for guild in bot.guilds:
@@ -590,6 +596,8 @@ async def show_user_select(interaction, channel_id, action):
     view = UserSelectView(channel_id, action, users)
     await interaction.response.send_message("👤 **Выберите пользователя:**", view=view, ephemeral=True)
 
+
+# ----- ОСНОВНЫЕ КОМАНДЫ -----
 @bot.command(name='help', aliases=['h'])
 async def custom_help(ctx, command_name: str = None):
     if command_name:
@@ -650,7 +658,7 @@ async def custom_help(ctx, command_name: str = None):
     
     embed.add_field(
         name="📊 Отчеты",
-        value="""**report** - Отчет (ЛС)\n**backup** - Бэкап (ЛС)\n**restore** - Восстановить\n**stats** - Статус бота\n**find** - Найти пользователя""",
+        value="""**report** - Отчет (ЛС)\n**backup** - Бэкап (ЛС)\n**restore** - Восстановить\n**backups** - Список бэкапов\n**stats** - Статус бота\n**find** - Найти пользователя""",
         inline=False
     )
     
@@ -784,6 +792,8 @@ async def profile(ctx, member: discord.Member = None):
     embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
     await ctx.send(embed=embed)
 
+
+# ----- СТАТИСТИКА -----
 @bot.command(name='topmsg', aliases=['топсообщений'])
 async def top_messages(ctx, period: str = "all"):
     periods = {
@@ -992,6 +1002,8 @@ async def voice_stats(ctx, member: discord.Member = None):
     embed.set_footer(text=f"1 час в войсе = {VOICE_HOUR_SHARDS} осколков")
     await ctx.send(embed=embed)
 
+
+# ----- МОДЕРАЦИЯ -----
 @bot.command(name='mute', aliases=['мут'])
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'], 
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
@@ -1173,19 +1185,16 @@ async def clear_all(ctx):
     status_msg = await confirm_msg.edit(content="🔄 **Начинаю очистку канала...**")
     
     try:
-        # Получаем закрепленные сообщения
         pinned_messages = await ctx.channel.pins()
         pinned_ids = [msg.id for msg in pinned_messages]
         
-        # Функция-фильтр: удаляем ВСЕ, кроме закрепленных
         def is_not_pinned(msg):
             return msg.id not in pinned_ids
         
-        # ВОТ ЭТОТ КОД - ОСНОВНАЯ МАГИЯ
         deleted = await ctx.channel.purge(
-            limit=None,          # Все сообщения
-            check=is_not_pinned, # Фильтр
-            bulk=True            # Массовое удаление
+            limit=None,
+            check=is_not_pinned,
+            bulk=True
         )
         
         embed = discord.Embed(
@@ -1199,7 +1208,6 @@ async def clear_all(ctx):
         await status_msg.edit(content="❌ У меня нет прав на удаление сообщений в этом канале!")
     except discord.HTTPException as e:
         if "14 days" in str(e) or "Bulk delete" in str(e):
-            # Если purge не справился (старые сообщения) - удаляем по одному
             await status_msg.edit(content="⚠️ **Есть сообщения старше 14 дней, удаляю по одному...**")
             
             deleted_count = 0
@@ -1226,6 +1234,8 @@ async def clear_all(ctx):
     except Exception as e:
         await status_msg.edit(content=f"❌ Ошибка: {e}")
 
+
+# ----- ЭКОНОМИКА -----
 @bot.command(name='add')
 @commands.check(can_manage_economy)
 async def add_shards(ctx, member: discord.Member, amount: int):
@@ -1269,6 +1279,7 @@ async def remove_shards(ctx, member: discord.Member, amount: int):
     await ctx.send(embed=embed)
 
 
+# ----- РЕФЕРАЛЫ -----
 @bot.command(name='referral', aliases=['реферал', 'invite'])
 async def create_referral(ctx):
     user_id = str(ctx.author.id)
@@ -1353,6 +1364,7 @@ async def on_member_join(member):
                 break
 
 
+# ----- ОТЧЕТЫ И БЭКАПЫ -----
 @bot.command(name='report', aliases=['отчет'])
 @commands.check(is_owner_or_bog)
 async def create_report(ctx):
@@ -1531,12 +1543,10 @@ async def restore_backup(ctx, backup_name: str = None):
             with open(backup_path, 'r', encoding='utf-8') as f:
                 backup_data = json.load(f)
             
-            # Сохраняем текущие данные
             emergency_backup = f"{BACKUP_FOLDER}/pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             with open(emergency_backup, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
             
-            # Восстанавливаем
             for key in backup_data:
                 data[key] = backup_data[key]
             
@@ -1563,37 +1573,30 @@ async def restore_backup(ctx, backup_name: str = None):
         return msg.author == ctx.author and msg.channel == ctx.channel and len(msg.attachments) > 0
     
     try:
-        # Ждем сообщение с файлом (30 секунд)
         msg = await bot.wait_for('message', timeout=30.0, check=check)
         
         attachment = msg.attachments[0]
         
-        # Проверяем расширение
         if not attachment.filename.endswith('.json'):
             await ctx.send("❌ Файл должен быть в формате `.json`!")
             return
         
-        # Читаем файл
         file_content = await attachment.read()
         backup_data = json.loads(file_content.decode('utf-8'))
         
-        # Проверяем структуру
         required_keys = ['balance', 'warns', 'daily', 'exchange_rate']
         if not all(key in backup_data for key in required_keys):
             await ctx.send("❌ Это невалидный файл бэкапа! Отсутствуют необходимые данные.")
             return
         
-        # Сохраняем текущие данные
         emergency_backup = f"{BACKUP_FOLDER}/pre_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(emergency_backup, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         
-        # Сохраняем загруженный бэкап в папку
         backup_path = f"{BACKUP_FOLDER}/{attachment.filename}"
         with open(backup_path, 'wb') as f:
             f.write(file_content)
         
-        # Восстанавливаем
         for key in backup_data:
             data[key] = backup_data[key]
         
@@ -1617,72 +1620,6 @@ async def restore_backup(ctx, backup_name: str = None):
         await ctx.send(f"❌ Ошибка: {e}")
 
 
-@bot.command(name='backup', aliases=['бэкап'])
-async def create_backup(ctx):
-    """Создать полный бэкап всех данных (Только владелец) - отправляется в ЛС"""
-    if not is_owner(ctx):
-        await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
-        return
-    
-    await ctx.send("🔄 **Создаю полный бэкап... Ожидайте в личных сообщениях!**")
-    
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    
-    backup_data = {
-        'warns': data.get('warns', {}),
-        'balance': data.get('balance', {}),
-        'daily': data.get('daily', {}),
-        'exchange_rate': data.get('exchange_rate', 5.0),
-        'messages_count': data.get('messages_count', {}),
-        'messages_history': data.get('messages_history', {}),
-        'last_message_time': data.get('last_message_time', {}),
-        'voice_time': data.get('voice_time', {}),
-        'voice_last_check': data.get('voice_last_check', {}),
-        'voice_total_time': data.get('voice_total_time', {}),
-        'voice_history': data.get('voice_history', {}),
-        'last_status_message_id': data.get('last_status_message_id', None),
-        'referrals': data.get('referrals', {}),
-        'referral_count': data.get('referral_count', {}),
-        'referral_links': data.get('referral_links', {}),
-        'private_voice_settings': data.get('private_voice_settings', {}),
-        'used_referrals': data.get('used_referrals', {})
-    }
-    
-    # Сохраняем в папку
-    json_backup = f"{BACKUP_FOLDER}/backup_{timestamp}.json"
-    with open(json_backup, 'w', encoding='utf-8') as f:
-        json.dump(backup_data, f, indent=4, ensure_ascii=False)
-    
-    try:
-        embed = discord.Embed(
-            title="💾 Полный бэкап создан!",
-            description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
-                       f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB",
-            color=0x00ff00
-        )
-        
-        stats = []
-        stats.append(f"👥 Пользователей: {len(backup_data['balance'])}")
-        stats.append(f"💎 Всего осколков: {sum(backup_data['balance'].values())}")
-        stats.append(f"⚠️ Варнов: {sum(len(w) for w in backup_data['warns'].values())}")
-        stats.append(f"👥 Рефералов: {sum(backup_data['referral_count'].values())}")
-        stats.append(f"🎙️ Приватных войсов: {len(backup_data['private_voice_settings'])}")
-        embed.add_field(name="📊 Статистика", value="\n".join(stats), inline=False)
-        embed.set_footer(text=f"Создал: {ctx.author.display_name}")
-        
-        await ctx.author.send(embed=embed)
-        
-        with open(json_backup, 'rb') as f:
-            await ctx.author.send(file=discord.File(f, f"backup_{timestamp}.json"))
-        
-        await ctx.send(f"✅ **Полный бэкап создан и отправлен в личные сообщения!**")
-        
-    except discord.Forbidden:
-        await ctx.send("❌ **Не могу отправить бэкап в ЛС!** Включите личные сообщения от участников сервера в настройках Discord.")
-    except Exception as e:
-        await ctx.send(f"❌ Ошибка при отправке: {e}")
-
-
 @bot.command(name='backups', aliases=['бэкапы', 'списокбэкапов'])
 async def list_backups(ctx):
     """Показать список доступных бэкапов (Только владелец)"""
@@ -1702,7 +1639,7 @@ async def list_backups(ctx):
         color=0x5865F2
     )
     
-    for i, backup in enumerate(backups[-20:], 1):  # Показываем последние 20
+    for i, backup in enumerate(backups[-20:], 1):
         date_str = backup.replace('backup_', '').replace('.json', '')
         try:
             dt = datetime.strptime(date_str, '%Y%m%d_%H%M%S')
@@ -1710,7 +1647,6 @@ async def list_backups(ctx):
         except:
             date_formatted = date_str
         
-        # Размер файла
         size = os.path.getsize(os.path.join(BACKUP_FOLDER, backup)) / 1024
         size_str = f"{size:.1f} KB"
         
@@ -1722,6 +1658,63 @@ async def list_backups(ctx):
     
     embed.set_footer(text="Используйте j.restore имя_файла для восстановления")
     await ctx.send(embed=embed)
+
+
+# ----- СТАТУС ТРЕКЕР -----
+@tasks.loop(seconds=5)
+async def status_check():
+    global last_status, bog_member, last_status_message
+    channel = bot.get_channel(LOG_CHANNEL_ID)
+    if not channel:
+        return
+    if not bog_member:
+        if bot.guilds:
+            guild = bot.guilds[0]
+            bog_member = guild.get_member(BOG_USER_ID)
+            if bog_member:
+                last_status = bog_member.status
+                msg = await send_status_update(channel, bog_member.status)
+                if msg:
+                    last_status_message = msg
+                    data['last_status_message_id'] = msg.id
+                    save_data(data)
+        return
+    try:
+        current_status = bog_member.status
+        if current_status != last_status:
+            if last_status_message:
+                try:
+                    await last_status_message.delete()
+                except Exception as e:
+                    print(f"Не удалось удалить сообщение: {e}")
+            msg = await send_status_update(channel, current_status)
+            if msg:
+                last_status_message = msg
+                data['last_status_message_id'] = msg.id
+                save_data(data)
+            last_status = current_status
+    except Exception as e:
+        print(f"Ошибка: {e}")
+
+
+async def send_status_update(channel, status):
+    embed = discord.Embed(title="👁️ Статус Боженьки")
+    if status == discord.Status.online:
+        embed.description = "🌅 **Боженька готов услышать ваши мольбы!**\nОн в сети и ждёт ваши просьбы."
+        embed.color = 0x00ff00
+    elif status == discord.Status.idle:
+        embed.description = "💤 **Боженьку лучше не тревожить!**\nОн отдыхает, иначе навлечёте на себя гнев божий."
+        embed.color = 0xffff00
+    elif status == discord.Status.dnd:
+        embed.description = "🔇 **Боженька занят!**\nНе тревожьте его сейчас, иначе будете наказаны."
+        embed.color = 0xff0000
+    else:
+        embed.description = "🌆 **Боженька не в сети!**\nЕго лучше не тревожить. Похоже, он уехал в Вегас 🎰"
+        embed.color = 0x808080
+    embed.set_footer(text=f"🕐 Обновлено: {datetime.now().strftime('%H:%M:%S')}")
+    if bog_member:
+        embed.set_thumbnail(url=bog_member.display_avatar.url)
+    return await channel.send(embed=embed)
 
 
 @bot.event
