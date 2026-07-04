@@ -7,7 +7,6 @@ import os
 from datetime import datetime, timedelta
 import re
 import pytz
-import calendar
 
 # ----- НАСТРОЙКИ -----
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -37,7 +36,7 @@ VOICE_TRIGGER_ID = 1507485728739688549
 
 MESSAGES_PER_SHARD = 10
 SHARDS_PER_MESSAGES = 1
-VOICE_HOUR_SHARDS = 15
+VOICE_HOUR_SHARDS = 15  # 1 час = 15 осколков
 DAILY_BONUS = 15
 REFERRAL_BONUS = 100
 COOLDOWN_SECONDS = 10
@@ -78,21 +77,18 @@ def load_data():
         'referral_links': {},
         'private_voice_settings': {},
         'used_referrals': {},
-        # ДНЕВНАЯ СТАТИСТИКА
         'daily_stats': {
             'date': None,
             'messages': {},
             'voice_time': {}
         },
-        # НЕДЕЛЬНАЯ СТАТИСТИКА
         'weekly_stats': {
-            'week_start': None,  # Дата начала недели (понедельник)
+            'week_start': None,
             'messages': {},
             'voice_time': {}
         },
-        # МЕСЯЧНАЯ СТАТИСТИКА
         'monthly_stats': {
-            'month': None,  # Формат: YYYY-MM
+            'month': None,
             'messages': {},
             'voice_time': {}
         }
@@ -354,7 +350,6 @@ def get_medal(position):
         return f"#{position}"
 
 def get_week_start(date):
-    """Возвращает дату начала недели (понедельник)"""
     return date - timedelta(days=date.weekday())
 
 
@@ -467,17 +462,14 @@ def reset_monthly_stats():
 async def stats_reset_check():
     now = datetime.now(MSK)
     
-    # Проверка дня (00:00)
     if now.hour == 0 and now.minute == 0:
         reset_daily_stats()
         await asyncio.sleep(1)
     
-    # Проверка недели (понедельник 00:00)
     if now.weekday() == 0 and now.hour == 0 and now.minute == 0:
         reset_weekly_stats()
         await asyncio.sleep(1)
     
-    # Проверка месяца (1-е число 00:00)
     if now.day == 1 and now.hour == 0 and now.minute == 0:
         reset_monthly_stats()
         await asyncio.sleep(1)
@@ -569,7 +561,6 @@ def add_monthly_voice(user_id, seconds):
 # ----- КОМАНДЫ СТАТИСТИКИ -----
 @bot.command(name='daystats', aliases=['день'])
 async def day_stats(ctx):
-    """Показать дневную статистику"""
     stats = data['daily_stats']
     
     if stats['date'] is None or (not stats['messages'] and not stats['voice_time']):
@@ -620,7 +611,6 @@ async def day_stats(ctx):
 
 @bot.command(name='weekstats', aliases=['неделя'])
 async def week_stats(ctx):
-    """Показать недельную статистику"""
     stats = data['weekly_stats']
     
     if stats['week_start'] is None or (not stats['messages'] and not stats['voice_time']):
@@ -671,7 +661,6 @@ async def week_stats(ctx):
 
 @bot.command(name='monthstats', aliases=['месяц'])
 async def month_stats(ctx):
-    """Показать месячную статистику"""
     stats = data['monthly_stats']
     
     if stats['month'] is None or (not stats['messages'] and not stats['voice_time']):
@@ -747,23 +736,26 @@ async def voice_tracker():
                     data['voice_history'][user_id].append(time_delta)
                     data['voice_last_check'][user_id] = current_time
                     
-                    # Добавляем во все статистики
                     add_daily_voice(user_id, time_delta)
                     add_weekly_voice(user_id, time_delta)
                     add_monthly_voice(user_id, time_delta)
                     
+                    # НАЧИСЛЯЕМ ТОЛЬКО ЗА КАЖДЫЙ ПОЛНЫЙ ЧАС
                     if data['voice_time'][user_id] >= 3600:
-                        shards_earned = int(data['voice_time'][user_id] // 3600) * VOICE_HOUR_SHARDS
+                        hours_earned = int(data['voice_time'][user_id] // 3600)
+                        shards_earned = hours_earned * VOICE_HOUR_SHARDS
+                        
                         if shards_earned > 0:
                             if user_id not in data['balance']:
                                 data['balance'][user_id] = 0
                             data['balance'][user_id] += shards_earned
                             data['voice_time'][user_id] = data['voice_time'][user_id] % 3600
                             save_data(data)
+                            
                             try:
                                 embed = discord.Embed(
                                     title=f"🎙️ +{shards_earned} Осколков за голос!",
-                                    description=f"Вы получили {shards_earned} осколков за {shards_earned // VOICE_HOUR_SHARDS} час(ов) в голосовом канале!\nВсего осколков: {data['balance'][user_id]} 💎",
+                                    description=f"Вы получили {shards_earned} осколков за {hours_earned} час(ов) в голосовом канале!\nВсего осколков: {data['balance'][user_id]} 💎",
                                     color=0x00ff00
                                 )
                                 await member.send(embed=embed)
@@ -793,7 +785,6 @@ async def on_message(message):
         data['messages_history'][user_id] = []
     data['messages_history'][user_id].append(current_time)
     
-    # Добавляем во все статистики
     add_daily_message(user_id)
     add_weekly_message(user_id)
     add_monthly_message(user_id)
@@ -1188,7 +1179,6 @@ async def profile(ctx, member: discord.Member = None):
     await ctx.send(embed=embed)
 
 
-# ----- TOPMSG, TOPVOICE, MYSTATS, MSGSTATS, VOICESTATS -----
 @bot.command(name='topmsg', aliases=['топсообщений'])
 async def top_messages(ctx, period: str = "all"):
     periods = {
@@ -2221,12 +2211,10 @@ async def on_ready():
     print(f'✅ Бот {bot.user} готов!')
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="за Боженькой"))
     
-    # Инициализация статистики
     reset_daily_stats()
     reset_weekly_stats()
     reset_monthly_stats()
     
-    # Запуск проверки сброса
     stats_reset_check.start()
     
     if bot.guilds:
