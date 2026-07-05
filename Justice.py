@@ -589,7 +589,7 @@ def add_monthly_voice(user_id, seconds):
 
 
 # ----- КОМАНДА HELP (ОБНОВЛЕНА) -----
-@bot.command(name='help', aliases=['h', 'помощь', 'HELP'])
+@bot.command(name='help', aliases=['h', 'помощь'])
 async def custom_help(ctx, command_name: str = None):
     """Показать список всех команд"""
     if command_name:
