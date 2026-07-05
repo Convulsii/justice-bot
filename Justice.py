@@ -30,6 +30,7 @@ BOG_USER_ID = 1062336593588912199
 
 LOG_CHANNEL_ID = 1502637205187723433
 REPORT_CHANNEL_ID = 1502637205187723433
+STATS_LOG_CHANNEL_ID = 1502637204982206681
 
 PRIVATE_VOICE_CATEGORY_ID = 1507479787223126036
 VOICE_TRIGGER_ID = 1507485728739688549
@@ -366,9 +367,7 @@ def get_week_start(date):
     return date - timedelta(days=date.weekday())
 
 
-# ----- ФУНКЦИЯ ФИЛЬТРАЦИИ ПО ПЕРИОДАМ (ИСПРАВЛЕНА) -----
 def get_time_filter(times, period):
-    """Фильтрует временные метки по периоду"""
     now = datetime.now(MSK)
     if period == "day":
         cutoff = now - timedelta(days=1)
@@ -378,7 +377,7 @@ def get_time_filter(times, period):
         cutoff = now - timedelta(days=30)
     elif period == "year":
         cutoff = now - timedelta(days=365)
-    else:  # all
+    else:
         return times
     return [t for t in times if t > cutoff.timestamp()]
 
@@ -399,11 +398,11 @@ def reset_daily_stats():
 
         print(f"🔄 Дневная статистика сброшена для {today}")
 
-        channel = bot.get_channel(LOG_CHANNEL_ID)
+        channel = bot.get_channel(STATS_LOG_CHANNEL_ID)
         if channel:
             embed = discord.Embed(
                 title="📊 Дневная статистика сброшена",
-                description=f"Начался новый день **{today}**!",
+                description=f"Начался новый день **{today}**!\nВсе топы за день обнулены.",
                 color=0x00ff00,
                 timestamp=datetime.now(MSK)
             )
@@ -434,11 +433,11 @@ def reset_weekly_stats():
 
         print(f"🔄 Недельная статистика сброшена (неделя начинается с {week_start})")
 
-        channel = bot.get_channel(LOG_CHANNEL_ID)
+        channel = bot.get_channel(STATS_LOG_CHANNEL_ID)
         if channel:
             embed = discord.Embed(
                 title="📊 Недельная статистика сброшена",
-                description=f"Началась новая неделя **{week_start}**!",
+                description=f"Началась новая неделя **{week_start}**!\nВсе топы за неделю обнулены.",
                 color=0x00ff00,
                 timestamp=datetime.now(MSK)
             )
@@ -469,11 +468,11 @@ def reset_monthly_stats():
 
         print(f"🔄 Месячная статистика сброшена для {month}")
 
-        channel = bot.get_channel(LOG_CHANNEL_ID)
+        channel = bot.get_channel(STATS_LOG_CHANNEL_ID)
         if channel:
             embed = discord.Embed(
                 title="📊 Месячная статистика сброшена",
-                description=f"Начался новый месяц **{month}**!",
+                description=f"Начался новый месяц **{month}**!\nВсе топы за месяц обнулены.",
                 color=0x00ff00,
                 timestamp=datetime.now(MSK)
             )
@@ -739,11 +738,9 @@ async def month_stats(ctx):
     await ctx.send(embed=embed)
 
 
-# ----- ТОПЫ (ИСПРАВЛЕНЫ) -----
+# ----- ТОПЫ -----
 @bot.command(name='topmsg', aliases=['топсообщений'])
 async def top_messages(ctx, period: str = "all"):
-    """Топ пользователей по сообщениям. Периоды: day, week, month, year, all"""
-
     periods = {
         "day": "за день",
         "week": "за неделю",
@@ -804,8 +801,6 @@ async def top_messages(ctx, period: str = "all"):
 
 @bot.command(name='topvoice', aliases=['топвойс'])
 async def top_voice(ctx, period: str = "all"):
-    """Топ пользователей по времени в голосе. Периоды: day, week, month, year, all"""
-
     periods = {
         "day": "за день",
         "week": "за неделю",
@@ -872,9 +867,14 @@ async def voice_tracker():
             for member in voice_channel.members:
                 if member.bot:
                     continue
+                
                 user_id = str(member.id)
                 current_time = datetime.now().timestamp()
-
+                
+                # Проверяем, что пользователь реально в голосовом канале
+                if not member.voice or not member.voice.channel:
+                    continue
+                
                 if user_id not in data['voice_time']:
                     data['voice_time'][user_id] = 0
                 if user_id not in data['voice_total_time']:
@@ -883,29 +883,29 @@ async def voice_tracker():
                     data['voice_history'][user_id] = []
                 if user_id not in data['voice_last_check']:
                     data['voice_last_check'][user_id] = current_time
-
+                
                 time_delta = current_time - data['voice_last_check'][user_id]
                 if time_delta >= VOICE_CHECK_INTERVAL:
                     data['voice_time'][user_id] += time_delta
                     data['voice_total_time'][user_id] += time_delta
                     data['voice_history'][user_id].append(time_delta)
                     data['voice_last_check'][user_id] = current_time
-
+                    
                     add_daily_voice(user_id, time_delta)
                     add_weekly_voice(user_id, time_delta)
                     add_monthly_voice(user_id, time_delta)
-
+                    
                     if data['voice_time'][user_id] >= 3600:
                         hours_earned = int(data['voice_time'][user_id] // 3600)
                         shards_earned = hours_earned * VOICE_HOUR_SHARDS
-
+                        
                         if shards_earned > 0:
                             if user_id not in data['balance']:
                                 data['balance'][user_id] = 0
                             data['balance'][user_id] += shards_earned
                             data['voice_time'][user_id] = data['voice_time'][user_id] % 3600
                             save_data(data)
-
+                            
                             try:
                                 embed = discord.Embed(
                                     title=f"🎙️ +{shards_earned} Осколков за голос!",
@@ -969,11 +969,106 @@ async def on_message(message):
 
 @bot.event
 async def on_voice_state_update(member, before, after):
+    # СОЗДАНИЕ ПРИВАТНОГО ВОЙСА
     if after.channel and after.channel.id == VOICE_TRIGGER_ID:
         await create_private_voice(member)
+    
+    # ПРОВЕРКА НА ПУСТОТУ ПРИВАТНЫХ ВОЙСОВ
     if before.channel and before.channel.id in private_voice_channels:
         if len(before.channel.members) == 0:
             await delete_empty_voice(before.channel)
+    
+    user_id = str(member.id)
+    current_time = datetime.now().timestamp()
+    
+    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ВЫШЕЛ ИЗ ВОЙСА
+    if before.channel is not None and after.channel is None:
+        if user_id in data['voice_last_check'] and data['voice_last_check'][user_id] > 0:
+            time_delta = current_time - data['voice_last_check'][user_id]
+            if time_delta > 0:
+                data['voice_time'][user_id] = data['voice_time'].get(user_id, 0) + time_delta
+                data['voice_total_time'][user_id] = data['voice_total_time'].get(user_id, 0) + time_delta
+                data['voice_history'][user_id].append(time_delta)
+                
+                add_daily_voice(user_id, time_delta)
+                add_weekly_voice(user_id, time_delta)
+                add_monthly_voice(user_id, time_delta)
+                
+                if data['voice_time'][user_id] >= 3600:
+                    hours_earned = int(data['voice_time'][user_id] // 3600)
+                    shards_earned = hours_earned * VOICE_HOUR_SHARDS
+                    
+                    if shards_earned > 0:
+                        if user_id not in data['balance']:
+                            data['balance'][user_id] = 0
+                        data['balance'][user_id] += shards_earned
+                        data['voice_time'][user_id] = data['voice_time'][user_id] % 3600
+                        save_data(data)
+                        
+                        try:
+                            embed = discord.Embed(
+                                title=f"🎙️ +{shards_earned} Осколков за голос!",
+                                description=f"Вы получили {shards_earned} осколков за {hours_earned} час(ов) в голосовом канале!\nВсего осколков: {data['balance'][user_id]} 💎",
+                                color=0x00ff00
+                            )
+                            await member.send(embed=embed)
+                        except:
+                            pass
+                        save_data(data)
+            
+            # ОБНУЛЯЕМ ВРЕМЯ ПОСЛЕДНЕЙ ПРОВЕРКИ
+            data['voice_last_check'][user_id] = 0
+            save_data(data)
+    
+    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ЗАШЕЛ В ВОЙС
+    elif after.channel is not None and before.channel is None:
+        data['voice_last_check'][user_id] = current_time
+        if user_id not in data['voice_time']:
+            data['voice_time'][user_id] = 0
+        if user_id not in data['voice_total_time']:
+            data['voice_total_time'][user_id] = 0
+        if user_id not in data['voice_history']:
+            data['voice_history'][user_id] = []
+        save_data(data)
+    
+    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ПЕРЕШЕЛ ИЗ КАНАЛА В КАНАЛ
+    elif before.channel is not None and after.channel is not None:
+        if user_id in data['voice_last_check'] and data['voice_last_check'][user_id] > 0:
+            time_delta = current_time - data['voice_last_check'][user_id]
+            if time_delta > 0:
+                data['voice_time'][user_id] = data['voice_time'].get(user_id, 0) + time_delta
+                data['voice_total_time'][user_id] = data['voice_total_time'].get(user_id, 0) + time_delta
+                data['voice_history'][user_id].append(time_delta)
+                
+                add_daily_voice(user_id, time_delta)
+                add_weekly_voice(user_id, time_delta)
+                add_monthly_voice(user_id, time_delta)
+                
+                if data['voice_time'][user_id] >= 3600:
+                    hours_earned = int(data['voice_time'][user_id] // 3600)
+                    shards_earned = hours_earned * VOICE_HOUR_SHARDS
+                    
+                    if shards_earned > 0:
+                        if user_id not in data['balance']:
+                            data['balance'][user_id] = 0
+                        data['balance'][user_id] += shards_earned
+                        data['voice_time'][user_id] = data['voice_time'][user_id] % 3600
+                        save_data(data)
+                        
+                        try:
+                            embed = discord.Embed(
+                                title=f"🎙️ +{shards_earned} Осколков за голос!",
+                                description=f"Вы получили {shards_earned} осколков за {hours_earned} час(ов) в голосовом канале!\nВсего осколков: {data['balance'][user_id]} 💎",
+                                color=0x00ff00
+                            )
+                            await member.send(embed=embed)
+                        except:
+                            pass
+                        save_data(data)
+        
+        # Обновляем время для нового канала
+        data['voice_last_check'][user_id] = current_time
+        save_data(data)
 
 
 async def create_private_voice(member):
@@ -1142,12 +1237,9 @@ async def daily_bonus(ctx):
     data['daily'][user_id] = today
     save_data(data)
 
-    rate = data.get('exchange_rate', 5)
-    rubles = round(DAILY_BONUS / rate, 2)
-
     embed = discord.Embed(
         title="🎉 Ежедневный бонус!",
-        description=f"Вы получили **+{DAILY_BONUS} осколков** 💎\n\n**Новый баланс:** {data['balance'][user_id]} 💎 ({rubles} ₽)\n\nБонус доступен раз в день, сброс в 00:00 по МСК!",
+        description=f"Вы получили **+{DAILY_BONUS} осколков** 💎\n\n**Новый баланс:** {data['balance'][user_id]} 💎\n\nБонус доступен раз в день, сброс в 00:00 по МСК!",
         color=0xffd700
     )
     embed.set_footer(text="📅 Боженька заботится о вас ✨")
@@ -1313,8 +1405,6 @@ async def profile(ctx, member: discord.Member = None):
         member = ctx.author
     user_id = str(member.id)
     balance = data['balance'].get(user_id, 0)
-    rate = data.get('exchange_rate', 5)
-    rubles = round(balance / rate, 2) if rate > 0 else 0
     messages = len(data['messages_history'].get(user_id, []))
     voice_seconds = data['voice_total_time'].get(user_id, 0)
     voice_hours = voice_seconds // 3600
@@ -1326,7 +1416,7 @@ async def profile(ctx, member: discord.Member = None):
     embed = discord.Embed(title=f"👤 Профиль {member.display_name}", color=member.color or 0x5865F2, timestamp=datetime.now())
     embed.set_thumbnail(url=member.display_avatar.url)
     embed.add_field(name="📋 Основная информация", value=f"**ID:** {member.id}\n**Имя:** {member.name}\n**Отображаемое имя:** {member.display_name}\n**Аккаунт создан:** {member.created_at.strftime('%d.%m.%Y')}", inline=False)
-    embed.add_field(name="💰 Баланс", value=f"**Осколки:** {balance} 💎\n**Рубли:** {rubles} ₽\n**Курс:** 1 ₽ = {rate} 💎", inline=True)
+    embed.add_field(name="💰 Баланс", value=f"**Осколки:** {balance} 💎", inline=True)
     embed.add_field(name="💬 Активность", value=f"**Сообщений:** {messages}\n**В голосе:** {voice_hours}ч {voice_minutes}м\n**Варнов:** {warns}\n**Пригласил:** {referrals} друзей", inline=True)
     embed.add_field(name="🎖️ Роли", value=roles_text[:1024] if len(roles_text) <= 1024 else roles_text[:1021] + "...", inline=False)
     embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
@@ -1356,8 +1446,6 @@ async def my_stats(ctx, period: str = "all"):
     voice_seconds = sum(get_time_filter(voice, period))
 
     balance = data['balance'].get(user_id, 0)
-    rate = data.get('exchange_rate', 5)
-    rubles = round(balance / rate, 2) if rate > 0 else 0
 
     embed = discord.Embed(
         title=f"📊 Моя статистика {periods[period]}",
@@ -1368,7 +1456,7 @@ async def my_stats(ctx, period: str = "all"):
 
     embed.add_field(name="💬 Сообщений", value=f"{msg_count}", inline=True)
     embed.add_field(name="🎙️ В голосе", value=format_time(voice_seconds), inline=True)
-    embed.add_field(name="💎 Баланс", value=f"{balance} 💎 ({rubles} ₽)", inline=True)
+    embed.add_field(name="💎 Баланс", value=f"{balance} 💎", inline=True)
 
     current_msgs = data['messages_count'].get(user_id, 0)
     needed = MESSAGES_PER_SHARD - current_msgs
@@ -1664,11 +1752,9 @@ async def add_shards(ctx, member: discord.Member, amount: int):
         data['balance'][str(member.id)] = 0
     data['balance'][str(member.id)] += amount
     save_data(data)
-    rate = data.get('exchange_rate', 5)
-    rubles = round(amount / rate, 2)
     embed = discord.Embed(title="➕ Выдача осколков", color=0x00ff00)
     embed.add_field(name="Пользователь", value=member.mention)
-    embed.add_field(name="Получено", value=f"+{amount} 💎 ({rubles} ₽)")
+    embed.add_field(name="Получено", value=f"+{amount} 💎")
     embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎")
     embed.set_footer(text=f"Выдал: {ctx.author.display_name}")
     await ctx.send(embed=embed)
@@ -1687,11 +1773,9 @@ async def remove_shards(ctx, member: discord.Member, amount: int):
         return
     data['balance'][str(member.id)] -= amount
     save_data(data)
-    rate = data.get('exchange_rate', 5)
-    rubles = round(amount / rate, 2)
     embed = discord.Embed(title="➖ Снятие осколков", color=0xff0000)
     embed.add_field(name="Пользователь", value=member.mention)
-    embed.add_field(name="Снято", value=f"-{amount} 💎 ({rubles} ₽)")
+    embed.add_field(name="Снято", value=f"-{amount} 💎")
     embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎")
     embed.set_footer(text=f"Снял: {ctx.author.display_name}")
     await ctx.send(embed=embed)
@@ -1967,12 +2051,7 @@ async def restore_backup(ctx, backup_name: str = None):
                 json.dump(data, f, indent=4, ensure_ascii=False)
 
             for key in backup_data:
-                if key in data:
-                    if isinstance(data[key], dict) and isinstance(backup_data[key], dict):
-                        for sub_key in backup_data[key]:
-                            data[key][sub_key] = backup_data[key][sub_key]
-                    else:
-                        data[key] = backup_data[key]
+                data[key] = backup_data[key]
 
             save_data(data)
 
@@ -2020,12 +2099,7 @@ async def restore_backup(ctx, backup_name: str = None):
             f.write(file_content)
 
         for key in backup_data:
-            if key in data:
-                if isinstance(data[key], dict) and isinstance(backup_data[key], dict):
-                    for sub_key in backup_data[key]:
-                        data[key][sub_key] = backup_data[key][sub_key]
-                else:
-                    data[key] = backup_data[key]
+            data[key] = backup_data[key]
 
         save_data(data)
 
