@@ -44,8 +44,9 @@ COOLDOWN_SECONDS = 10
 VOICE_CHECK_INTERVAL = 30
 BUTTON_TIMEOUT = 31536000
 
+# ----- ИНИЦИАЛИЗАЦИЯ БОТА (case_insensitive=True - команды работают в любом регистре) -----
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix='j.', intents=intents)
+bot = commands.Bot(command_prefix='j.', intents=intents, case_insensitive=True)
 bot.remove_command('help')
 
 DATA_FILE = 'data.json'
@@ -587,13 +588,324 @@ def add_monthly_voice(user_id, seconds):
     save_data(data)
 
 
+# ----- КОМАНДА HELP (ОБНОВЛЕНА) -----
+@bot.command(name='help', aliases=['h', 'помощь', 'HELP'])
+async def custom_help(ctx, command_name: str = None):
+    """Показать список всех команд"""
+    if command_name:
+        cmd = bot.get_command(command_name.lower())
+        if cmd:
+            embed = discord.Embed(
+                title=f"📖 Команда: j.{cmd.name}",
+                description=cmd.help or "Нет описания",
+                color=0x00ff00
+            )
+            await ctx.send(embed=embed)
+            await ctx.message.delete()
+            return
+        else:
+            await ctx.send(f"❌ Команда `{command_name}` не найдена.")
+            await ctx.message.delete()
+            return
+
+    embed = discord.Embed(
+        title="🌟 Меню помощи бота Justice",
+        description=f"""**Префикс: `j.`** (работает в любом регистре: `J.`, `j.`)
+
+💬 **{MESSAGES_PER_SHARD} сообщений = {SHARDS_PER_MESSAGES} осколок**
+🎙️ **1 час в войсе = {VOICE_HOUR_SHARDS} осколков**
+📅 **/daily → +{DAILY_BONUS} осколков каждый день**
+👥 **Приведи друга → +{REFERRAL_BONUS} осколков**
+
+📊 **Сброс статистики:**
+• Дневная: 00:00 каждый день
+• Недельная: Понедельник 00:00
+• Месячная: 1-е число 00:00""",
+        color=0x5865F2
+    )
+
+    embed.add_field(
+        name="🛡️ Модерация",
+        value="""**mute** - Замутить\n**unmute** - Размутить\n**ban** - Забанить\n**kick** - Кикнуть\n**warn** - Выдать варн\n**warns** - Просмотр варнов\n**unwarn** - Снять варн\n**clear** - Очистить (до 1000)\n**clearall** - Очистить всё (кроме закрепленных)""",
+        inline=False
+    )
+
+    embed.add_field(
+        name="💰 Экономика",
+        value=f"""**balance (bal)** - Баланс\n**daily** - Ежедневный бонус\n**add** - Выдать осколки\n**remove** - Снять осколки\n**rate** - Курс\n**setrate** - Установить курс""",
+        inline=False
+    )
+
+    embed.add_field(
+        name="📊 Статистика",
+        value="""**top** - Выбор топа (сообщения/голос)\n**topmsg [day/week/month/year/all]** - Топ сообщений\n**topvoice [day/week/month/year/all]** - Топ голоса\n**daystats** - Дневная статистика\n**weekstats** - Недельная статистика\n**monthstats** - Месячная статистика\n**mystats [day/week/month/year/all]** - Моя статистика\n**msgstats** - Прогресс сообщений\n**voicestats** - Прогресс голоса\n**profile** - Профиль пользователя""",
+        inline=False
+    )
+
+    embed.add_field(
+        name="👥 Приглашения",
+        value=f"""**referral** - Создать ссылку (+{REFERRAL_BONUS} 💎)\n**referrals** - Статистика приглашений""",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎙️ Приватные войсы",
+        value="""**voice limit** - Лимит\n**voice ban** - Забанить\n**voice unban** - Разбанить\n**voice hide** - Скрыть\n**voice show** - Показать\n**voice kick** - Кикнуть\n**voice info** - Информация\n**voice delete** - Удалить""",
+        inline=False
+    )
+
+    embed.add_field(
+        name="📊 Отчеты",
+        value="""**report** - Отчет (ЛС)\n**backup** - Бэкап (ЛС)\n**restore** - Восстановить\n**backups** - Список бэкапов\n**stats** - Статус бота\n**find** - Найти пользователя""",
+        inline=False
+    )
+
+    embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
+    
+    await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+
+
+# ----- КОМАНДА TOP (ИНТЕРАКТИВНОЕ МЕНЮ) -----
+@bot.command(name='top', aliases=['топ'])
+async def top_menu(ctx):
+    """Выбор типа топа (сообщения или голос) с выбором периода"""
+    
+    # Создаем выбор типа
+    select_type = Select(
+        placeholder="Выберите тип топа...",
+        min_values=1,
+        max_values=1,
+        options=[
+            discord.SelectOption(label="💬 Топ сообщений", value="msg", emoji="💬"),
+            discord.SelectOption(label="🎙️ Топ голоса", value="voice", emoji="🎙️")
+        ]
+    )
+    
+    async def type_callback(interaction):
+        if interaction.user.id != ctx.author.id:
+            await interaction.response.send_message("❌ Это не ваше меню!", ephemeral=True)
+            return
+        
+        top_type = interaction.data['values'][0]
+        
+        # Создаем выбор периода
+        select_period = Select(
+            placeholder="Выберите период...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(label="📅 За сегодня", value="day", emoji="📅"),
+                discord.SelectOption(label="📅 За неделю", value="week", emoji="📅"),
+                discord.SelectOption(label="📅 За месяц", value="month", emoji="📅"),
+                discord.SelectOption(label="📅 За год", value="year", emoji="📅"),
+                discord.SelectOption(label="📅 За всё время", value="all", emoji="📅")
+            ]
+        )
+        
+        async def period_callback(interaction2):
+            if interaction2.user.id != ctx.author.id:
+                await interaction2.response.send_message("❌ Это не ваше меню!", ephemeral=True)
+                return
+            
+            period = interaction2.data['values'][0]
+            
+            # Закрываем меню
+            await interaction2.response.defer()
+            await interaction2.message.delete()
+            
+            # Вызываем соответствующую команду
+            if top_type == "msg":
+                await top_messages(ctx, period)
+            else:
+                await top_voice(ctx, period)
+        
+        select_period.callback = period_callback
+        
+        view = View()
+        view.add_item(select_period)
+        
+        await interaction.response.edit_message(content="📊 **Выберите период:**", view=view)
+    
+    select_type.callback = type_callback
+    
+    view = View()
+    view.add_item(select_type)
+    
+    msg = await ctx.send("📊 **Выберите тип топа:**", view=view)
+    await ctx.message.delete()
+    
+    # Таймаут через 60 секунд
+    await asyncio.sleep(60)
+    try:
+        await msg.delete()
+    except:
+        pass
+
+
+# ----- КОМАНДЫ ТОПОВ -----
+@bot.command(name='topmsg', aliases=['топсообщений'])
+async def top_messages(ctx, period: str = None):
+    """Топ пользователей по сообщениям. Периоды: day, week, month, year, all"""
+    
+    periods = {
+        "day": "за сегодня",
+        "week": "за неделю",
+        "month": "за месяц",
+        "year": "за год",
+        "all": "за всё время"
+    }
+    
+    # Если период не указан - показываем меню выбора
+    if period is None:
+        await top_menu(ctx)
+        return
+    
+    if period not in periods:
+        await ctx.send(f"❌ Неверный период! Доступны: `day`, `week`, `month`, `year`, `all`")
+        await ctx.message.delete()
+        return
+
+    if not data['messages_history']:
+        await ctx.send("📊 Нет данных о сообщениях!")
+        await ctx.message.delete()
+        return
+
+    stats = {}
+    for user_id, timestamps in data['messages_history'].items():
+        filtered = get_time_filter(timestamps, period)
+        if filtered:
+            stats[user_id] = len(filtered)
+
+    if not stats:
+        await ctx.send(f"📊 Нет сообщений {periods[period]}!")
+        await ctx.message.delete()
+        return
+
+    sorted_users = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    embed = discord.Embed(
+        title=f"🏆 Топ-10 по сообщениям {periods[period]}",
+        color=0xffd700,
+        timestamp=datetime.now()
+    )
+
+    text = ""
+    for i, (user_id, count) in enumerate(sorted_users, 1):
+        try:
+            user = await bot.fetch_user(int(user_id))
+            if user:
+                guild = ctx.guild
+                member = guild.get_member(int(user_id))
+                display_name = member.display_name if member else user.name
+                name = user.name
+            else:
+                display_name = "Неизвестный"
+                name = "Неизвестный"
+        except:
+            display_name = "Неизвестный"
+            name = "Неизвестный"
+
+        medal = get_medal(i)
+        text += f"{medal} **{display_name}** ({name}) - {count} сообщений\n"
+
+    embed.description = text if text else "Нет данных"
+    embed.set_footer(text=f"Всего пользователей: {len(stats)}")
+    
+    await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+
+
+@bot.command(name='topvoice', aliases=['топвойс'])
+async def top_voice(ctx, period: str = None):
+    """Топ пользователей по времени в голосе. Периоды: day, week, month, year, all"""
+    
+    periods = {
+        "day": "за сегодня",
+        "week": "за неделю",
+        "month": "за месяц",
+        "year": "за год",
+        "all": "за всё время"
+    }
+    
+    # Если период не указан - показываем меню выбора
+    if period is None:
+        await top_menu(ctx)
+        return
+
+    if period not in periods:
+        await ctx.send(f"❌ Неверный период! Доступны: `day`, `week`, `month`, `year`, `all`")
+        await ctx.message.delete()
+        return
+
+    if not data['voice_history']:
+        await ctx.send("📊 Нет данных о голосовой активности!")
+        await ctx.message.delete()
+        return
+
+    stats = {}
+    for user_id, seconds_list in data['voice_history'].items():
+        filtered = get_time_filter(seconds_list, period)
+        if filtered:
+            stats[user_id] = sum(filtered)
+
+    if not stats:
+        await ctx.send(f"📊 Нет голосовой активности {periods[period]}!")
+        await ctx.message.delete()
+        return
+
+    sorted_users = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    embed = discord.Embed(
+        title=f"🎙️ Топ-10 по времени в войсе {periods[period]}",
+        color=0x5865F2,
+        timestamp=datetime.now()
+    )
+
+    text = ""
+    for i, (user_id, seconds) in enumerate(sorted_users, 1):
+        try:
+            user = await bot.fetch_user(int(user_id))
+            if user:
+                guild = ctx.guild
+                member = guild.get_member(int(user_id))
+                display_name = member.display_name if member else user.name
+                name = user.name
+            else:
+                display_name = "Неизвестный"
+                name = "Неизвестный"
+        except:
+            display_name = "Неизвестный"
+            name = "Неизвестный"
+
+        medal = get_medal(i)
+        text += f"{medal} **{display_name}** ({name}) - {format_time(seconds)}\n"
+
+    embed.description = text if text else "Нет данных"
+    embed.set_footer(text=f"Всего пользователей: {len(stats)}")
+    
+    await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+
+
 # ----- КОМАНДЫ СТАТИСТИКИ -----
 @bot.command(name='daystats', aliases=['день'])
 async def day_stats(ctx):
+    """Дневная статистика"""
     stats = data['daily_stats']
 
     if stats['date'] is None or (not stats['messages'] and not stats['voice_time']):
         await ctx.send(f"📊 **Статистика за сегодня ({datetime.now(MSK).date().isoformat()})**\nПока нет данных!")
+        await ctx.message.delete()
         return
 
     embed = discord.Embed(
@@ -635,15 +947,22 @@ async def day_stats(ctx):
         inline=False
     )
     embed.set_footer(text="Обнуляется в 00:00 по МСК")
+    
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='weekstats', aliases=['неделя'])
 async def week_stats(ctx):
+    """Недельная статистика"""
     stats = data['weekly_stats']
 
     if stats['week_start'] is None or (not stats['messages'] and not stats['voice_time']):
         await ctx.send(f"📊 **Статистика за эту неделю (с {stats['week_start']})**\nПока нет данных!")
+        await ctx.message.delete()
         return
 
     embed = discord.Embed(
@@ -685,15 +1004,22 @@ async def week_stats(ctx):
         inline=False
     )
     embed.set_footer(text="Обнуляется в понедельник 00:00 по МСК")
+    
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='monthstats', aliases=['месяц'])
 async def month_stats(ctx):
+    """Месячная статистика"""
     stats = data['monthly_stats']
 
     if stats['month'] is None or (not stats['messages'] and not stats['voice_time']):
         await ctx.send(f"📊 **Статистика за {stats['month']}**\nПока нет данных!")
+        await ctx.message.delete()
         return
 
     embed = discord.Embed(
@@ -735,128 +1061,12 @@ async def month_stats(ctx):
         inline=False
     )
     embed.set_footer(text="Обнуляется 1-го числа каждого месяца в 00:00 по МСК")
+    
     await ctx.send(embed=embed)
-
-
-# ----- ТОПЫ -----
-@bot.command(name='topmsg', aliases=['топсообщений'])
-async def top_messages(ctx, period: str = "all"):
-    periods = {
-        "day": "за день",
-        "week": "за неделю",
-        "month": "за месяц",
-        "year": "за год",
-        "all": "за всё время"
-    }
-
-    if period not in periods:
-        await ctx.send(f"❌ Неверный период! Доступны: `day`, `week`, `month`, `year`, `all`")
-        return
-
-    if not data['messages_history']:
-        await ctx.send("📊 Нет данных о сообщениях!")
-        return
-
-    stats = {}
-    for user_id, timestamps in data['messages_history'].items():
-        filtered = get_time_filter(timestamps, period)
-        if filtered:
-            stats[user_id] = len(filtered)
-
-    if not stats:
-        await ctx.send(f"📊 Нет сообщений {periods[period]}!")
-        return
-
-    sorted_users = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
-
-    embed = discord.Embed(
-        title=f"🏆 Топ-10 по сообщениям {periods[period]}",
-        color=0xffd700,
-        timestamp=datetime.now()
-    )
-
-    text = ""
-    for i, (user_id, count) in enumerate(sorted_users, 1):
-        try:
-            user = await bot.fetch_user(int(user_id))
-            if user:
-                guild = ctx.guild
-                member = guild.get_member(int(user_id))
-                display_name = member.display_name if member else user.name
-                name = user.name
-            else:
-                display_name = "Неизвестный"
-                name = "Неизвестный"
-        except:
-            display_name = "Неизвестный"
-            name = "Неизвестный"
-
-        medal = get_medal(i)
-        text += f"{medal} **{display_name}** ({name}) - {count} сообщений\n"
-
-    embed.description = text if text else "Нет данных"
-    embed.set_footer(text=f"Всего пользователей: {len(stats)}")
-    await ctx.send(embed=embed)
-
-
-@bot.command(name='topvoice', aliases=['топвойс'])
-async def top_voice(ctx, period: str = "all"):
-    periods = {
-        "day": "за день",
-        "week": "за неделю",
-        "month": "за месяц",
-        "year": "за год",
-        "all": "за всё время"
-    }
-
-    if period not in periods:
-        await ctx.send(f"❌ Неверный период! Доступны: `day`, `week`, `month`, `year`, `all`")
-        return
-
-    if not data['voice_history']:
-        await ctx.send("📊 Нет данных о голосовой активности!")
-        return
-
-    stats = {}
-    for user_id, seconds_list in data['voice_history'].items():
-        filtered = get_time_filter(seconds_list, period)
-        if filtered:
-            stats[user_id] = sum(filtered)
-
-    if not stats:
-        await ctx.send(f"📊 Нет голосовой активности {periods[period]}!")
-        return
-
-    sorted_users = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
-
-    embed = discord.Embed(
-        title=f"🎙️ Топ-10 по времени в войсе {periods[period]}",
-        color=0x5865F2,
-        timestamp=datetime.now()
-    )
-
-    text = ""
-    for i, (user_id, seconds) in enumerate(sorted_users, 1):
-        try:
-            user = await bot.fetch_user(int(user_id))
-            if user:
-                guild = ctx.guild
-                member = guild.get_member(int(user_id))
-                display_name = member.display_name if member else user.name
-                name = user.name
-            else:
-                display_name = "Неизвестный"
-                name = "Неизвестный"
-        except:
-            display_name = "Неизвестный"
-            name = "Неизвестный"
-
-        medal = get_medal(i)
-        text += f"{medal} **{display_name}** ({name}) - {format_time(seconds)}\n"
-
-    embed.description = text if text else "Нет данных"
-    embed.set_footer(text=f"Всего пользователей: {len(stats)}")
-    await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 # ----- ОБРАБОТЧИКИ -----
@@ -871,7 +1081,6 @@ async def voice_tracker():
                 user_id = str(member.id)
                 current_time = datetime.now().timestamp()
                 
-                # Проверяем, что пользователь реально в голосовом канале
                 if not member.voice or not member.voice.channel:
                     continue
                 
@@ -920,6 +1129,7 @@ async def voice_tracker():
 
 @bot.event
 async def on_message(message):
+    # Игнорируем сообщения бота
     if message.author.bot:
         return
     if not message.guild:
@@ -969,11 +1179,9 @@ async def on_message(message):
 
 @bot.event
 async def on_voice_state_update(member, before, after):
-    # СОЗДАНИЕ ПРИВАТНОГО ВОЙСА
     if after.channel and after.channel.id == VOICE_TRIGGER_ID:
         await create_private_voice(member)
     
-    # ПРОВЕРКА НА ПУСТОТУ ПРИВАТНЫХ ВОЙСОВ
     if before.channel and before.channel.id in private_voice_channels:
         if len(before.channel.members) == 0:
             await delete_empty_voice(before.channel)
@@ -981,7 +1189,6 @@ async def on_voice_state_update(member, before, after):
     user_id = str(member.id)
     current_time = datetime.now().timestamp()
     
-    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ВЫШЕЛ ИЗ ВОЙСА
     if before.channel is not None and after.channel is None:
         if user_id in data['voice_last_check'] and data['voice_last_check'][user_id] > 0:
             time_delta = current_time - data['voice_last_check'][user_id]
@@ -1016,11 +1223,9 @@ async def on_voice_state_update(member, before, after):
                             pass
                         save_data(data)
             
-            # ОБНУЛЯЕМ ВРЕМЯ ПОСЛЕДНЕЙ ПРОВЕРКИ
             data['voice_last_check'][user_id] = 0
             save_data(data)
     
-    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ЗАШЕЛ В ВОЙС
     elif after.channel is not None and before.channel is None:
         data['voice_last_check'][user_id] = current_time
         if user_id not in data['voice_time']:
@@ -1031,7 +1236,6 @@ async def on_voice_state_update(member, before, after):
             data['voice_history'][user_id] = []
         save_data(data)
     
-    # ЕСЛИ ПОЛЬЗОВАТЕЛЬ ПЕРЕШЕЛ ИЗ КАНАЛА В КАНАЛ
     elif before.channel is not None and after.channel is not None:
         if user_id in data['voice_last_check'] and data['voice_last_check'][user_id] > 0:
             time_delta = current_time - data['voice_last_check'][user_id]
@@ -1066,7 +1270,6 @@ async def on_voice_state_update(member, before, after):
                             pass
                         save_data(data)
         
-        # Обновляем время для нового канала
         data['voice_last_check'][user_id] = current_time
         save_data(data)
 
@@ -1224,11 +1427,13 @@ async def show_user_select(interaction, channel_id, action):
 # ----- КОМАНДА DAILY -----
 @bot.command(name='daily')
 async def daily_bonus(ctx):
+    """Ежедневный бонус"""
     user_id = str(ctx.author.id)
     today = datetime.now(MSK).date().isoformat()
 
     if user_id in data['daily'] and data['daily'][user_id] == today:
         await ctx.send("❌ Вы уже получили бонус сегодня! Приходите завтра в 00:00 по МСК.")
+        await ctx.message.delete()
         return
 
     if user_id not in data['balance']:
@@ -1243,86 +1448,18 @@ async def daily_bonus(ctx):
         color=0xffd700
     )
     embed.set_footer(text="📅 Боженька заботится о вас ✨")
+    
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
-# ----- КОМАНДА HELP -----
-@bot.command(name='help', aliases=['h'])
-async def custom_help(ctx, command_name: str = None):
-    if command_name:
-        cmd = bot.get_command(command_name.lower())
-        if cmd:
-            embed = discord.Embed(
-                title=f"📖 Команда: j.{cmd.name}",
-                description=cmd.help or "Нет описания",
-                color=0x00ff00
-            )
-            await ctx.send(embed=embed)
-            return
-        else:
-            await ctx.send(f"❌ Команда `{command_name}` не найдена.")
-            return
-
-    embed = discord.Embed(
-        title="🌟 Меню помощи бота Justice",
-        description=f"""**Префикс: `j.`**
-**Курс:** 1 ₽ = {data.get('exchange_rate', 5)} 💎
-
-💬 **{MESSAGES_PER_SHARD} сообщений = {SHARDS_PER_MESSAGES} осколок**
-🎙️ **1 час в войсе = {VOICE_HOUR_SHARDS} осколков**
-📅 **/daily → +{DAILY_BONUS} осколков каждый день**
-👥 **Приведи друга → +{REFERRAL_BONUS} осколков**
-
-📊 **Сброс статистики:**
-• Дневная: 00:00 каждый день
-• Недельная: Понедельник 00:00
-• Месячная: 1-е число 00:00""",
-        color=0x5865F2
-    )
-
-    embed.add_field(
-        name="🛡️ Модерация",
-        value="""**mute** - Замутить\n**unmute** - Размутить\n**ban** - Забанить\n**kick** - Кикнуть\n**warn** - Выдать варн\n**warns** - Просмотр варнов\n**unwarn** - Снять варн\n**clear** - Очистить (до 1000)\n**clearall** - Очистить всё (кроме закрепленных)""",
-        inline=False
-    )
-
-    embed.add_field(
-        name="💰 Экономика",
-        value=f"""**balance (bal)** - Баланс\n**daily** - Ежедневный бонус\n**add** - Выдать осколки\n**remove** - Снять осколки\n**rate** - Курс\n**setrate** - Установить курс""",
-        inline=False
-    )
-
-    embed.add_field(
-        name="📊 Статистика",
-        value="""**daystats** - Дневная статистика\n**weekstats** - Недельная статистика\n**monthstats** - Месячная статистика\n**topmsg [day/week/month/year/all]** - Топ сообщений\n**topvoice [day/week/month/year/all]** - Топ голоса\n**mystats [day/week/month/year/all]** - Моя статистика\n**msgstats** - Прогресс сообщений\n**voicestats** - Прогресс голоса\n**profile** - Профиль пользователя""",
-        inline=False
-    )
-
-    embed.add_field(
-        name="👥 Приглашения",
-        value=f"""**referral** - Создать ссылку (+{REFERRAL_BONUS} 💎)\n**referrals** - Статистика приглашений""",
-        inline=False
-    )
-
-    embed.add_field(
-        name="🎙️ Приватные войсы",
-        value="""**voice limit** - Лимит\n**voice ban** - Забанить\n**voice unban** - Разбанить\n**voice hide** - Скрыть\n**voice show** - Показать\n**voice kick** - Кикнуть\n**voice info** - Информация\n**voice delete** - Удалить""",
-        inline=False
-    )
-
-    embed.add_field(
-        name="📊 Отчеты",
-        value="""**report** - Отчет (ЛС)\n**backup** - Бэкап (ЛС)\n**restore** - Восстановить\n**backups** - Список бэкапов\n**stats** - Статус бота\n**find** - Найти пользователя""",
-        inline=False
-    )
-
-    embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
-    await ctx.send(embed=embed)
-
-
-# ----- ОСТАЛЬНЫЕ КОМАНДЫ -----
+# ----- ОСТАЛЬНЫЕ КОМАНДЫ (С УДАЛЕНИЕМ СООБЩЕНИЙ) -----
 @bot.command(name='status', aliases=['stats'])
 async def bot_status(ctx):
+    """Статус бота"""
     global bog_member
     embed = discord.Embed(title="📊 Статус бота", color=0x00ff00, timestamp=datetime.now())
     embed.add_field(name="🤖 Бот", value=f"**Пинг:** {round(bot.latency * 1000)}ms\n**Серверов:** {len(bot.guilds)}", inline=False)
@@ -1342,11 +1479,17 @@ async def bot_status(ctx):
     total_rubles = round(total_balance / rate, 2) if rate > 0 else 0
     embed.add_field(name="💰 Экономика", value=f"**Всего осколков:** {total_balance} 💎\n**Пользователей:** {len(data['balance'])}\n**Курс:** 1 ₽ = {rate} 💎", inline=False)
     embed.add_field(name="📊 Активность", value=f"**Всего сообщений:** {total_messages}\n**Всего в войсе:** {format_time(total_voice)}\n**Приглашений:** {total_referrals}", inline=False)
+    
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='rate', aliases=['курс'])
 async def show_rate(ctx):
+    """Показать текущий курс"""
     rate = data.get('exchange_rate', 5)
     embed = discord.Embed(
         title="💱 Текущий курс",
@@ -1360,18 +1503,25 @@ async def show_rate(ctx):
         color=0x00ff00
     )
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='setrate', aliases=['установитькурс'])
 @commands.check(is_owner_or_bog)
 async def set_exchange_rate(ctx, rate: str):
+    """Установить курс (Владелец/Боженька)"""
     try:
         rate = float(rate.replace(',', '.'))
     except ValueError:
         await ctx.send("❌ Неверный формат! Используйте число, например: `0.5`, `2`, `3.5`")
+        await ctx.message.delete()
         return
     if rate <= 0:
         await ctx.send("❌ Курс должен быть положительным!")
+        await ctx.message.delete()
         return
     old_rate = data.get('exchange_rate', 5)
     data['exchange_rate'] = rate
@@ -1382,10 +1532,15 @@ async def set_exchange_rate(ctx, rate: str):
         color=0x00ff00
     )
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='balance', aliases=['bal'])
 async def balance(ctx, member: discord.Member = None):
+    """Показать баланс пользователя"""
     if member is None:
         member = ctx.author
     balance = data['balance'].get(str(member.id), 0)
@@ -1397,10 +1552,15 @@ async def balance(ctx, member: discord.Member = None):
     embed.add_field(name="Рубли", value=f"{rubles} ₽")
     embed.set_footer(text=f"Курс: 1 ₽ = {rate} 💎")
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='profile', aliases=['профиль'])
 async def profile(ctx, member: discord.Member = None):
+    """Профиль пользователя"""
     if member is None:
         member = ctx.author
     user_id = str(member.id)
@@ -1421,10 +1581,15 @@ async def profile(ctx, member: discord.Member = None):
     embed.add_field(name="🎖️ Роли", value=roles_text[:1024] if len(roles_text) <= 1024 else roles_text[:1021] + "...", inline=False)
     embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='mystats', aliases=['моястата'])
 async def my_stats(ctx, period: str = "all"):
+    """Моя статистика за период"""
     periods = {
         "day": "за день",
         "week": "за неделю",
@@ -1435,6 +1600,7 @@ async def my_stats(ctx, period: str = "all"):
 
     if period not in periods:
         await ctx.send(f"❌ Неверный период! Доступны: `day`, `week`, `month`, `year`, `all`")
+        await ctx.message.delete()
         return
 
     user_id = str(ctx.author.id)
@@ -1464,10 +1630,15 @@ async def my_stats(ctx, period: str = "all"):
 
     embed.set_footer(text=f"Запросил: {ctx.author.display_name}")
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='msgstats', aliases=['сообщения'])
 async def message_stats(ctx, member: discord.Member = None):
+    """Статистика сообщений пользователя"""
     if member is None:
         member = ctx.author
     user_id = str(member.id)
@@ -1482,10 +1653,15 @@ async def message_stats(ctx, member: discord.Member = None):
     embed.add_field(name="До следующего бонуса", value=f"{needed} сообщений → +{SHARDS_PER_MESSAGES} 💎")
     embed.set_footer(text=f"За каждые {MESSAGES_PER_SHARD} сообщений вы получаете {SHARDS_PER_MESSAGES} осколок")
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='voicestats', aliases=['войсстат', 'voice'])
 async def voice_stats(ctx, member: discord.Member = None):
+    """Статистика голосовых каналов пользователя"""
     if member is None:
         member = ctx.author
     user_id = str(member.id)
@@ -1508,18 +1684,24 @@ async def voice_stats(ctx, member: discord.Member = None):
     embed.add_field(name="📈 Прогресс до следующего бонуса", value=f"{format_time(voice_seconds % 3600)} / 1ч → +{VOICE_HOUR_SHARDS} 💎", inline=False)
     embed.set_footer(text=f"1 час в войсе = {VOICE_HOUR_SHARDS} осколков")
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
-# ----- МОДЕРАЦИЯ -----
+# ----- МОДЕРАЦИЯ (С УДАЛЕНИЕМ КОМАНД) -----
 @bot.command(name='mute', aliases=['мут'])
 @commands.has_any_role(*[ROLES['helper'], ROLES['moderator'], ROLES['admin'],
                          ROLES['head_admin'], ROLES['curator'], ROLES['co_owner'], ROLES['owner']])
 async def mute(ctx, member: discord.Member, time: str, *, reason="Не указана"):
     if not await check_hierarchy(ctx, member):
         await ctx.send("❌ Нельзя замутить этого пользователя!")
+        await ctx.message.delete()
         return
     if member.id == BOG_USER_ID:
         await ctx.send("❌ Нельзя мутить Боженьку!")
+        await ctx.message.delete()
         return
     time_seconds = 0
     match = re.match(r'(\d+)([smhd])', time)
@@ -1532,6 +1714,7 @@ async def mute(ctx, member: discord.Member, time: str, *, reason="Не указ�
         elif unit == 'd': time_seconds = value * 86400
     else:
         await ctx.send("❌ Формат: 10s, 5m, 2h, 1d")
+        await ctx.message.delete()
         return
     await member.timeout(timedelta(seconds=time_seconds), reason=reason)
     embed = discord.Embed(title="🔇 Мут", color=0xff0000)
@@ -1539,6 +1722,10 @@ async def mute(ctx, member: discord.Member, time: str, *, reason="Не указ�
     embed.add_field(name="Время", value=time)
     embed.add_field(name="Причина", value=reason)
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='unmute', aliases=['размут'])
@@ -1547,9 +1734,14 @@ async def mute(ctx, member: discord.Member, time: str, *, reason="Не указ�
 async def unmute(ctx, member: discord.Member):
     if not await check_hierarchy(ctx, member):
         await ctx.send("❌ Нельзя размутить!")
+        await ctx.message.delete()
         return
     await member.timeout(None)
     await ctx.send(f"✅ {member.mention} размучен!")
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='ban', aliases=['бан'])
@@ -1557,12 +1749,18 @@ async def unmute(ctx, member: discord.Member):
 async def ban(ctx, member: discord.Member, *, reason="Не указана"):
     if not await check_hierarchy(ctx, member):
         await ctx.send("❌ Нельзя забанить!")
+        await ctx.message.delete()
         return
     if member.id == BOG_USER_ID:
         await ctx.send("❌ Нельзя банить Боженьку!")
+        await ctx.message.delete()
         return
     await member.ban(reason=reason)
     await ctx.send(f"✅ {member.mention} забанен! Причина: {reason}")
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='kick', aliases=['кик'])
@@ -1571,12 +1769,18 @@ async def ban(ctx, member: discord.Member, *, reason="Не указана"):
 async def kick(ctx, member: discord.Member, *, reason="Не указана"):
     if not await check_hierarchy(ctx, member):
         await ctx.send("❌ Нельзя кикнуть!")
+        await ctx.message.delete()
         return
     if member.id == BOG_USER_ID:
         await ctx.send("❌ Нельзя кикать Боженьку!")
+        await ctx.message.delete()
         return
     await member.kick(reason=reason)
     await ctx.send(f"✅ {member.mention} кикнут! Причина: {reason}")
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='warn', aliases=['варн'])
@@ -1585,9 +1789,11 @@ async def kick(ctx, member: discord.Member, *, reason="Не указана"):
 async def warn(ctx, member: discord.Member, time: str, *, reason="Не указана"):
     if not await check_hierarchy(ctx, member):
         await ctx.send("❌ Нельзя выдать варн!")
+        await ctx.message.delete()
         return
     if member.id == BOG_USER_ID:
         await ctx.send("❌ Нельзя варнить Боженьку!")
+        await ctx.message.delete()
         return
     time_seconds = 0
     match = re.match(r'(\d+)([smhd])', time)
@@ -1600,6 +1806,7 @@ async def warn(ctx, member: discord.Member, time: str, *, reason="Не указ�
         elif unit == 'd': time_seconds = value * 86400
     else:
         await ctx.send("❌ Формат: 10s, 5m, 2h, 1d")
+        await ctx.message.delete()
         return
     warn_id = str(int(datetime.now().timestamp()))
     warn_data = {
@@ -1617,6 +1824,10 @@ async def warn(ctx, member: discord.Member, time: str, *, reason="Не указ�
     embed.add_field(name="Время", value=time)
     embed.add_field(name="Причина", value=reason)
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='warns', aliases=['варны'])
@@ -1625,6 +1836,7 @@ async def warn(ctx, member: discord.Member, time: str, *, reason="Не указ�
 async def warns(ctx, member: discord.Member):
     if str(member.id) not in data['warns'] or not data['warns'][str(member.id)]:
         await ctx.send(f"✅ У {member.mention} нет варнов.")
+        await ctx.message.delete()
         return
     embed = discord.Embed(title=f"📋 Варны {member.display_name}", color=0xffff00)
     for warn_id, warn in data['warns'][str(member.id)].items():
@@ -1639,6 +1851,10 @@ async def warns(ctx, member: discord.Member):
         await ctx.send(f"✅ У {member.mention} нет активных варнов.")
     else:
         await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='unwarn', aliases=['разварн'])
@@ -1647,6 +1863,7 @@ async def warns(ctx, member: discord.Member):
 async def unwarn(ctx, member: discord.Member, warn_id: str):
     if not await check_hierarchy(ctx, member):
         await ctx.send("❌ Нельзя снять варн!")
+        await ctx.message.delete()
         return
     if str(member.id) in data['warns'] and warn_id in data['warns'][str(member.id)]:
         del data['warns'][str(member.id)][warn_id]
@@ -1654,6 +1871,10 @@ async def unwarn(ctx, member: discord.Member, warn_id: str):
         await ctx.send(f"✅ Варн снят с {member.mention}")
     else:
         await ctx.send(f"❌ Варн не найден!")
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='clear', aliases=['очистить', 'cls'])
@@ -1662,15 +1883,19 @@ async def unwarn(ctx, member: discord.Member, warn_id: str):
 async def clear_channel(ctx, amount: int = None):
     if amount is None:
         await ctx.send("❌ Укажите количество. Пример: `j.clear 50`")
+        await ctx.message.delete()
         return
     if amount < 1 or amount > 1000:
         await ctx.send("❌ Можно удалить от 1 до 1000 сообщений!")
+        await ctx.message.delete()
         return
     try:
         deleted = await ctx.channel.purge(limit=amount + 1)
         await ctx.send(f"✅ Удалено {len(deleted) - 1} сообщений!", delete_after=3)
+        await ctx.message.delete()
     except Exception:
         await ctx.send("❌ Ошибка при удалении!")
+        await ctx.message.delete()
 
 
 @bot.command(name='clearall', aliases=['очиститьвсе'])
@@ -1684,8 +1909,10 @@ async def clear_all(ctx):
 
     try:
         await bot.wait_for('message', timeout=10.0, check=check)
+        await ctx.message.delete()
     except asyncio.TimeoutError:
         await confirm_msg.edit(content="❌ Операция отменена (таймаут).")
+        await ctx.message.delete()
         return
 
     status_msg = await confirm_msg.edit(content="🔄 **Начинаю очистку канала...**")
@@ -1709,12 +1936,15 @@ async def clear_all(ctx):
             color=0x00ff00
         )
         await ctx.send(embed=embed, delete_after=10)
+        await ctx.message.delete()
 
     except discord.Forbidden:
         await status_msg.edit(content="❌ У меня нет прав на удаление сообщений в этом канале!")
+        await ctx.message.delete()
     except discord.HTTPException as e:
         if "14 days" in str(e) or "Bulk delete" in str(e):
             await status_msg.edit(content="⚠️ **Есть сообщения старше 14 дней, удаляю по одному...**")
+            await ctx.message.delete()
 
             deleted_count = 0
             async for message in ctx.channel.history(limit=None):
@@ -1735,10 +1965,13 @@ async def clear_all(ctx):
                 color=0x00ff00
             )
             await ctx.send(embed=embed, delete_after=10)
+            await ctx.message.delete()
         else:
             await status_msg.edit(content=f"❌ Ошибка: {e}")
+            await ctx.message.delete()
     except Exception as e:
         await status_msg.edit(content=f"❌ Ошибка: {e}")
+        await ctx.message.delete()
 
 
 # ----- ЭКОНОМИКА -----
@@ -1747,6 +1980,7 @@ async def clear_all(ctx):
 async def add_shards(ctx, member: discord.Member, amount: int):
     if amount <= 0:
         await ctx.send("❌ Количество должно быть положительным!")
+        await ctx.message.delete()
         return
     if str(member.id) not in data['balance']:
         data['balance'][str(member.id)] = 0
@@ -1758,6 +1992,10 @@ async def add_shards(ctx, member: discord.Member, amount: int):
     embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎")
     embed.set_footer(text=f"Выдал: {ctx.author.display_name}")
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='remove')
@@ -1765,11 +2003,13 @@ async def add_shards(ctx, member: discord.Member, amount: int):
 async def remove_shards(ctx, member: discord.Member, amount: int):
     if amount <= 0:
         await ctx.send("❌ Количество должно быть положительным!")
+        await ctx.message.delete()
         return
     if str(member.id) not in data['balance']:
         data['balance'][str(member.id)] = 0
     if data['balance'][str(member.id)] < amount:
         await ctx.send(f"❌ У {member.mention} недостаточно осколков!")
+        await ctx.message.delete()
         return
     data['balance'][str(member.id)] -= amount
     save_data(data)
@@ -1779,6 +2019,10 @@ async def remove_shards(ctx, member: discord.Member, amount: int):
     embed.add_field(name="Новый баланс", value=f"{data['balance'][str(member.id)]} 💎")
     embed.set_footer(text=f"Снял: {ctx.author.display_name}")
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 # ----- РЕФЕРАЛЫ -----
@@ -1795,6 +2039,7 @@ async def create_referral(ctx):
         )
         embed.set_footer(text="Поделитесь ссылкой с друзьями!")
         await ctx.send(embed=embed)
+        await ctx.message.delete()
         return
     try:
         channel = ctx.guild.text_channels[0]
@@ -1809,8 +2054,10 @@ async def create_referral(ctx):
         )
         embed.set_footer(text="Поделитесь ссылкой с друзьями!")
         await ctx.send(embed=embed)
+        await ctx.message.delete()
     except Exception as e:
         await ctx.send(f"❌ Ошибка создания ссылки: {e}")
+        await ctx.message.delete()
 
 
 @bot.command(name='referrals', aliases=['рефералы'])
@@ -1828,6 +2075,10 @@ async def show_referrals(ctx, member: discord.Member = None):
         embed.add_field(name="Ваша ссылка", value=f"https://discord.gg/{code}", inline=False)
     embed.set_footer(text=f"За каждого друга вы получаете {REFERRAL_BONUS} осколков")
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.event
@@ -1871,6 +2122,8 @@ async def on_member_join(member):
 @commands.check(is_owner_or_bog)
 async def create_report(ctx):
     await ctx.send("📊 **Создаю отчет... Ожидайте в личных сообщениях!**")
+    await ctx.message.delete()
+    
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     rate = data.get('exchange_rate', 5)
     total_users = len(data['balance'])
@@ -1942,6 +2195,7 @@ async def find_user(ctx, user_id: int):
     uid = str(user_id)
     if uid not in data['balance']:
         await ctx.send(f"❌ Пользователь {user_id} не найден!")
+        await ctx.message.delete()
         return
     try:
         user = await bot.fetch_user(user_id)
@@ -1961,15 +2215,21 @@ async def find_user(ctx, user_id: int):
     embed.add_field(name="⚠️ Варнов", value=warns, inline=True)
     embed.add_field(name="👥 Пригласил", value=f"{referrals} друзей", inline=True)
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.command(name='backup', aliases=['бэкап'])
 async def create_backup(ctx):
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
+        await ctx.message.delete()
         return
 
     await ctx.send("🔄 **Создаю полный бэкап... Ожидайте в личных сообщениях!**")
+    await ctx.message.delete()
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
@@ -2034,12 +2294,14 @@ async def create_backup(ctx):
 async def restore_backup(ctx, backup_name: str = None):
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
+        await ctx.message.delete()
         return
 
     if backup_name:
         backup_path = os.path.join(BACKUP_FOLDER, backup_name)
         if not os.path.exists(backup_path):
             await ctx.send(f"❌ Бэкап `{backup_name}` не найден в папке бэкапов!")
+            await ctx.message.delete()
             return
 
         try:
@@ -2064,12 +2326,15 @@ async def restore_backup(ctx, backup_name: str = None):
             )
             embed.set_footer(text="Старые данные сохранены как резервная копия")
             await ctx.send(embed=embed)
+            await ctx.message.delete()
             return
         except Exception as e:
             await ctx.send(f"❌ Ошибка при восстановлении: {e}")
+            await ctx.message.delete()
             return
 
     await ctx.send("📤 **Загрузите файл бэкапа (.json) в этот чат**\nИли используйте `j.restore имя_файла`")
+    await ctx.message.delete()
 
     def check(msg):
         return msg.author == ctx.author and msg.channel == ctx.channel and len(msg.attachments) > 0
@@ -2125,12 +2390,14 @@ async def restore_backup(ctx, backup_name: str = None):
 async def list_backups(ctx):
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
+        await ctx.message.delete()
         return
 
     backups = sorted([f for f in os.listdir(BACKUP_FOLDER) if f.endswith('.json')])
 
     if not backups:
         await ctx.send("📁 **В папке бэкапов нет файлов!**")
+        await ctx.message.delete()
         return
 
     embed = discord.Embed(
@@ -2158,6 +2425,10 @@ async def list_backups(ctx):
 
     embed.set_footer(text="Используйте j.restore имя_файла для восстановления")
     await ctx.send(embed=embed)
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 # ----- СТАТУС ТРЕКЕР -----
@@ -2230,6 +2501,10 @@ async def on_command_error(ctx, error):
     else:
         await ctx.send(f"❌ Ошибка: {error}")
         print(f"Ошибка: {error}")
+    try:
+        await ctx.message.delete()
+    except:
+        pass
 
 
 @bot.event
