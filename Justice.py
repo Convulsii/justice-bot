@@ -34,7 +34,7 @@ STATS_LOG_CHANNEL_ID = 1502637204982206681
 
 PRIVATE_VOICE_CATEGORY_ID = 1507479787223126036
 VOICE_TRIGGER_ID = 1507485728739688549
-AFK_CHANNEL_ID = 1524162013142712582  # ID AFK КАНАЛА
+AFK_CHANNEL_ID = 1524162013142712582
 
 # НАСТРОЙКИ ЭКОНОМИКИ
 MESSAGES_PER_SHARD = 10
@@ -633,7 +633,6 @@ def add_monthly_voice(user_id, seconds):
 # ----- КОМАНДА HELP -----
 @bot.command(name='help', aliases=['h', 'помощь'])
 async def custom_help(ctx, command_name: str = None):
-    """Показать список всех команд"""
     if command_name:
         cmd = bot.get_command(command_name.lower())
         if cmd:
@@ -652,7 +651,7 @@ async def custom_help(ctx, command_name: str = None):
 
     embed = discord.Embed(
         title="🌟 Меню помощи бота Justice",
-        description=f"""**Префикс: `j.`** (работает в любом регистре: `J.`, `j.`)
+        description=f"""**Префикс: `j.`** (работает в любом регистре)
 
 💬 **{MESSAGES_PER_SHARD} сообщений = {SHARDS_PER_MESSAGES} осколок**
 🎙️ **1 час в войсе = {VOICE_HOUR_SHARDS} осколков**
@@ -680,7 +679,7 @@ async def custom_help(ctx, command_name: str = None):
 
     embed.add_field(
         name="📊 Статистика",
-        value="""**top** - Выбор топа (сообщения/голос)\n**topmsg [day/week/month/year/all]** - Топ сообщений\n**topvoice [day/week/month/year/all]** - Топ голоса\n**daystats** - Дневная статистика\n**weekstats** - Недельная статистика\n**monthstats** - Месячная статистика\n**mystats [day/week/month/year/all]** - Моя статистика\n**msgstats** - Прогресс сообщений\n**voicestats** - Прогресс голоса\n**profile** - Профиль пользователя""",
+        value="""**top** - Выбор топа\n**topmsg [day/week/month/year/all]** - Топ сообщений\n**topvoice [day/week/month/year/all]** - Топ голоса\n**daystats** - Дневная статистика\n**weekstats** - Недельная статистика\n**monthstats** - Месячная статистика\n**mystats [day/week/month/year/all]** - Моя статистика\n**msgstats** - Прогресс сообщений\n**voicestats** - Прогресс голоса\n**profile** - Профиль пользователя""",
         inline=False
     )
 
@@ -711,11 +710,9 @@ async def custom_help(ctx, command_name: str = None):
         pass
 
 
-# ----- КОМАНДА TOP -----
+# ----- КОМАНДА TOP (ИНТЕРАКТИВНОЕ МЕНЮ) -----
 @bot.command(name='top', aliases=['топ'])
 async def top_menu(ctx):
-    """Выбор типа топа (сообщения или голос) с выбором периода"""
-    
     select_type = Select(
         placeholder="Выберите тип топа...",
         min_values=1,
@@ -783,11 +780,9 @@ async def top_menu(ctx):
         pass
 
 
-# ----- КОМАНДЫ ТОПОВ -----
+# ----- КОМАНДА TOPMSG (ТОП-10) -----
 @bot.command(name='topmsg', aliases=['топсообщений'])
 async def top_messages(ctx, period: str = None):
-    """Топ пользователей по сообщениям. Периоды: day, week, month, year, all"""
-    
     periods = {
         "day": "за сегодня",
         "week": "за неделю",
@@ -858,10 +853,9 @@ async def top_messages(ctx, period: str = None):
         pass
 
 
+# ----- КОМАНДА TOPVOICE (ТОП-10) -----
 @bot.command(name='topvoice', aliases=['топвойс'])
 async def top_voice(ctx, period: str = None):
-    """Топ пользователей по времени в голосе. Периоды: day, week, month, year, all"""
-    
     periods = {
         "day": "за сегодня",
         "week": "за неделю",
@@ -879,16 +873,22 @@ async def top_voice(ctx, period: str = None):
         await ctx.message.delete()
         return
 
-    if not data['voice_history']:
+    if not data['voice_total_time']:
         await ctx.send("📊 Нет данных о голосовой активности!")
         await ctx.message.delete()
         return
 
     stats = {}
-    for user_id, seconds_list in data['voice_history'].items():
-        filtered = get_time_filter(seconds_list, period)
-        if filtered:
-            stats[user_id] = sum(filtered)
+    current_time = datetime.now().timestamp()
+    
+    for user_id, total_seconds in data['voice_total_time'].items():
+        if period == "all":
+            stats[user_id] = total_seconds
+        else:
+            if user_id in data['voice_history']:
+                filtered = get_time_filter(data['voice_history'][user_id], period)
+                if filtered:
+                    stats[user_id] = sum(filtered)
 
     if not stats:
         await ctx.send(f"📊 Нет голосовой активности {periods[period]}!")
@@ -932,10 +932,9 @@ async def top_voice(ctx, period: str = None):
         pass
 
 
-# ----- КОМАНДЫ СТАТИСТИКИ -----
+# ----- КОМАНДЫ СТАТИСТИКИ (ВСЕ ТОП-10) -----
 @bot.command(name='daystats', aliases=['день'])
 async def day_stats(ctx):
-    """Дневная статистика"""
     stats = data['daily_stats']
 
     if stats['date'] is None or (not stats['messages'] and not stats['voice_time']):
@@ -951,7 +950,7 @@ async def day_stats(ctx):
     )
 
     if stats['messages']:
-        sorted_msgs = sorted(stats['messages'].items(), key=lambda x: x[1], reverse=True)[:5]
+        sorted_msgs = sorted(stats['messages'].items(), key=lambda x: x[1], reverse=True)[:10]
         msgs_text = ""
         for i, (user_id, count) in enumerate(sorted_msgs, 1):
             try:
@@ -960,10 +959,10 @@ async def day_stats(ctx):
             except:
                 name = "Неизвестный"
             msgs_text += f"{get_medal(i)} {name} - {count} сообщений\n"
-        embed.add_field(name="💬 Топ сообщений", value=msgs_text, inline=True)
+        embed.add_field(name="💬 Топ-10 сообщений", value=msgs_text, inline=False)
 
     if stats['voice_time']:
-        sorted_voice = sorted(stats['voice_time'].items(), key=lambda x: x[1], reverse=True)[:5]
+        sorted_voice = sorted(stats['voice_time'].items(), key=lambda x: x[1], reverse=True)[:10]
         voice_text = ""
         for i, (user_id, seconds) in enumerate(sorted_voice, 1):
             try:
@@ -972,7 +971,7 @@ async def day_stats(ctx):
             except:
                 name = "Неизвестный"
             voice_text += f"{get_medal(i)} {name} - {format_time(seconds)}\n"
-        embed.add_field(name="🎙️ Топ голоса", value=voice_text, inline=True)
+        embed.add_field(name="🎙️ Топ-10 голоса", value=voice_text, inline=False)
 
     total_msgs = sum(stats['messages'].values())
     total_voice = sum(stats['voice_time'].values())
@@ -992,7 +991,6 @@ async def day_stats(ctx):
 
 @bot.command(name='weekstats', aliases=['неделя'])
 async def week_stats(ctx):
-    """Недельная статистика"""
     stats = data['weekly_stats']
 
     if stats['week_start'] is None or (not stats['messages'] and not stats['voice_time']):
@@ -1008,7 +1006,7 @@ async def week_stats(ctx):
     )
 
     if stats['messages']:
-        sorted_msgs = sorted(stats['messages'].items(), key=lambda x: x[1], reverse=True)[:5]
+        sorted_msgs = sorted(stats['messages'].items(), key=lambda x: x[1], reverse=True)[:10]
         msgs_text = ""
         for i, (user_id, count) in enumerate(sorted_msgs, 1):
             try:
@@ -1017,10 +1015,10 @@ async def week_stats(ctx):
             except:
                 name = "Неизвестный"
             msgs_text += f"{get_medal(i)} {name} - {count} сообщений\n"
-        embed.add_field(name="💬 Топ сообщений", value=msgs_text, inline=True)
+        embed.add_field(name="💬 Топ-10 сообщений", value=msgs_text, inline=False)
 
     if stats['voice_time']:
-        sorted_voice = sorted(stats['voice_time'].items(), key=lambda x: x[1], reverse=True)[:5]
+        sorted_voice = sorted(stats['voice_time'].items(), key=lambda x: x[1], reverse=True)[:10]
         voice_text = ""
         for i, (user_id, seconds) in enumerate(sorted_voice, 1):
             try:
@@ -1029,7 +1027,7 @@ async def week_stats(ctx):
             except:
                 name = "Неизвестный"
             voice_text += f"{get_medal(i)} {name} - {format_time(seconds)}\n"
-        embed.add_field(name="🎙️ Топ голоса", value=voice_text, inline=True)
+        embed.add_field(name="🎙️ Топ-10 голоса", value=voice_text, inline=False)
 
     total_msgs = sum(stats['messages'].values())
     total_voice = sum(stats['voice_time'].values())
@@ -1049,7 +1047,6 @@ async def week_stats(ctx):
 
 @bot.command(name='monthstats', aliases=['месяц'])
 async def month_stats(ctx):
-    """Месячная статистика"""
     stats = data['monthly_stats']
 
     if stats['month'] is None or (not stats['messages'] and not stats['voice_time']):
@@ -1065,7 +1062,7 @@ async def month_stats(ctx):
     )
 
     if stats['messages']:
-        sorted_msgs = sorted(stats['messages'].items(), key=lambda x: x[1], reverse=True)[:5]
+        sorted_msgs = sorted(stats['messages'].items(), key=lambda x: x[1], reverse=True)[:10]
         msgs_text = ""
         for i, (user_id, count) in enumerate(sorted_msgs, 1):
             try:
@@ -1074,10 +1071,10 @@ async def month_stats(ctx):
             except:
                 name = "Неизвестный"
             msgs_text += f"{get_medal(i)} {name} - {count} сообщений\n"
-        embed.add_field(name="💬 Топ сообщений", value=msgs_text, inline=True)
+        embed.add_field(name="💬 Топ-10 сообщений", value=msgs_text, inline=False)
 
     if stats['voice_time']:
-        sorted_voice = sorted(stats['voice_time'].items(), key=lambda x: x[1], reverse=True)[:5]
+        sorted_voice = sorted(stats['voice_time'].items(), key=lambda x: x[1], reverse=True)[:10]
         voice_text = ""
         for i, (user_id, seconds) in enumerate(sorted_voice, 1):
             try:
@@ -1086,7 +1083,7 @@ async def month_stats(ctx):
             except:
                 name = "Неизвестный"
             voice_text += f"{get_medal(i)} {name} - {format_time(seconds)}\n"
-        embed.add_field(name="🎙️ Топ голоса", value=voice_text, inline=True)
+        embed.add_field(name="🎙️ Топ-10 голоса", value=voice_text, inline=False)
 
     total_msgs = sum(stats['messages'].values())
     total_voice = sum(stats['voice_time'].values())
@@ -1104,7 +1101,7 @@ async def month_stats(ctx):
         pass
 
 
-# ----- ГОЛОСОВОЙ ТРЕКЕР (С ПРОВЕРКОЙ AFK) -----
+# ----- ГОЛОСОВОЙ ТРЕКЕР -----
 @tasks.loop(seconds=VOICE_CHECK_INTERVAL)
 async def voice_tracker():
     for guild in bot.guilds:
@@ -1116,7 +1113,6 @@ async def voice_tracker():
                 user_id = str(member.id)
                 current_time = datetime.now().timestamp()
                 
-                # ===== ПРОВЕРКА AFK =====
                 if member.voice and member.voice.channel:
                     if member.voice.channel.id == AFK_CHANNEL_ID:
                         data['voice_is_afk'][user_id] = True
@@ -1139,10 +1135,7 @@ async def voice_tracker():
                 if time_delta >= VOICE_CHECK_INTERVAL:
                     data['voice_time'][user_id] += time_delta
                     data['voice_total_time'][user_id] += time_delta
-                    
-                    # ===== ДОБАВЛЯЕМ В ИСТОРИЮ В РЕАЛЬНОМ ВРЕМЕНИ =====
                     data['voice_history'][user_id].append(time_delta)
-                    
                     data['voice_last_check'][user_id] = current_time
                     
                     add_daily_voice(user_id, time_delta)
@@ -1223,11 +1216,9 @@ async def on_message(message):
 
 @bot.event
 async def on_voice_state_update(member, before, after):
-    # СОЗДАНИЕ ПРИВАТНОГО ВОЙСА
     if after.channel and after.channel.id == VOICE_TRIGGER_ID:
         await create_private_voice(member)
     
-    # ПРОВЕРКА НА ПУСТОТУ ПРИВАТНЫХ ВОЙСОВ
     if before.channel and before.channel.id in private_voice_channels:
         if len(before.channel.members) == 0:
             await delete_empty_voice(before.channel)
@@ -1235,21 +1226,17 @@ async def on_voice_state_update(member, before, after):
     user_id = str(member.id)
     current_time = datetime.now().timestamp()
     
-    # ===== ПРОВЕРКА AFK =====
-    # Если пользователь в AFK канале - время не идет, обнуляем
     if after.channel and after.channel.id == AFK_CHANNEL_ID:
         data['voice_last_check'][user_id] = 0
         data['voice_is_afk'][user_id] = True
         save_data(data)
-        return  # Выходим, не считаем время
+        return
     
-    # Если пользователь вышел из AFK канала
     if before.channel and before.channel.id == AFK_CHANNEL_ID:
         data['voice_is_afk'][user_id] = False
         data['voice_last_check'][user_id] = current_time
         save_data(data)
     
-    # Если пользователь вышел из голосового канала
     if before.channel is not None and after.channel is None:
         if user_id in data['voice_last_check'] and data['voice_last_check'][user_id] > 0:
             time_delta = current_time - data['voice_last_check'][user_id]
@@ -1287,7 +1274,6 @@ async def on_voice_state_update(member, before, after):
         data['voice_last_check'][user_id] = 0
         save_data(data)
     
-    # Если пользователь зашел в голосовой канал
     elif after.channel is not None and before.channel is None:
         data['voice_last_check'][user_id] = current_time
         data['voice_is_afk'][user_id] = False
@@ -1299,7 +1285,6 @@ async def on_voice_state_update(member, before, after):
             data['voice_history'][user_id] = []
         save_data(data)
     
-    # Если пользователь перешел между каналами
     elif before.channel is not None and after.channel is not None:
         if user_id in data['voice_last_check'] and data['voice_last_check'][user_id] > 0:
             time_delta = current_time - data['voice_last_check'][user_id]
@@ -1378,7 +1363,7 @@ async def create_private_voice(member):
     view = VoiceControlView(voice_channel.id, member.id)
     embed = discord.Embed(
         title="🔒 Приватный войс создан!",
-        description="**Управляйте своим каналом через кнопки ниже:**\n\n👥 **Лимит** - установить максимум пользователей\n🚫 **Бан** - запретить вход пользователю\n✅ **Разбан** - разрешить вход\n👁️ **Скрыть/Показать** - скрыть канал от всех\n👢 **Кик** - выгнать из канала\n🗑️ **Удалить** - удалить канал\n📊 **Инфо** - информация о канале",
+        description="**Управляйте своим каналом через кнопки ниже:**",
         color=0x00ff00
     )
 
@@ -1492,7 +1477,6 @@ async def show_user_select(interaction, channel_id, action):
 # ----- КОМАНДА DAILY -----
 @bot.command(name='daily')
 async def daily_bonus(ctx):
-    """Ежедневный бонус"""
     user_id = str(ctx.author.id)
     today = datetime.now(MSK).date().isoformat()
 
@@ -1524,7 +1508,6 @@ async def daily_bonus(ctx):
 # ----- ОСТАЛЬНЫЕ КОМАНДЫ -----
 @bot.command(name='status', aliases=['stats'])
 async def bot_status(ctx):
-    """Статус бота"""
     global bog_member
     embed = discord.Embed(title="📊 Статус бота", color=0x00ff00, timestamp=datetime.now())
     embed.add_field(name="🤖 Бот", value=f"**Пинг:** {round(bot.latency * 1000)}ms\n**Серверов:** {len(bot.guilds)}", inline=False)
@@ -1554,7 +1537,6 @@ async def bot_status(ctx):
 
 @bot.command(name='rate', aliases=['курс'])
 async def show_rate(ctx):
-    """Показать текущий курс"""
     rate = data.get('exchange_rate', 5)
     embed = discord.Embed(
         title="💱 Текущий курс",
@@ -1577,7 +1559,6 @@ async def show_rate(ctx):
 @bot.command(name='setrate', aliases=['установитькурс'])
 @commands.check(is_owner_or_bog)
 async def set_exchange_rate(ctx, rate: str):
-    """Установить курс (Владелец/Боженька)"""
     try:
         rate = float(rate.replace(',', '.'))
     except ValueError:
@@ -1605,7 +1586,6 @@ async def set_exchange_rate(ctx, rate: str):
 
 @bot.command(name='balance', aliases=['bal'])
 async def balance(ctx, member: discord.Member = None):
-    """Показать баланс пользователя"""
     if member is None:
         member = ctx.author
     balance = data['balance'].get(str(member.id), 0)
@@ -1625,7 +1605,6 @@ async def balance(ctx, member: discord.Member = None):
 
 @bot.command(name='profile', aliases=['профиль'])
 async def profile(ctx, member: discord.Member = None):
-    """Профиль пользователя"""
     if member is None:
         member = ctx.author
     user_id = str(member.id)
@@ -1654,7 +1633,6 @@ async def profile(ctx, member: discord.Member = None):
 
 @bot.command(name='mystats', aliases=['моястата'])
 async def my_stats(ctx, period: str = "all"):
-    """Моя статистика за период"""
     periods = {
         "day": "за день",
         "week": "за неделю",
@@ -1703,7 +1681,6 @@ async def my_stats(ctx, period: str = "all"):
 
 @bot.command(name='msgstats', aliases=['сообщения'])
 async def message_stats(ctx, member: discord.Member = None):
-    """Статистика сообщений пользователя"""
     if member is None:
         member = ctx.author
     user_id = str(member.id)
@@ -1726,7 +1703,6 @@ async def message_stats(ctx, member: discord.Member = None):
 
 @bot.command(name='voicestats', aliases=['войсстат', 'voice'])
 async def voice_stats(ctx, member: discord.Member = None):
-    """Статистика голосовых каналов пользователя"""
     if member is None:
         member = ctx.author
     user_id = str(member.id)
@@ -1734,7 +1710,6 @@ async def voice_stats(ctx, member: discord.Member = None):
     total_seconds = data['voice_total_time'].get(user_id, 0)
 
     if member.voice and member.voice.channel:
-        # Если пользователь в AFK - не добавляем текущую сессию
         if member.voice.channel.id != AFK_CHANNEL_ID:
             current_time = datetime.now().timestamp()
             last_check = data['voice_last_check'].get(user_id, current_time)
@@ -1749,7 +1724,6 @@ async def voice_stats(ctx, member: discord.Member = None):
     embed.add_field(name="📊 Всего времени", value=format_time(total_seconds + voice_seconds), inline=True)
     embed.add_field(name="💎 Заработано осколков", value=f"{shards_earned} 💎", inline=True)
     
-    # Статус AFK
     is_afk = data['voice_is_afk'].get(user_id, False)
     if is_afk:
         embed.add_field(name="📌 Статус", value="💤 В AFK канале (время не идет)", inline=True)
@@ -1968,11 +1942,31 @@ async def clear_channel(ctx, amount: int = None):
         await ctx.message.delete()
         return
     try:
-        deleted = await ctx.channel.purge(limit=amount + 1)
-        await ctx.send(f"✅ Удалено {len(deleted) - 1} сообщений!", delete_after=3)
+        deleted = await ctx.channel.purge(limit=amount)
+        await ctx.send(f"✅ Удалено {len(deleted)} сообщений!", delete_after=3)
+    except discord.Forbidden:
+        await ctx.send("❌ У меня нет прав на удаление сообщений в этом канале!")
         await ctx.message.delete()
-    except Exception:
-        await ctx.send("❌ Ошибка при удалении!")
+    except discord.HTTPException as e:
+        if "14 days" in str(e) or "Bulk delete" in str(e):
+            await ctx.send("⚠️ **Некоторые сообщения старше 14 дней, удаляю по одному...**")
+            await ctx.message.delete()
+            
+            deleted_count = 0
+            async for message in ctx.channel.history(limit=amount):
+                try:
+                    await message.delete()
+                    deleted_count += 1
+                    await asyncio.sleep(0.2)
+                except:
+                    pass
+            
+            await ctx.send(f"✅ Удалено {deleted_count} сообщений!", delete_after=3)
+        else:
+            await ctx.send(f"❌ Ошибка: {e}")
+            await ctx.message.delete()
+    except Exception as e:
+        await ctx.send(f"❌ Ошибка: {e}")
         await ctx.message.delete()
 
 
@@ -2198,7 +2192,6 @@ async def on_member_join(member):
 # ----- УНИВЕРСАЛЬНЫЕ БЭКАПЫ -----
 @bot.command(name='backup', aliases=['бэкап'])
 async def create_backup(ctx):
-    """Создать универсальный бэкап (Только владелец)"""
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         await ctx.message.delete()
@@ -2232,8 +2225,7 @@ async def create_backup(ctx):
         embed = discord.Embed(
             title="💾 Универсальный бэкап создан!",
             description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
-                        f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB\n"
-                        f"**Ключей в данных:** {len(backup_data.keys())}",
+                        f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB",
             color=0x00ff00
         )
 
@@ -2261,7 +2253,6 @@ async def create_backup(ctx):
 
 @bot.command(name='restore', aliases=['восстановить'])
 async def restore_backup(ctx, backup_name: str = None):
-    """Универсальное восстановление из бэкапа (Только владелец)"""
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         await ctx.message.delete()
@@ -2372,7 +2363,6 @@ async def restore_backup(ctx, backup_name: str = None):
 
 @bot.command(name='backups', aliases=['бэкапы', 'списокбэкапов'])
 async def list_backups(ctx):
-    """Список доступных бэкапов (Только владелец)"""
     if not is_owner(ctx):
         await ctx.send("❌ У вас нет прав для использования этой команды! Только владелец.")
         await ctx.message.delete()
@@ -2420,7 +2410,6 @@ async def list_backups(ctx):
 @bot.command(name='report', aliases=['отчет'])
 @commands.check(is_owner_or_bog)
 async def create_report(ctx):
-    """Создать отчет (Владелец/Боженька)"""
     await ctx.send("📊 **Создаю отчет... Ожидайте в личных сообщениях!**")
     await ctx.message.delete()
     
@@ -2492,7 +2481,6 @@ async def create_report(ctx):
 @bot.command(name='find', aliases=['найти'])
 @commands.check(is_owner_or_bog)
 async def find_user(ctx, user_id: int):
-    """Найти пользователя по ID (Владелец/Боженька)"""
     uid = str(user_id)
     if uid not in data['balance']:
         await ctx.send(f"❌ Пользователь {user_id} не найден!")
