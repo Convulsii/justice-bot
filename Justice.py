@@ -372,6 +372,7 @@ def get_week_start(date):
 
 
 def get_time_filter(times, period):
+    """Фильтрует временные метки по периоду"""
     now = datetime.now(MSK)
     if period == "day":
         cutoff = now - timedelta(days=1)
@@ -873,22 +874,21 @@ async def top_voice(ctx, period: str = None):
         await ctx.message.delete()
         return
 
-    if not data['voice_total_time']:
+    if not data['voice_history']:
         await ctx.send("📊 Нет данных о голосовой активности!")
         await ctx.message.delete()
         return
 
     stats = {}
-    current_time = datetime.now().timestamp()
-    
-    for user_id, total_seconds in data['voice_total_time'].items():
+    for user_id, timestamps in data['voice_history'].items():
         if period == "all":
-            stats[user_id] = total_seconds
+            # Для "всё время" суммируем всё
+            stats[user_id] = sum(timestamps)
         else:
-            if user_id in data['voice_history']:
-                filtered = get_time_filter(data['voice_history'][user_id], period)
-                if filtered:
-                    stats[user_id] = sum(filtered)
+            # Для остальных фильтруем по времени
+            filtered = get_time_filter(timestamps, period)
+            if filtered:
+                stats[user_id] = len(filtered) * 30  # 30 секунд на каждую запись
 
     if not stats:
         await ctx.send(f"📊 Нет голосовой активности {periods[period]}!")
@@ -932,7 +932,7 @@ async def top_voice(ctx, period: str = None):
         pass
 
 
-# ----- КОМАНДЫ СТАТИСТИКИ (ВСЕ ТОП-10) -----
+# ----- КОМАНДЫ СТАТИСТИКИ (ТОП-10) -----
 @bot.command(name='daystats', aliases=['день'])
 async def day_stats(ctx):
     stats = data['daily_stats']
@@ -1101,7 +1101,7 @@ async def month_stats(ctx):
         pass
 
 
-# ----- ГОЛОСОВОЙ ТРЕКЕР -----
+# ----- ГОЛОСОВОЙ ТРЕКЕР (С ПРАВИЛЬНЫМ СОХРАНЕНИЕМ ВРЕМЕННЫХ МЕТОК) -----
 @tasks.loop(seconds=VOICE_CHECK_INTERVAL)
 async def voice_tracker():
     for guild in bot.guilds:
@@ -1113,6 +1113,7 @@ async def voice_tracker():
                 user_id = str(member.id)
                 current_time = datetime.now().timestamp()
                 
+                # Проверка AFK
                 if member.voice and member.voice.channel:
                     if member.voice.channel.id == AFK_CHANNEL_ID:
                         data['voice_is_afk'][user_id] = True
@@ -1135,7 +1136,10 @@ async def voice_tracker():
                 if time_delta >= VOICE_CHECK_INTERVAL:
                     data['voice_time'][user_id] += time_delta
                     data['voice_total_time'][user_id] += time_delta
-                    data['voice_history'][user_id].append(time_delta)
+                    
+                    # ===== ПРАВИЛЬНОЕ ХРАНЕНИЕ: ВРЕМЕННАЯ МЕТКА =====
+                    data['voice_history'][user_id].append(current_time)
+                    
                     data['voice_last_check'][user_id] = current_time
                     
                     add_daily_voice(user_id, time_delta)
@@ -1216,9 +1220,11 @@ async def on_message(message):
 
 @bot.event
 async def on_voice_state_update(member, before, after):
+    # СОЗДАНИЕ ПРИВАТНОГО ВОЙСА
     if after.channel and after.channel.id == VOICE_TRIGGER_ID:
         await create_private_voice(member)
     
+    # ПРОВЕРКА НА ПУСТОТУ ПРИВАТНЫХ ВОЙСОВ
     if before.channel and before.channel.id in private_voice_channels:
         if len(before.channel.members) == 0:
             await delete_empty_voice(before.channel)
@@ -1226,6 +1232,7 @@ async def on_voice_state_update(member, before, after):
     user_id = str(member.id)
     current_time = datetime.now().timestamp()
     
+    # ПРОВЕРКА AFK
     if after.channel and after.channel.id == AFK_CHANNEL_ID:
         data['voice_last_check'][user_id] = 0
         data['voice_is_afk'][user_id] = True
@@ -1237,13 +1244,16 @@ async def on_voice_state_update(member, before, after):
         data['voice_last_check'][user_id] = current_time
         save_data(data)
     
+    # ВЫХОД ИЗ ВОЙСА
     if before.channel is not None and after.channel is None:
         if user_id in data['voice_last_check'] and data['voice_last_check'][user_id] > 0:
             time_delta = current_time - data['voice_last_check'][user_id]
             if time_delta > 0:
                 data['voice_time'][user_id] = data['voice_time'].get(user_id, 0) + time_delta
                 data['voice_total_time'][user_id] = data['voice_total_time'].get(user_id, 0) + time_delta
-                data['voice_history'][user_id].append(time_delta)
+                
+                # ===== ПРАВИЛЬНОЕ ХРАНЕНИЕ: ВРЕМЕННАЯ МЕТКА =====
+                data['voice_history'][user_id].append(current_time)
                 
                 add_daily_voice(user_id, time_delta)
                 add_weekly_voice(user_id, time_delta)
@@ -1274,6 +1284,7 @@ async def on_voice_state_update(member, before, after):
         data['voice_last_check'][user_id] = 0
         save_data(data)
     
+    # ВХОД В ВОЙС
     elif after.channel is not None and before.channel is None:
         data['voice_last_check'][user_id] = current_time
         data['voice_is_afk'][user_id] = False
@@ -1285,13 +1296,16 @@ async def on_voice_state_update(member, before, after):
             data['voice_history'][user_id] = []
         save_data(data)
     
+    # ПЕРЕХОД МЕЖДУ КАНАЛАМИ
     elif before.channel is not None and after.channel is not None:
         if user_id in data['voice_last_check'] and data['voice_last_check'][user_id] > 0:
             time_delta = current_time - data['voice_last_check'][user_id]
             if time_delta > 0:
                 data['voice_time'][user_id] = data['voice_time'].get(user_id, 0) + time_delta
                 data['voice_total_time'][user_id] = data['voice_total_time'].get(user_id, 0) + time_delta
-                data['voice_history'][user_id].append(time_delta)
+                
+                # ===== ПРАВИЛЬНОЕ ХРАНЕНИЕ: ВРЕМЕННАЯ МЕТКА =====
+                data['voice_history'][user_id].append(current_time)
                 
                 add_daily_voice(user_id, time_delta)
                 add_weekly_voice(user_id, time_delta)
@@ -1363,7 +1377,7 @@ async def create_private_voice(member):
     view = VoiceControlView(voice_channel.id, member.id)
     embed = discord.Embed(
         title="🔒 Приватный войс создан!",
-        description="**Управляйте своим каналом через кнопки ниже:**",
+        description="**Управляйте своим каналом через кнопки ниже:**\n\n👥 **Лимит** - установить максимум пользователей\n🚫 **Бан** - запретить вход пользователю\n✅ **Разбан** - разрешить вход\n👁️ **Скрыть/Показать** - скрыть канал от всех\n👢 **Кик** - выгнать из канала\n🗑️ **Удалить** - удалить канал\n📊 **Инфо** - информация о канале",
         color=0x00ff00
     )
 
@@ -1652,7 +1666,12 @@ async def my_stats(ctx, period: str = "all"):
     msg_count = len(get_time_filter(msgs, period))
 
     voice = data['voice_history'].get(user_id, [])
-    voice_seconds = sum(get_time_filter(voice, period))
+    voice_seconds = 0
+    if period == "all":
+        voice_seconds = len(voice) * 30
+    else:
+        filtered = get_time_filter(voice, period)
+        voice_seconds = len(filtered) * 30
 
     balance = data['balance'].get(user_id, 0)
 
@@ -2225,7 +2244,8 @@ async def create_backup(ctx):
         embed = discord.Embed(
             title="💾 Универсальный бэкап создан!",
             description=f"**Дата:** {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
-                        f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB",
+                        f"**Размер:** {os.path.getsize(json_backup) / 1024:.2f} KB\n"
+                        f"**Ключей в данных:** {len(backup_data.keys())}",
             color=0x00ff00
         )
 
