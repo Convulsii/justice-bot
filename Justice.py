@@ -1117,7 +1117,6 @@ async def voice_tracker():
                 current_time = datetime.now().timestamp()
                 
                 # ===== ПРОВЕРКА AFK =====
-                # Если пользователь в AFK канале - пропускаем, время не идет
                 if member.voice and member.voice.channel:
                     if member.voice.channel.id == AFK_CHANNEL_ID:
                         data['voice_is_afk'][user_id] = True
@@ -1140,7 +1139,10 @@ async def voice_tracker():
                 if time_delta >= VOICE_CHECK_INTERVAL:
                     data['voice_time'][user_id] += time_delta
                     data['voice_total_time'][user_id] += time_delta
+                    
+                    # ===== ДОБАВЛЯЕМ В ИСТОРИЮ В РЕАЛЬНОМ ВРЕМЕНИ =====
                     data['voice_history'][user_id].append(time_delta)
+                    
                     data['voice_last_check'][user_id] = current_time
                     
                     add_daily_voice(user_id, time_delta)
