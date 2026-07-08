@@ -28,7 +28,7 @@ BOG_ROLE_ID = 1521944293135351829
 OWNER_ROLE_ID = 1504402262833758228
 BOG_USER_ID = 1062336593588912199
 
-LOG_CHANNEL_ID = 1502637205187723433
+LOG_CHANNEL_ID = 1502637205569409166  # НОВЫЙ КАНАЛ ДЛЯ СТАТУСА БОЖЕНЬКИ
 REPORT_CHANNEL_ID = 1502637205187723433
 STATS_LOG_CHANNEL_ID = 1502637204982206681
 
@@ -348,12 +348,7 @@ def format_time(seconds):
     hours = seconds // 3600
     minutes = (seconds % 3600) // 60
     secs = seconds % 60
-    if hours > 0:
-        return f"{hours}ч {minutes}м {secs}с"
-    elif minutes > 0:
-        return f"{minutes}м {secs}с"
-    else:
-        return f"{secs}с"
+    return f"{hours}ч {minutes:02d}м {secs:02d}с"
 
 
 def get_medal(position):
@@ -548,6 +543,219 @@ async def stats_reset_check():
         await asyncio.sleep(1)
 
 
+# ----- КОМАНДЫ СБРОСА ДАННЫХ -----
+@bot.command(name='resetvoice', aliases=['сброситьголос'])
+@commands.check(is_owner)
+async def reset_voice(ctx):
+    """Сбросить ВСЮ голосовую статистику (Только владелец)"""
+    data['voice_total_time'] = {}
+    data['voice_history'] = {}
+    data['voice_time'] = {}
+    data['voice_last_check'] = {}
+    data['voice_is_afk'] = {}
+    save_data(data)
+    embed = discord.Embed(
+        title="✅ Голосовая статистика сброшена!",
+        description="Все данные о времени в голосовых каналах очищены.",
+        color=0x00ff00
+    )
+    await ctx.send(embed=embed)
+    await ctx.message.delete()
+
+
+@bot.command(name='resetallvoice', aliases=['сброситьвсеголос'])
+@commands.check(is_owner)
+async def reset_all_voice(ctx):
+    """Сбросить ВСЮ статистику, включая дневную/недельную/месячную (Только владелец)"""
+    data['voice_total_time'] = {}
+    data['voice_history'] = {}
+    data['voice_time'] = {}
+    data['voice_last_check'] = {}
+    data['voice_is_afk'] = {}
+    data['daily_stats']['voice_time'] = {}
+    data['weekly_stats']['voice_time'] = {}
+    data['monthly_stats']['voice_time'] = {}
+    save_data(data)
+    embed = discord.Embed(
+        title="✅ Вся голосовая статистика сброшена!",
+        description="Данные о времени в голосовых каналах, включая дневную/недельную/месячную статистику, очищены.",
+        color=0x00ff00
+    )
+    await ctx.send(embed=embed)
+    await ctx.message.delete()
+
+
+@bot.command(name='resetmsg', aliases=['сброситьсообщения'])
+@commands.check(is_owner)
+async def reset_messages(ctx):
+    """Сбросить статистику сообщений (Только владелец)"""
+    data['messages_history'] = {}
+    data['messages_count'] = {}
+    data['last_message_time'] = {}
+    data['daily_stats']['messages'] = {}
+    data['weekly_stats']['messages'] = {}
+    data['monthly_stats']['messages'] = {}
+    save_data(data)
+    embed = discord.Embed(
+        title="✅ Статистика сообщений сброшена!",
+        description="Все данные о сообщениях очищены.",
+        color=0x00ff00
+    )
+    await ctx.send(embed=embed)
+    await ctx.message.delete()
+
+
+@bot.command(name='resetuser', aliases=['сброситьпользователя'])
+@commands.check(is_owner)
+async def reset_user(ctx, member: discord.Member):
+    """Сбросить статистику для конкретного пользователя (Только владелец)"""
+    user_id = str(member.id)
+    
+    # Сброс голоса
+    if user_id in data['voice_total_time']:
+        del data['voice_total_time'][user_id]
+    if user_id in data['voice_history']:
+        del data['voice_history'][user_id]
+    if user_id in data['voice_time']:
+        del data['voice_time'][user_id]
+    if user_id in data['voice_last_check']:
+        del data['voice_last_check'][user_id]
+    if user_id in data['voice_is_afk']:
+        del data['voice_is_afk'][user_id]
+    
+    # Сброс сообщений
+    if user_id in data['messages_history']:
+        del data['messages_history'][user_id]
+    if user_id in data['messages_count']:
+        del data['messages_count'][user_id]
+    if user_id in data['last_message_time']:
+        del data['last_message_time'][user_id]
+    
+    # Сброс в дневной/недельной/месячной статистике
+    if user_id in data['daily_stats']['voice_time']:
+        del data['daily_stats']['voice_time'][user_id]
+    if user_id in data['daily_stats']['messages']:
+        del data['daily_stats']['messages'][user_id]
+    if user_id in data['weekly_stats']['voice_time']:
+        del data['weekly_stats']['voice_time'][user_id]
+    if user_id in data['weekly_stats']['messages']:
+        del data['weekly_stats']['messages'][user_id]
+    if user_id in data['monthly_stats']['voice_time']:
+        del data['monthly_stats']['voice_time'][user_id]
+    if user_id in data['monthly_stats']['messages']:
+        del data['monthly_stats']['messages'][user_id]
+    
+    # Сброс рефералов
+    if user_id in data['referral_count']:
+        del data['referral_count'][user_id]
+    if user_id in data['referral_links']:
+        del data['referral_links'][user_id]
+    
+    save_data(data)
+    
+    embed = discord.Embed(
+        title=f"✅ Статистика для {member.display_name} сброшена!",
+        description=f"Все данные о голосе, сообщениях и рефералах для {member.mention} очищены.",
+        color=0x00ff00
+    )
+    await ctx.send(embed=embed)
+    await ctx.message.delete()
+
+
+@bot.command(name='resetuserall', aliases=['сброситьпользователявсе'])
+@commands.check(is_owner)
+async def reset_user_all(ctx, member: discord.Member):
+    """Сбросить ВСЮ статистику пользователя (включая баланс и варны) (Только владелец)"""
+    user_id = str(member.id)
+    
+    # Сброс голоса
+    if user_id in data['voice_total_time']:
+        del data['voice_total_time'][user_id]
+    if user_id in data['voice_history']:
+        del data['voice_history'][user_id]
+    if user_id in data['voice_time']:
+        del data['voice_time'][user_id]
+    if user_id in data['voice_last_check']:
+        del data['voice_last_check'][user_id]
+    if user_id in data['voice_is_afk']:
+        del data['voice_is_afk'][user_id]
+    
+    # Сброс сообщений
+    if user_id in data['messages_history']:
+        del data['messages_history'][user_id]
+    if user_id in data['messages_count']:
+        del data['messages_count'][user_id]
+    if user_id in data['last_message_time']:
+        del data['last_message_time'][user_id]
+    
+    # Сброс в дневной/недельной/месячной статистике
+    if user_id in data['daily_stats']['voice_time']:
+        del data['daily_stats']['voice_time'][user_id]
+    if user_id in data['daily_stats']['messages']:
+        del data['daily_stats']['messages'][user_id]
+    if user_id in data['weekly_stats']['voice_time']:
+        del data['weekly_stats']['voice_time'][user_id]
+    if user_id in data['weekly_stats']['messages']:
+        del data['weekly_stats']['messages'][user_id]
+    if user_id in data['monthly_stats']['voice_time']:
+        del data['monthly_stats']['voice_time'][user_id]
+    if user_id in data['monthly_stats']['messages']:
+        del data['monthly_stats']['messages'][user_id]
+    
+    # Сброс рефералов
+    if user_id in data['referral_count']:
+        del data['referral_count'][user_id]
+    if user_id in data['referral_links']:
+        del data['referral_links'][user_id]
+    
+    # Сброс баланса
+    if user_id in data['balance']:
+        del data['balance'][user_id]
+    
+    # Сброс варнов
+    if user_id in data['warns']:
+        del data['warns'][user_id]
+    
+    # Сброс daily
+    if user_id in data['daily']:
+        del data['daily'][user_id]
+    
+    save_data(data)
+    
+    embed = discord.Embed(
+        title=f"✅ Вся статистика для {member.display_name} сброшена!",
+        description=f"Все данные о голосе, сообщениях, балансе, варнах, рефералах и ежедневных бонусах для {member.mention} очищены.",
+        color=0x00ff00
+    )
+    await ctx.send(embed=embed)
+    await ctx.message.delete()
+
+
+@bot.command(name='resetall', aliases=['сброситьвсе'])
+@commands.check(is_owner)
+async def reset_all(ctx):
+    """Сбросить ВСЮ статистику (Только владелец)"""
+    data['voice_total_time'] = {}
+    data['voice_history'] = {}
+    data['voice_time'] = {}
+    data['voice_last_check'] = {}
+    data['voice_is_afk'] = {}
+    data['messages_history'] = {}
+    data['messages_count'] = {}
+    data['last_message_time'] = {}
+    data['daily_stats'] = {'date': None, 'messages': {}, 'voice_time': {}}
+    data['weekly_stats'] = {'week_start': None, 'messages': {}, 'voice_time': {}}
+    data['monthly_stats'] = {'month': None, 'messages': {}, 'voice_time': {}}
+    save_data(data)
+    embed = discord.Embed(
+        title="✅ Вся статистика сброшена!",
+        description="Все данные о голосе, сообщениях, дневной/недельной/месячной статистике очищены.",
+        color=0x00ff00
+    )
+    await ctx.send(embed=embed)
+    await ctx.message.delete()
+
+
 # ----- ФУНКЦИИ ДЛЯ ДОБАВЛЕНИЯ В СТАТИСТИКУ -----
 def add_daily_message(user_id):
     today = datetime.now(MSK).date().isoformat()
@@ -699,6 +907,12 @@ async def custom_help(ctx, command_name: str = None):
     embed.add_field(
         name="📊 Отчеты",
         value="""**report** - Отчет (ЛС)\n**backup** - Бэкап (ЛС)\n**restore** - Восстановить\n**backups** - Список бэкапов\n**stats** - Статус бота\n**find** - Найти пользователя""",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🛠️ Сброс данных (Владелец)",
+        value="""**resetvoice** - Сбросить голос\n**resetallvoice** - Сбросить всё голос\n**resetmsg** - Сбросить сообщения\n**resetuser** - Сбросить пользователя\n**resetuserall** - Сбросить всё у пользователя\n**resetall** - Сбросить всё""",
         inline=False
     )
 
@@ -882,13 +1096,11 @@ async def top_voice(ctx, period: str = None):
     stats = {}
     for user_id, timestamps in data['voice_history'].items():
         if period == "all":
-            # Для "всё время" суммируем всё
-            stats[user_id] = sum(timestamps)
+            stats[user_id] = len(timestamps) * 30
         else:
-            # Для остальных фильтруем по времени
             filtered = get_time_filter(timestamps, period)
             if filtered:
-                stats[user_id] = len(filtered) * 30  # 30 секунд на каждую запись
+                stats[user_id] = len(filtered) * 30
 
     if not stats:
         await ctx.send(f"📊 Нет голосовой активности {periods[period]}!")
@@ -1101,7 +1313,7 @@ async def month_stats(ctx):
         pass
 
 
-# ----- ГОЛОСОВОЙ ТРЕКЕР (С ПРАВИЛЬНЫМ СОХРАНЕНИЕМ ВРЕМЕННЫХ МЕТОК) -----
+# ----- ГОЛОСОВОЙ ТРЕКЕР -----
 @tasks.loop(seconds=VOICE_CHECK_INTERVAL)
 async def voice_tracker():
     for guild in bot.guilds:
@@ -1137,7 +1349,7 @@ async def voice_tracker():
                     data['voice_time'][user_id] += time_delta
                     data['voice_total_time'][user_id] += time_delta
                     
-                    # ===== ПРАВИЛЬНОЕ ХРАНЕНИЕ: ВРЕМЕННАЯ МЕТКА =====
+                    # Сохраняем временную метку
                     data['voice_history'][user_id].append(current_time)
                     
                     data['voice_last_check'][user_id] = current_time
@@ -1251,8 +1463,6 @@ async def on_voice_state_update(member, before, after):
             if time_delta > 0:
                 data['voice_time'][user_id] = data['voice_time'].get(user_id, 0) + time_delta
                 data['voice_total_time'][user_id] = data['voice_total_time'].get(user_id, 0) + time_delta
-                
-                # ===== ПРАВИЛЬНОЕ ХРАНЕНИЕ: ВРЕМЕННАЯ МЕТКА =====
                 data['voice_history'][user_id].append(current_time)
                 
                 add_daily_voice(user_id, time_delta)
@@ -1303,8 +1513,6 @@ async def on_voice_state_update(member, before, after):
             if time_delta > 0:
                 data['voice_time'][user_id] = data['voice_time'].get(user_id, 0) + time_delta
                 data['voice_total_time'][user_id] = data['voice_total_time'].get(user_id, 0) + time_delta
-                
-                # ===== ПРАВИЛЬНОЕ ХРАНЕНИЕ: ВРЕМЕННАЯ МЕТКА =====
                 data['voice_history'][user_id].append(current_time)
                 
                 add_daily_voice(user_id, time_delta)
@@ -2530,11 +2738,11 @@ async def find_user(ctx, user_id: int):
         pass
 
 
-# ----- СТАТУС ТРЕКЕР -----
+# ----- СТАТУС ТРЕКЕР (НОВЫЙ КАНАЛ) -----
 @tasks.loop(seconds=5)
 async def status_check():
     global last_status, bog_member, last_status_message
-    channel = bot.get_channel(LOG_CHANNEL_ID)
+    channel = bot.get_channel(LOG_CHANNEL_ID)  # 1502637205569409166
     if not channel:
         return
     if not bog_member:
@@ -2624,7 +2832,7 @@ async def on_ready():
         if bog_member:
             last_status = bog_member.status
             print(f"📊 Начальный статус Боженьки: {last_status}")
-            channel = bot.get_channel(LOG_CHANNEL_ID)
+            channel = bot.get_channel(LOG_CHANNEL_ID)  # Новый канал
             if channel:
                 saved_msg_id = data.get('last_status_message_id')
                 if saved_msg_id:
